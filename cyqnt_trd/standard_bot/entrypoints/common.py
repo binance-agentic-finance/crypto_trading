@@ -19,6 +19,16 @@ from ..simulation import NumbaBacktestRunner
 def make_registry() -> SignalPluginRegistry:
     registry = SignalPluginRegistry()
     register_builtin_plugins(registry)
+    # Drain any block-strategy registrations queued via
+    # ``cyqnt_trd.blocks.strategy.register(...)`` (typically by an
+    # external --strategy-module imported earlier in main()).
+    try:
+        from ...blocks.strategy import flush_pending_into  # type: ignore
+
+        flush_pending_into(registry)
+    except ImportError:
+        # blocks package not installed — fine, just skip
+        pass
     return registry
 
 
@@ -255,9 +265,32 @@ def build_strategy_pipeline(
                 "config": config,
             }
         else:
-            raise ValueError(
-                "unsupported strategy '%s'; register external strategies with "
-                "NumbaBacktestRunner.register_kernel(...) before use" % strategy
-            )
+            # Check whether this is a block strategy registered via
+            # cyqnt_trd.blocks.strategy.register(...) in an external
+            # --strategy-module file.
+            is_block_strategy = False
+            try:
+                from ...blocks.strategy import is_known_block_strategy  # type: ignore
+
+                is_block_strategy = is_known_block_strategy(strategy)
+            except ImportError:
+                pass
+            if is_block_strategy:
+                config = {
+                    "instrument_id": symbol,
+                    "timeframe": interval,
+                }
+                if extra_params:
+                    config.update(extra_params)
+                plugin_spec = {
+                    "plugin_id": strategy,
+                    "config": config,
+                }
+            else:
+                raise ValueError(
+                    "unsupported strategy '%s'; register external strategies with "
+                    "NumbaBacktestRunner.register_kernel(...) or "
+                    "cyqnt_trd.blocks.strategy.register(...) before use" % strategy
+                )
 
     return SignalPipelineSpec(plugin_chain=[plugin_spec])
