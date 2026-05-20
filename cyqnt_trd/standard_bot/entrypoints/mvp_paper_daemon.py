@@ -45,11 +45,12 @@ import tempfile
 import time
 import traceback
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from ..data import timeframe_to_ms
 from ..data.adapters import BinanceRestMarketDataAdapter
 from ..simulation.live_paper_session import NumbaLivePaperSession, PaperFill
+from ..simulation.python_live_paper_session import PythonLivePaperSession
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -241,6 +242,7 @@ class PaperDaemon:
         jarvis_user_id: str = "",
         jarvis_thread_id: str = "",
         session_end_at: str = "",
+        engine: str = "numba",
     ) -> None:
         self.symbol = symbol.upper()
         self.interval = interval
@@ -257,6 +259,9 @@ class PaperDaemon:
         self.jarvis_user_id = jarvis_user_id
         self.jarvis_thread_id = jarvis_thread_id
         self.session_end_at = session_end_at
+        if engine not in ("numba", "python"):
+            raise ValueError("engine must be 'numba' or 'python', got %r" % engine)
+        self.engine = engine
 
         self.state_dir.mkdir(parents=True, exist_ok=True)
         self.state_path = self.state_dir / "state.json"
@@ -266,7 +271,7 @@ class PaperDaemon:
         self.events_path = self.state_dir / "events.jsonl"
         self.checkpoint_path = self.state_dir / "session_checkpoint.json"
 
-        self._session: Optional[NumbaLivePaperSession] = None
+        self._session: Optional[Any] = None  # Numba or Python session
         self._fetcher: Optional[BarFetcher] = None
         self._last_bar_ts: int = 0
         self._running = True
@@ -294,16 +299,29 @@ class PaperDaemon:
         }
         config.update(self.extra_params)
 
-        # Create session
-        self._session = NumbaLivePaperSession(
-            strategy_id=self.strategy,
-            symbol=self.symbol,
-            config=config,
-            initial_capital=self.initial_capital,
-            fee_bps=self.fee_bps,
-            slippage_bps=self.slippage_bps,
-            market_type=self.market_type,
-        )
+        # Create session — branch on engine type
+        if self.engine == "python":
+            self._log("using Python engine (cyqnt_trd.blocks)")
+            self._session = PythonLivePaperSession(
+                strategy_id=self.strategy,
+                symbol=self.symbol,
+                config=config,
+                initial_capital=self.initial_capital,
+                fee_bps=self.fee_bps,
+                slippage_bps=self.slippage_bps,
+                market_type=self.market_type,
+            )
+        else:
+            self._log("using Numba engine")
+            self._session = NumbaLivePaperSession(
+                strategy_id=self.strategy,
+                symbol=self.symbol,
+                config=config,
+                initial_capital=self.initial_capital,
+                fee_bps=self.fee_bps,
+                slippage_bps=self.slippage_bps,
+                market_type=self.market_type,
+            )
 
         # Create fetcher
         self._fetcher = BarFetcher(
@@ -449,7 +467,11 @@ class PaperDaemon:
                 return False
             payload = _load_state(self.checkpoint_path)
             checkpoint = payload.get("session", payload)
-            restored = NumbaLivePaperSession.from_checkpoint(checkpoint)
+            # Branch on engine for from_checkpoint
+            if self.engine == "python":
+                restored = PythonLivePaperSession.from_checkpoint(checkpoint)
+            else:
+                restored = NumbaLivePaperSession.from_checkpoint(checkpoint)
         except Exception as exc:
             self._log("WARN: failed to restore checkpoint: %s" % exc)
             return False
@@ -574,7 +596,7 @@ class PaperDaemon:
             "symbol": self.symbol,
             "market_type": self.market_type,
             "mode": "paper",
-            "signal_source": "numba_daemon",
+            "signal_source": "python_daemon" if self.engine == "python" else "numba_daemon",
             "strategy": self.strategy,
             "params": self.extra_params,
             "interval": self.interval,
@@ -647,7 +669,7 @@ class PaperDaemon:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Long-running paper trade daemon using Numba kernels"
+        description="Long-running paper trade daemon using Numba kernels or Python (blocks) strategies"
     )
     parser.add_argument("--symbol", required=True, help="Trading pair (e.g. BTCUSDT)")
     parser.add_argument("--interval", default="1h", help="Kline interval (default: 1h)")
@@ -655,6 +677,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--strategy-module", default=None,
         help="Python module to import for external strategy registration"
+    )
+    parser.add_argument(
+        "--engine", choices=["numba", "python"], default="numba",
+        help="Execution engine: 'numba' for @njit kernels (default), 'python' for cyqnt_trd.blocks strategies"
     )
     parser.add_argument(
         "--extra-params", default=None,
@@ -716,6 +742,7 @@ def main() -> int:
         jarvis_user_id=args.jarvis_user_id,
         jarvis_thread_id=args.jarvis_thread_id,
         session_end_at=args.session_end_at,
+        engine=args.engine,
     )
 
     return daemon.start()
