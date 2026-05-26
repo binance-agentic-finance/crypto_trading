@@ -1,0 +1,24 @@
+{
+  "case_id": "btc-multi-factor-trend",
+  "preferred_plugin_id": null,
+  "mapping_status": "bundle",
+  "preset_name": "btc_multi_factor_trend_balanced",
+  "component_plugins": [
+    "moving_average_cross",
+    "macd_trend_follow",
+    "adx_trend_strength",
+    "oi_funding_breakout",
+    "multi_timeframe_ma_spread"
+  ],
+  "parameters": {
+    "instrument_id": "BTCUSDT",
+    "market_type": "futures",
+    "primary_timeframe": "5m",
+    "reference_timeframe": "1h",
+    "risk_profile": "balanced"
+  },
+  "notes": [
+    "This is a case-level preset, not yet a single executable standard_bot plugin.",
+    "Use it as a canonical bundle definition for future orchestration work."
+  ]
+}

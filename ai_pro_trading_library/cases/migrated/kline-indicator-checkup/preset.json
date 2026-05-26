@@ -1,0 +1,27 @@
+{
+  "case_id": "kline-indicator-checkup",
+  "preset_name": "default_indicator_overview",
+  "symbols": ["BTCUSDT"],
+  "timeframe": "1h",
+  "lookback_bars": 200,
+  "indicator_params": {
+    "ema_short": 20,
+    "ema_mid": 50,
+    "ema_long": 200,
+    "rsi_period": 14,
+    "macd_fast": 12,
+    "macd_slow": 26,
+    "macd_signal": 9,
+    "adx_period": 14,
+    "atr_period": 14,
+    "bollinger_period": 20,
+    "bollinger_std": 2.0,
+    "rsi_oversold": 30.0,
+    "rsi_overbought": 70.0
+  },
+  "scoring": {
+    "trend_weight": 0.4,
+    "momentum_weight": 0.3,
+    "volatility_weight": 0.3
+  }
+}

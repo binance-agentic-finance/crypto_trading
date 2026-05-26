@@ -1,0 +1,21 @@
+{
+  "case_id": "structured-trade-plan",
+  "preset_name": "default_three_tier_plan",
+  "symbols": ["ETHUSDT"],
+  "timeframe": "1h",
+  "lookback_bars": 200,
+  "support_resistance": {
+    "lookback_window": 50
+  },
+  "ema_periods": {
+    "short": 20,
+    "mid": 50,
+    "long": 200
+  },
+  "atr_period": 14,
+  "tiers": {
+    "conservative": {"entry_atr_distance": 0.5, "stop_atr": 1.5, "target_atr": 2.0},
+    "balanced":     {"entry_atr_distance": 0.3, "stop_atr": 2.0, "target_atr": 4.0},
+    "aggressive":   {"entry_atr_distance": 0.0, "stop_atr": 3.0, "target_atr": 6.0}
+  }
+}

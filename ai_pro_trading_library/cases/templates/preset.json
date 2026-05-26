@@ -1,0 +1,12 @@
+{
+  "case_id": "template-case",
+  "preferred_plugin_id": "template_strategy",
+  "mapping_status": "stub",
+  "preset_name": "baseline",
+  "parameters": {
+    "rsi_period": 14
+  },
+  "notes": [
+    "Replace with concrete parameter set before executing."
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "case_id": "square-buzz-screener",
+  "display_name": "Binance Square Hot Picks Analyzer",
+  "category": "social",
+  "case_type": "scanner_report",
+  "status": "migrated",
+  "summary": "Social-buzz ranker. Takes a Binance Square snapshot (most-searched / rapid-riser / hashtags) as JSON input, dedupes candidates, and validates each with kline-driven trend/momentum/volume signals to produce a verdict + direction bias.",
+  "source_attribution": "private-skills-for-ai-pro/.../usage_project_cases/square-buzz-screener",
+  "core_logic": [
+    "Accept a social snapshot via inputs.square_snapshot {en: [...], zh: [...]} per section.",
+    "Dedupe candidates by symbol and rank by recurrence + EN/CN overlap + section overlap.",
+    "For each candidate, fetch klines via adapter (or fixture bars_by_symbol) and compute EMA/RSI/volume_zscore.",
+    "Aggregate social score (heat) + technical score (trend/momentum/volume) into 0-100 composite.",
+    "Tag verdict (STRONG_CANDIDATE -> AVOID) and direction (LONG / SHORT / WATCH)."
+  ],
+  "input_requirements": ["square_snapshot.json"],
+  "market_bias": {
+    "market_type": "spot_or_perp",
+    "default_symbol_scope": "social-driven candidate list",
+    "timeframes": ["1h"]
+  },
+  "required_features": ["close", "volume", "EMA", "RSI", "volume_zscore"],
+  "recommended_next_step": "Promote STRONG_CANDIDATE rows into structured-trade-plan for entry/exit zones."
+}

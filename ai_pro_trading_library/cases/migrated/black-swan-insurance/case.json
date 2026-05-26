@@ -1,0 +1,23 @@
+{
+  "case_id": "black-swan-insurance",
+  "display_name": "Black Swan Hedge Switch",
+  "category": "hedge_runtime",
+  "case_type": "scanner_report",
+  "status": "migrated",
+  "summary": "Black-swan panic detector + hedge router. Consumes 12 panic signals (BTC drawdown, top10 cap drawdown, stablecoin depeg, VIX proxy, SPY/QQQ drawdown, gold, DeFi TVL, plus 5 narrative signals: negative news, social sentiment, smart-money outflow, hotrank churn, AI bearish skew). Maps composite panic_score (0-100) to a hedge allocation tier (calm/alert/black_swan/extreme).",
+  "source_attribution": "private-skills-for-ai-pro/.../usage_project_cases/black-swan-insurance",
+  "core_logic": [
+    "Accept market_signals (price-based) + narrative_signals (news/social) + portfolio JSON.",
+    "Score each signal 0-1 against its threshold; multiply by signal weight; sum to composite panic_score (capped at 100).",
+    "Map score to tier: <30 calm, 30-60 alert, 60-80 black_swan, >=80 extreme.",
+    "Emit hedge allocation plan: USDC / SQQQon / GLDon / remaining_holdings split per tier.",
+    "List unwind conditions for the user to monitor."
+  ],
+  "input_requirements": ["market_signals.json", "narrative_signals.json (optional)", "portfolio.json"],
+  "market_bias": {
+    "market_type": "tokenized_hedge",
+    "default_symbol_scope": "SQQQon, GLDon, SGOVon"
+  },
+  "required_features": ["btc_drawdown", "stablecoin_depeg", "panic_score"],
+  "recommended_next_step": "Review the recommended_allocation; if tier >= alert, prepare swap orders via BAW for the indicated assets."
+}

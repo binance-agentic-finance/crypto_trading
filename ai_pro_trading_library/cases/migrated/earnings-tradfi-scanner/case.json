@@ -1,0 +1,23 @@
+{
+  "case_id": "earnings-tradfi-scanner",
+  "display_name": "US Stock Earnings Opportunity Scanner",
+  "category": "tradfi_event",
+  "case_type": "scanner_report",
+  "status": "migrated",
+  "summary": "Cross-references an external earnings calendar against TradFi perpetual contracts and Ondo tokenized equities. The earnings calendar arrives as JSON input (per macro_layer.md WebSearch contract) — the case never WebSearches itself.",
+  "source_attribution": "private-skills-for-ai-pro/.../usage_project_cases/earnings-tradfi-scanner",
+  "core_logic": [
+    "Accept earnings_calendar JSON (ticker/company/report_date/eps_estimate/...).",
+    "Match each earnings entry against TradFi perpetuals universe (51 contracts).",
+    "Match each entry against Ondo tokenized-equity universe (264 tokens).",
+    "Compute attention score: EPS surprise potential, days_to_report, sector alpha.",
+    "Rank top-N by composite score; flag whether tradable on both venues."
+  ],
+  "input_requirements": ["earnings_calendar.json"],
+  "market_bias": {
+    "market_type": "tradfi_perp_or_tokenized",
+    "default_symbol_scope": "earnings-calendar driven"
+  },
+  "required_features": ["earnings_calendar", "tradfi_universe", "ondo_universe"],
+  "recommended_next_step": "Drop top-N tickers into structured-trade-plan or three-tier-strategy for entry zones."
+}

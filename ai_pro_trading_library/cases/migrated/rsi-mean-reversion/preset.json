@@ -1,0 +1,16 @@
+{
+  "case_id": "rsi-mean-reversion",
+  "preferred_plugin_id": "rsi_reversion",
+  "mapping_status": "partial",
+  "preset_name": "baseline_rsi_reversion",
+  "parameters": {
+    "period": 14,
+    "oversold": 30.0,
+    "overbought": 70.0,
+    "time_horizon": "mean_reversion"
+  },
+  "notes": [
+    "This preset captures the baseline oversold/overbought behavior only.",
+    "Speed-hunt and ladder-short variants need additional workflow semantics beyond the current plugin."
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ai_pro_trading_library Case",
+  "type": "object",
+  "required": ["case_id", "display_name", "category", "case_type", "status"],
+  "properties": {
+    "case_id": {"type": "string", "pattern": "^[a-z0-9-]+$"},
+    "display_name": {"type": "string"},
+    "category": {"type": "string"},
+    "case_type": {
+      "type": "string",
+      "enum": [
+        "strategy_backtest",
+        "scanner_report",
+        "trade_plan_report",
+        "research_only",
+        "runtime_bot"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "migrated",
+        "migrated_bootstrap",
+        "research_only",
+        "not_executable_yet",
+        "deprecated"
+      ]
+    },
+    "source": {"type": "string"},
+    "source_attribution": {"type": "string"},
+    "source_case": {"type": "string"},
+    "summary": {"type": "string"},
+    "notes": {"type": "string"},
+    "input_requirements": {"type": "array", "items": {"type": "string"}},
+    "output_schema": {"type": "string"},
+    "core_logic": {"type": "array", "items": {"type": "string"}},
+    "market_bias": {"type": "object"},
+    "required_features": {"type": "array", "items": {"type": "string"}},
+    "cyqnt_support": {"type": "object"},
+    "recommended_next_step": {"type": "string"}
+  },
+  "additionalProperties": true
+}

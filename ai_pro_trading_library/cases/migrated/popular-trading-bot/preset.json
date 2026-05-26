@@ -1,0 +1,29 @@
+{
+  "case_id": "popular-trading-bot",
+  "preset_name": "default_bot_compare",
+  "default_capital_usdc": 1000.0,
+  "default_symbol": "BTCUSDT",
+  "regime_fitness": {
+    "spot-grid":         {"ranging": 95, "trending_up": 35, "trending_down": 25, "high_volatility": 50},
+    "futures-grid":      {"ranging": 85, "trending_up": 40, "trending_down": 40, "high_volatility": 70},
+    "spot-dca":          {"ranging": 60, "trending_up": 75, "trending_down": 70, "high_volatility": 85},
+    "smart-portfolio":   {"ranging": 70, "trending_up": 65, "trending_down": 60, "high_volatility": 65},
+    "futures-arbitrage": {"ranging": 80, "trending_up": 75, "trending_down": 75, "high_volatility": 75},
+    "futures-algo-orders": {"ranging": 60, "trending_up": 60, "trending_down": 60, "high_volatility": 60},
+    "auto-invest":       {"ranging": 50, "trending_up": 75, "trending_down": 80, "high_volatility": 60}
+  },
+  "templates": {
+    "spot-grid": {"levels": 20, "lower_pct": -10.0, "upper_pct": 10.0, "leverage": 1, "stop_drawdown_pct": 10.0},
+    "futures-grid": {"levels": 15, "lower_pct": -8.0, "upper_pct": 8.0, "leverage": 3, "stop_drawdown_pct": 10.0},
+    "spot-dca": {"base_pct": 5.0, "safety_orders": 5, "growth_factor": 1.5, "tp_pct": 3.0, "leverage": 1, "stop_drawdown_pct": 10.0},
+    "smart-portfolio": {"target_weights_demo": {"BTC": 0.5, "ETH": 0.3, "STABLE": 0.2}, "rebalance_drift_pct": 5.0, "leverage": 1, "stop_drawdown_pct": 10.0},
+    "futures-arbitrage": {"funding_min_bps": 5.0, "leverage": 2, "stop_drawdown_pct": 5.0},
+    "futures-algo-orders": {"slice_count": 10, "slice_seconds": 60, "algo": "TWAP", "leverage": 1, "stop_drawdown_pct": 5.0},
+    "auto-invest": {"period": "weekly", "amount_pct": 5.0, "leverage": 1, "stop_drawdown_pct": 10.0}
+  },
+  "risk_caps": {
+    "account_drawdown_pct": 10.0,
+    "max_leverage": 5,
+    "require_confirm": true
+  }
+}

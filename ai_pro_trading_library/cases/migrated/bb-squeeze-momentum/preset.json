@@ -1,0 +1,24 @@
+{
+  "case_id": "bb-squeeze-momentum",
+  "preferred_plugin_id": null,
+  "mapping_status": "bundle",
+  "preset_name": "bb_squeeze_momentum_reference",
+  "component_plugins": [
+    "bollinger_mean_reversion",
+    "macd_trend_follow",
+    "adx_trend_strength"
+  ],
+  "parameters": {
+    "bollinger_period": 20,
+    "bollinger_stddev_multiplier": 2.0,
+    "macd_fast_period": 12,
+    "macd_slow_period": 26,
+    "macd_signal_period": 9,
+    "adx_period": 14,
+    "adx_threshold": 25.0
+  },
+  "notes": [
+    "The packaged preset captures the core factor family, not the full squeeze state machine.",
+    "StochRSI and bandwidth breakout still need dedicated implementation."
+  ]
+}

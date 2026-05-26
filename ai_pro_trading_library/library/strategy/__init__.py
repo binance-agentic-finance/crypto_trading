@@ -1,0 +1,71 @@
+"""Strategy specs, signal engines, registry, combinators, and built-in plugins."""
+
+from ai_pro_trading_library.library.strategy.blocks_plugin import (
+    BlockStrategyPlugin,
+    build_plugin,
+    flush_pending_into,
+    is_known_block_strategy,
+    register,
+    registered_block_strategies,
+)
+from ai_pro_trading_library.library.strategy.builtin_plugins import (
+    AdxTrendStrengthConfig,
+    AtrBreakoutConfig,
+    BollingerMeanReversionConfig,
+    DonchianBreakoutConfig,
+    LiquidationReversalConfig,
+    MacdTrendFollowConfig,
+    MovingAverageCrossConfig,
+    MultiTimeframeMaSpreadConfig,
+    OiFundingBreakoutConfig,
+    PriceMovingAverageConfig,
+    RsiReversionConfig,
+    register_builtin_plugins,
+)
+from ai_pro_trading_library.library.strategy.combinators import (
+    adaptive_switch,
+    all_of,
+    any_of,
+    consecutive,
+    exclude_when,
+    regime_switch,
+    score_entry,
+    weighted_score,
+)
+from ai_pro_trading_library.library.strategy.registry import (
+    StrategyFactory,
+    StrategyRegistry,
+    default_registry,
+)
+
+__all__ = [
+    "AdxTrendStrengthConfig",
+    "AtrBreakoutConfig",
+    "BlockStrategyPlugin",
+    "BollingerMeanReversionConfig",
+    "DonchianBreakoutConfig",
+    "LiquidationReversalConfig",
+    "MacdTrendFollowConfig",
+    "MovingAverageCrossConfig",
+    "MultiTimeframeMaSpreadConfig",
+    "OiFundingBreakoutConfig",
+    "PriceMovingAverageConfig",
+    "RsiReversionConfig",
+    "StrategyFactory",
+    "StrategyRegistry",
+    "adaptive_switch",
+    "all_of",
+    "any_of",
+    "build_plugin",
+    "consecutive",
+    "default_registry",
+    "exclude_when",
+    "flush_pending_into",
+    "is_known_block_strategy",
+    "register",
+    "register_builtin_plugins",
+    "registered_block_strategies",
+    "regime_switch",
+    "score_entry",
+    "weighted_score",
+]
