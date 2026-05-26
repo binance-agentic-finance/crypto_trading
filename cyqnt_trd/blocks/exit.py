@@ -139,6 +139,80 @@ def compute_partial_close_levels(
 
 
 # ---------------------------------------------------------------------------
+# Graduated take-profit (multi-step partial close at fixed return targets)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class TakeProfitStep:
+    """One stage of a graduated take-profit ladder.
+
+    Parameters
+    ----------
+    target_price:
+        Absolute price at which this stage triggers.
+    close_fraction:
+        Fraction of the *original* position to close at this stage.
+        Sum of all close_fractions in a ladder must equal 1.0.
+    """
+
+    target_price: float
+    close_fraction: float
+
+
+def graduated_take_profit(
+    entry_price: float,
+    direction: str,
+    target_returns: Tuple[float, ...],
+    close_fractions: Tuple[float, ...],
+) -> Tuple[TakeProfitStep, ...]:
+    """Build a multi-stage take-profit ladder at fixed return targets.
+
+    Sourced from ``ai_pro_trading_library.library.risk.targets.graduated_take_profit``.
+
+    Parameters
+    ----------
+    entry_price:
+        Trade entry price.
+    direction:
+        ``"long"`` or ``"short"`` (case-sensitive).
+    target_returns:
+        Tuple of fractional returns at which each stage triggers
+        (e.g. ``(0.05, 0.10, 0.20)`` for 5 %, 10 %, 20 %).
+    close_fractions:
+        Tuple of fractions of the position to close at each stage. Must
+        sum to 1.0 and have the same length as *target_returns*.
+
+    Returns
+    -------
+    Tuple[TakeProfitStep, ...]
+        Sorted ladder of (target_price, close_fraction) pairs.
+
+    Examples
+    --------
+    >>> ladder = graduated_take_profit(
+    ...     entry_price=100.0,
+    ...     direction="long",
+    ...     target_returns=(0.05, 0.10, 0.20),
+    ...     close_fractions=(0.30, 0.30, 0.40),
+    ... )
+    >>> [round(s.target_price, 2) for s in ladder]
+    [105.0, 110.0, 120.0]
+    """
+    if len(target_returns) != len(close_fractions):
+        raise ValueError("target_returns and close_fractions must have the same length")
+    if not 0.999 <= sum(close_fractions) <= 1.001:
+        raise ValueError("close_fractions must sum to 1.0")
+    if direction not in {"long", "short"}:
+        raise ValueError("direction must be 'long' or 'short'")
+    multiplier = 1.0 if direction == "long" else -1.0
+    return tuple(
+        TakeProfitStep(entry_price * (1.0 + multiplier * ret), fraction)
+        for ret, fraction in zip(target_returns, close_fractions)
+    )
+
+
+# ---------------------------------------------------------------------------
 # Declarative exit rules
 # ---------------------------------------------------------------------------
 
