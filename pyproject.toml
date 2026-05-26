@@ -20,23 +20,23 @@ classifiers = [
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Topic :: Office/Business :: Financial :: Investment",
 ]
-requires-python = ">=3.8,<3.12"
+requires-python = ">=3.8,<3.13"
 dependencies = [
-    "pandas==2.3.3",
-    "numpy==1.24.4",
-    "polars==1.0.0",
-    "numba==0.60.0",
-    "pyarrow==21.0.0",
-    "matplotlib==3.7.5",
-    "scipy==1.10.1",
-    "requests==2.32.5",
-    "websockets>=15.0.1,<17",
-    "binance-sdk-spot==8.2.1",
-    "binance-sdk-derivatives-trading-usds-futures==10.0.1",
-    "binance-sdk-algo==2.6.0",
-    "binance-common==3.8.0"
+    "pandas>=2.0.0",
+    "numpy>=1.26.0",
+    "polars>=1.0.0",
+    "numba>=0.60.0",
+    "pyarrow>=14.0.0",
+    "matplotlib>=3.8.0",
+    "scipy>=1.12.0",
+    "requests>=2.32.0",
+    "binance-sdk-spot>=9.0.0",
+    "binance-sdk-derivatives-trading-usds-futures>=10.3.0",
+    "binance-sdk-algo>=2.9.0",
+    "binance-common>=3.9.0"
 ]
 
 [project.optional-dependencies]
@@ -72,7 +72,7 @@ namespaces = false
 
 [tool.black]
 line-length = 100
-target-version = ['py38', 'py39', 'py310']
+target-version = ['py38', 'py39', 'py310', 'py311', 'py312']
 
 [tool.ruff]
 line-length = 100
