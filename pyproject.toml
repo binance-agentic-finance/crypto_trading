@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cyqnt-trd"
-version = "0.1.9.dev3"
+version = "0.1.9.dev4"
 description = "A cryptocurrency trading toolkit centered on the standard_bot backtesting, paper signal, and execution workflow"
 readme = "README.md"
 license = "MIT"
@@ -32,7 +32,7 @@ dependencies = [
     "matplotlib==3.7.5",
     "scipy==1.10.1",
     "requests==2.32.5",
-    "websockets==16.0",
+    "websockets>=15.0.1,<17",
     "binance-sdk-spot==8.2.1",
     "binance-sdk-derivatives-trading-usds-futures==10.0.1",
     "binance-sdk-algo==2.6.0",

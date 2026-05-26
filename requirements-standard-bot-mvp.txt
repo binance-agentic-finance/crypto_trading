@@ -1,5 +1,5 @@
 requests==2.32.5
-websockets==16.0
+websockets>=15.0.1,<17
 pandas==2.3.3
 polars==1.0.0
 pyarrow==21.0.0

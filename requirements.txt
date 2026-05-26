@@ -7,7 +7,7 @@ pyarrow==21.0.0
 matplotlib==3.7.5
 scipy==1.10.1
 requests==2.32.5
-websockets==16.0
+websockets>=15.0.1,<17
 
 # Binance SDK dependencies
 # Note: These packages may need to be installed from the binance-connector-python repository
