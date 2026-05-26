@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cyqnt-trd"
-version = "0.1.9.dev2"
+version = "0.1.9.dev3"
 description = "A cryptocurrency trading toolkit centered on the standard_bot backtesting, paper signal, and execution workflow"
 readme = "README.md"
 license = "MIT"
@@ -56,8 +56,15 @@ Repository = "https://github.com/nthu-chung/crypto_trading"
 Issues = "https://github.com/nthu-chung/crypto_trading/issues"
 
 [tool.setuptools]
-# 自动发现所有包和子包
-packages = { find = {} }
+# atomic_strategy_lib lives under atomic_compat/ as a thin shim that delegates
+# to cyqnt_trd. We tell setuptools to pull it from there so it gets installed
+# at top-level alongside cyqnt_trd.
+package-dir = {"" = ".", "atomic_strategy_lib" = "atomic_compat/atomic_strategy_lib"}
+
+[tool.setuptools.packages.find]
+where = [".", "atomic_compat"]
+include = ["cyqnt_trd*", "atomic_strategy_lib*"]
+namespaces = false
 
 [tool.setuptools.package-data]
 "*" = ["*.md", "*.txt", "*.json"]
