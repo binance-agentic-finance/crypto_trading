@@ -1,0 +1,23 @@
+{
+  "case_id": "macro-event-driven-scanner",
+  "display_name": "Macro Event-Driven TradFi Opportunity Scanner",
+  "category": "macro_event",
+  "case_type": "scanner_report",
+  "status": "migrated",
+  "summary": "Cross-references a macro event calendar (FOMC/CPI/NFP/PMI/earnings season) against TradFi perpetuals + Ondo tokenized equities. The macro calendar arrives as JSON input (per macro_layer.md WebSearch contract). Each affected asset gets an attention score that weights event impact, days-to-event, and asset-event alpha mapping.",
+  "source_attribution": "private-skills-for-ai-pro/.../usage_project_cases/macro-event-driven-scanner",
+  "core_logic": [
+    "Accept macro_events JSON (event_type, event_date, impact_level, affected_assets[]).",
+    "For each event within horizon, fan out to its affected_assets list.",
+    "Match each asset against TradFi perp + Ondo universes.",
+    "Compute attention score = impact_weight * days_proximity * venue_bonus.",
+    "Rank top-N tickers by aggregated attention across upcoming events."
+  ],
+  "input_requirements": ["macro_events.json"],
+  "market_bias": {
+    "market_type": "tradfi_perp_or_tokenized",
+    "default_symbol_scope": "macro-event driven"
+  },
+  "required_features": ["macro_events", "tradfi_universe", "ondo_universe"],
+  "recommended_next_step": "Drop top tickers into structured-trade-plan; cross-reference with earnings-tradfi-scanner for double-confirmation."
+}

@@ -1,0 +1,23 @@
+{
+  "case_id": "ondo-daily",
+  "display_name": "Ondo Tokenized Securities Heat & Movers Scanner",
+  "category": "tokenized_tradfi",
+  "case_type": "scanner_report",
+  "status": "migrated",
+  "summary": "Daily Ondo tokenized-equity scan in two lanes: (1) market status (open/closed/pre/post) for the universe, (2) discovery — merge alpha hotrank candidates with 24h price movers, dedupe, and surface top-N by composite score.",
+  "source_attribution": "private-skills-for-ai-pro/.../usage_project_cases/ondo-daily",
+  "core_logic": [
+    "Accept ondo universe + market status + alpha-hotrank + 24h-mover snapshot via inputs.",
+    "Build hotrank candidates list (alpha-rank top tokens that intersect ondo tickers).",
+    "Build mover candidates list (top abs(24h_change_pct) movers).",
+    "Merge both lists, dedupe by ticker, score = hotrank-rank-points + mover-rank-points + cross-source bonus.",
+    "Return top-N with metadata (ticker, symbol, chain, 24h change, hotrank position, premium)."
+  ],
+  "input_requirements": ["ondo_snapshot.json"],
+  "market_bias": {
+    "market_type": "tokenized_equity",
+    "default_symbol_scope": "Ondo on-chain universe"
+  },
+  "required_features": ["ondo_universe", "alpha_hotrank", "price_change_24h"],
+  "recommended_next_step": "Cross-reference with earnings-tradfi-scanner output for an event-driven view."
+}

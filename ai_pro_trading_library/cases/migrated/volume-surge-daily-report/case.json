@@ -1,0 +1,23 @@
+{
+  "case_id": "volume-surge-daily-report",
+  "display_name": "Volume Anomaly Daily Report",
+  "category": "analysis",
+  "case_type": "scanner_report",
+  "status": "migrated",
+  "summary": "Multi-symbol volume-anomaly scanner. For each candidate, computes volume z-score versus rolling baseline, price alignment (EMA), and structural breakout context, then ranks by composite score.",
+  "source_attribution": "private-skills-for-ai-pro/must-read-intent-analysis-planning/references/usage_project_cases/volume-surge-daily-report",
+  "core_logic": [
+    "For each candidate symbol, compute rolling volume mean and z-score over the lookback window.",
+    "Compute price alignment via EMA20 vs EMA50 stance.",
+    "Compute breakout signal: latest close vs rolling N-bar high.",
+    "Aggregate volume / alignment / breakout into a 0-100 composite score.",
+    "Rank symbols, tag verdict (STRONG_CANDIDATE / CANDIDATE / WATCHLIST / SKIP / AVOID)."
+  ],
+  "market_bias": {
+    "market_type": "spot_or_perp",
+    "default_symbol_scope": "user-supplied or auto-scan top-N",
+    "timeframes": ["1h"]
+  },
+  "required_features": ["close", "high", "low", "volume", "EMA", "rolling_zscore"],
+  "recommended_next_step": "Top STRONG_CANDIDATE symbols feed into structured-trade-plan or three-tier-strategy."
+}

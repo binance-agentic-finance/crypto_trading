@@ -1,0 +1,15 @@
+{
+  "case_id": "structure-breakout-priceaction",
+  "preferred_plugin_id": null,
+  "mapping_status": "concept_only",
+  "preset_name": "structure_breakout_reference",
+  "parameters": {
+    "lookback_bars": 300,
+    "minimum_structure_quality_score": 40,
+    "entry_timeframe": "15m"
+  },
+  "notes": [
+    "This preset is intentionally conceptual.",
+    "Use it as packaged design intent, not as a claim that the full structure engine already exists."
+  ]
+}

@@ -1,0 +1,49 @@
+{
+  "case_id": "structure-breakout-priceaction",
+  "display_name": "Structure Breakout Price Action",
+  "category": "price_action_breakout",
+  "case_type": "strategy_backtest",
+  "status": "migrated",
+  "source_case": "private-skills-for-ai-pro-main/references/usage_project_cases/structure-breakout-priceaction",
+  "summary": "Structural range and symmetry breakout workflow with pivot analysis, candlestick confirmation, and volume-assisted breakout validation.",
+  "core_logic": [
+    "Detect pivots and structural ranges from historical price action.",
+    "Build box, range, or symmetry patterns from those pivots.",
+    "Trigger on structural breakout, then confirm with price-action candles and volume participation.",
+    "Use structure boundaries as risk references."
+  ],
+  "market_bias": {
+    "market_type": "futures",
+    "default_symbol_scope": "USDT perpetual universe",
+    "timeframes": [
+      "15m",
+      "1h",
+      "4h"
+    ]
+  },
+  "required_features": [
+    "pivot detection",
+    "box/range construction",
+    "symmetry or triangle detection",
+    "candlestick confirmation",
+    "volume surge"
+  ],
+  "cyqnt_support": {
+    "status": "concept_bundle",
+    "current_plugins": [
+      "donchian_breakout"
+    ],
+    "already_available_factors": [
+      "basic breakout family",
+      "OHLCV history",
+      "volume series"
+    ],
+    "gaps": [
+      "pivot and structure engine",
+      "pattern-quality scoring",
+      "candlestick confirmation primitives",
+      "structure-aware execution metadata"
+    ]
+  },
+  "recommended_next_step": "Keep this case in-package as a documented target and convert it only after a dedicated structure-detection layer exists."
+}

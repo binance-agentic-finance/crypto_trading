@@ -1,0 +1,18 @@
+{
+  "case_id": "template-case",
+  "display_name": "Template Case",
+  "category": "uncategorized",
+  "case_type": "strategy_backtest",
+  "status": "research_only",
+  "summary": "Replace with case description.",
+  "core_logic": [
+    "Describe core entry / exit / sizing logic in plain language."
+  ],
+  "market_bias": {
+    "market_type": "futures",
+    "default_symbol_scope": "USDT perpetuals",
+    "timeframes": ["1h"]
+  },
+  "required_features": ["close"],
+  "recommended_next_step": "Replace placeholders before promoting to migrated."
+}

@@ -1,0 +1,8 @@
+{
+  "case_id": "stochrsi-mdi-trend-v1",
+  "display_name": "StochRSI MDI Trend v1",
+  "category": "trend_following",
+  "case_type": "strategy_backtest",
+  "status": "migrated",
+  "source_attribution": "verification_pending"
+}

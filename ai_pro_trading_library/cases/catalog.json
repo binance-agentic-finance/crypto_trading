@@ -1,0 +1,173 @@
+{
+  "version": 2,
+  "description": "Standardized ai_pro_trading_library case catalog. Cases produce StrategySpec or structured reports and are executed by runtime, not by per-case run_pipeline.py scripts.",
+  "cases": [
+    {
+      "case_id": "rsi-mean-reversion",
+      "display_name": "RSI Mean Reversion",
+      "category": "mean_reversion",
+      "case_type": "strategy_backtest",
+      "status": "migrated",
+      "source": "ai_pro_trading_library/cases/migrated/rsi-mean-reversion",
+      "notes": "Phase 3D migrated. Has fixtures/{input,golden_signal,golden_backtest}.json. (was: migrated_bootstrap)"
+    },
+    {
+      "case_id": "bb-squeeze-momentum",
+      "display_name": "BB Squeeze Momentum",
+      "category": "volatility_breakout",
+      "case_type": "strategy_backtest",
+      "status": "migrated",
+      "source": "ai_pro_trading_library/cases/migrated/bb-squeeze-momentum",
+      "notes": "Phase 3D migrated. Has fixtures/{input,golden_signal,golden_backtest}.json. (was: migrated_bootstrap)"
+    },
+    {
+      "case_id": "btc-multi-factor-trend",
+      "display_name": "BTC Multi-Factor Trend",
+      "category": "trend_following",
+      "case_type": "strategy_backtest",
+      "status": "migrated",
+      "source": "ai_pro_trading_library/cases/migrated/btc-multi-factor-trend",
+      "notes": "Phase 3D migrated. Has fixtures/{input,golden_signal,golden_backtest}.json. (was: migrated_bootstrap)"
+    },
+    {
+      "case_id": "structure-breakout-priceaction",
+      "display_name": "Structure Breakout Price Action",
+      "category": "price_action_breakout",
+      "case_type": "strategy_backtest",
+      "status": "migrated",
+      "source": "ai_pro_trading_library/cases/migrated/structure-breakout-priceaction",
+      "notes": "Phase 3D migrated. Has fixtures/{input,golden_signal,golden_backtest}.json. (was: migrated_bootstrap)"
+    },
+    {
+      "case_id": "stochrsi-mdi-trend-v1",
+      "display_name": "StochRSI MDI Trend v1",
+      "category": "trend_following",
+      "case_type": "strategy_backtest",
+      "status": "migrated",
+      "source": "ai_pro_trading_library/cases/migrated/stochrsi-mdi-trend-v1",
+      "notes": "Phase 3D migrated. Has fixtures/{input,golden_signal,golden_backtest}.json. (was: not_executable_yet)"
+    },
+    {
+      "case_id": "funding-rate-scanner",
+      "display_name": "Funding Rate Scanner",
+      "category": "scanner",
+      "case_type": "strategy_backtest",
+      "status": "migrated",
+      "source": "ai_pro_trading_library/cases/migrated/funding-rate-scanner",
+      "notes": "Phase 3D migrated. Has fixtures/{input,golden_signal,golden_backtest}.json. (was: not_executable_yet)"
+    },
+    {
+      "case_id": "kline-indicator-checkup",
+      "display_name": "Technical Indicator Overview",
+      "category": "analysis",
+      "case_type": "scanner_report",
+      "status": "migrated",
+      "source": "ai_pro_trading_library/cases/migrated/kline-indicator-checkup",
+      "notes": "Phase 3C migrated. Fixture mode + adapter mode both supported. (was: not_executable_yet)"
+    },
+    {
+      "case_id": "structured-trade-plan",
+      "display_name": "Trade Structure Analyzer",
+      "category": "analysis",
+      "case_type": "trade_plan_report",
+      "status": "migrated",
+      "source": "ai_pro_trading_library/cases/migrated/structured-trade-plan",
+      "notes": "Phase 3C migrated. Fixture mode + adapter mode both supported. (was: not_executable_yet)"
+    },
+    {
+      "case_id": "three-tier-strategy",
+      "display_name": "Multi-Scenario Market Analysis",
+      "category": "trading_advisory",
+      "case_type": "trade_plan_report",
+      "status": "migrated",
+      "source": "ai_pro_trading_library/cases/migrated/three-tier-strategy",
+      "notes": "Phase 3C migrated. Fixture mode + adapter mode both supported. (was: not_executable_yet)"
+    },
+    {
+      "case_id": "volume-surge-daily-report",
+      "display_name": "Volume Anomaly Daily Report",
+      "category": "analysis",
+      "case_type": "scanner_report",
+      "status": "migrated",
+      "source": "ai_pro_trading_library/cases/migrated/volume-surge-daily-report",
+      "notes": "Phase 3C migrated. Fixture mode + adapter mode both supported. (was: not_executable_yet)"
+    },
+    {
+      "case_id": "popular-trading-bot",
+      "display_name": "Trading Bot Simulator",
+      "category": "trading_bot_simulation",
+      "case_type": "scanner_report",
+      "status": "migrated",
+      "source": "ai_pro_trading_library/cases/migrated/popular-trading-bot",
+      "notes": "Phase 3F migrated. Bot template comparison report; live execution stays in runtime.bots (not in library)."
+    },
+    {
+      "case_id": "square-buzz-screener",
+      "display_name": "Binance Square Hot Picks Analyzer",
+      "category": "social",
+      "case_type": "scanner_report",
+      "status": "migrated",
+      "source": "ai_pro_trading_library/cases/migrated/square-buzz-screener",
+      "notes": "Phase 3E migrated. Consumes social snapshot via inputs.square_snapshot."
+    },
+    {
+      "case_id": "ondo-daily",
+      "display_name": "Ondo Tokenized Securities Heat & Movers Scanner",
+      "category": "tokenized_tradfi",
+      "case_type": "scanner_report",
+      "status": "migrated",
+      "source": "ai_pro_trading_library/cases/migrated/ondo-daily",
+      "notes": "Phase 3E migrated. Consumes ondo_universe + alpha_hotrank + movers_24h JSON."
+    },
+    {
+      "case_id": "earnings-tradfi-scanner",
+      "display_name": "US Stock Earnings Opportunity Scanner",
+      "category": "tradfi_event",
+      "case_type": "scanner_report",
+      "status": "migrated",
+      "source": "ai_pro_trading_library/cases/migrated/earnings-tradfi-scanner",
+      "input_requirements": [
+        "earnings_calendar.json"
+      ],
+      "notes": "Phase 3E migrated. Consumes earnings_calendar (WebSearch-supplied) per macro_layer.md."
+    },
+    {
+      "case_id": "macro-event-driven-scanner",
+      "display_name": "Macro Event-Driven TradFi Opportunity Scanner",
+      "category": "macro_event",
+      "case_type": "scanner_report",
+      "status": "migrated",
+      "source": "ai_pro_trading_library/cases/migrated/macro-event-driven-scanner",
+      "input_requirements": [
+        "macro_events.json"
+      ],
+      "notes": "Phase 3E migrated. Consumes macro_events (WebSearch-supplied) per macro_layer.md."
+    },
+    {
+      "case_id": "prediction-market",
+      "display_name": "Prediction Market Edge Scanner",
+      "category": "prediction_web3",
+      "case_type": "scanner_report",
+      "status": "migrated",
+      "source": "ai_pro_trading_library/cases/migrated/prediction-market",
+      "notes": "Phase 3F migrated. 7-factor P_true + Edge + quarter-Kelly. Execution still requires BAW wallet (out of library scope)."
+    },
+    {
+      "case_id": "black-swan-insurance",
+      "display_name": "Black Swan Hedge Switch",
+      "category": "hedge_runtime",
+      "case_type": "scanner_report",
+      "status": "migrated",
+      "source": "ai_pro_trading_library/cases/migrated/black-swan-insurance",
+      "notes": "Phase 3F migrated. 12-factor panic detector + tier-based hedge allocation plan."
+    },
+    {
+      "case_id": "market-intel",
+      "display_name": "Market Intelligence",
+      "category": "research",
+      "case_type": "research_only",
+      "status": "research_only",
+      "source": "private-skills-for-ai-pro/must-read-intent-analysis-planning/references/usage_project_cases/market-intel"
+    }
+  ]
+}

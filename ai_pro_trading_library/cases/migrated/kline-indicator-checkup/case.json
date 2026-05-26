@@ -1,0 +1,23 @@
+{
+  "case_id": "kline-indicator-checkup",
+  "display_name": "Technical Indicator Overview",
+  "category": "analysis",
+  "case_type": "scanner_report",
+  "status": "migrated",
+  "summary": "Read-only multi-indicator scan for one or more symbols. Computes trend (EMA20/50/200, MACD, ADX), momentum (RSI), and volatility (ATR ratio, Bollinger width) plus 0-100 composite score per symbol.",
+  "source_attribution": "private-skills-for-ai-pro/must-read-intent-analysis-planning/references/usage_project_cases/kline-indicator-checkup",
+  "core_logic": [
+    "Pull klines per symbol via the supplied adapter (or fixture).",
+    "Compute trend indicators: EMA(20/50/200), MACD line, ADX(14).",
+    "Compute momentum: RSI(14) — current value plus 'overbought / oversold / neutral' state.",
+    "Compute volatility: ATR(14) / close, Bollinger Band width.",
+    "Aggregate into a 3-pillar (trend/momentum/volatility) 0-100 score."
+  ],
+  "market_bias": {
+    "market_type": "futures",
+    "default_symbol_scope": "user-supplied",
+    "timeframes": ["1h"]
+  },
+  "required_features": ["close", "high", "low", "volume", "EMA", "RSI", "MACD", "ADX", "ATR", "Bollinger"],
+  "recommended_next_step": "Use the per-symbol verdict ranking to seed deeper analysis cases (structured-trade-plan, three-tier-strategy)."
+}

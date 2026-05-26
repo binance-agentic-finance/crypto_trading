@@ -1,0 +1,31 @@
+{
+  "case_id": "earnings-tradfi-scanner",
+  "preset_name": "default_earnings_scan",
+  "top_n": 5,
+  "scoring": {
+    "max_horizon_days": 7,
+    "weights": {
+      "days_to_report": 25.0,
+      "eps_surprise_potential": 30.0,
+      "market_cap_tier": 15.0,
+      "sector_alpha": 10.0,
+      "venue_bonus_both": 20.0,
+      "venue_bonus_tradfi_only": 10.0,
+      "venue_bonus_ondo_only": 10.0
+    },
+    "market_cap_scores": {
+      "mega": 1.0,
+      "large": 0.7,
+      "mid": 0.4,
+      "small": 0.2
+    },
+    "sector_alpha_scores": {
+      "technology": 1.0,
+      "semiconductor": 1.0,
+      "ai": 1.0,
+      "finance": 0.6,
+      "consumer": 0.4,
+      "default": 0.2
+    }
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "market_signals": {
+    "btc_drawdown_1h_pct": 6.5,
+    "btc_drawdown_24h_pct": 15.5,
+    "top10_cap_drawdown_24h_pct": 12.0,
+    "stablecoin_depeg_bps": 60.0,
+    "vix_proxy_change_24h_pct": 45.0,
+    "spy_qqq_drawdown_1h_pct": 3.0,
+    "gold_change_24h_pct": 3.0,
+    "defi_tvl_drawdown_24h_pct": 8.0
+  },
+  "narrative_signals": {
+    "negative_keyword_hit_count": 3,
+    "social_sentiment_min": -0.45,
+    "smart_money_inflow_top10_avg_usdc": -300000,
+    "hotrank_majors_missing": 1,
+    "ai_tradesignal_bearish_pct": 0.65
+  },
+  "portfolio": {
+    "total_value_usdc": 10000.0,
+    "holdings": [
+      {
+        "symbol": "BTC",
+        "value_usdc": 6000
+      },
+      {
+        "symbol": "ETH",
+        "value_usdc": 3000
+      },
+      {
+        "symbol": "SOL",
+        "value_usdc": 1000
+      }
+    ]
+  }
+}
