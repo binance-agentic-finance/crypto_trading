@@ -1,2 +1,0 @@
-"""Canonical strategy construction library."""
-

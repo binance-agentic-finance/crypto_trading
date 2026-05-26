@@ -1,8 +1,0 @@
-{
-  "preset_id": "default",
-  "status": "migrated",
-  "parameters": {
-    "min_abs_funding_rate": 0.0005,
-    "market_type": "usdt_futures"
-  }
-}

@@ -1,8 +1,0 @@
-{
-  "preset_id": "default",
-  "status": "migrated",
-  "parameters": {
-    "stochrsi_period": 14,
-    "mdi_period": 14
-  }
-}

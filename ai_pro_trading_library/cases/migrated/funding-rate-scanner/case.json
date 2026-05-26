@@ -1,8 +1,0 @@
-{
-  "case_id": "funding-rate-scanner",
-  "display_name": "Funding Rate Scanner",
-  "category": "scanner",
-  "case_type": "strategy_backtest",
-  "status": "migrated",
-  "source_attribution": "atomic_strategy_lib/data/funding.py; cyqnt_trd/blocks/derivatives.py"
-}
