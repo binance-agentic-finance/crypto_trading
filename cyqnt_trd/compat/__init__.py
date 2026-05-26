@@ -16,6 +16,14 @@ DataFrame adapters are also available::
 
     from cyqnt_trd.compat import df_to_candles, candles_to_df
 
+Atomic-style signal wrappers (drop-in for ``atomic_strategy_lib.signals.*``)::
+
+    from cyqnt_trd.compat.atomic_signals import (
+        rsi_compute, rsi_current, rsi_zone_detect,
+        ema_cross_detect, atr_current, volume_surge_detect,
+        funding_extreme_detect,
+    )
+
 See ``cyqnt_trd/compat/README.md`` for the full migration guide.
 """
 
