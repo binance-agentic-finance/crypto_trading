@@ -24,6 +24,8 @@ import pandas as pd
 
 from ._utils import (
     SeriesLike,
+    crossover,        # ADD THIS
+    crossunder,       # ADD THIS
     ensure_df,
     ensure_series,
     positive_int,
@@ -65,6 +67,27 @@ __all__ = [
     # convenience re-exports
     "candle_lower_shadow",
     "candle_upper_shadow",
+    # new: TradingView-style indicators (path A — hand-written, no extra deps)
+    "vwma",
+    "hma",
+    "mfi",
+    "cci",
+    "williams_r",
+    "keltner",
+    "heikin_ashi",
+    "cmf",
+    # new: ported from atomic_strategy_lib
+    "stochrsi",
+    "rsi_zone",
+    "atr_ratio",
+    "bb_bandwidth",
+    "bb_pct_b",
+    "bb_squeeze",
+    "dual_speed_atr",
+    "volume_surge_ratio",
+    "volume_trend",
+    "ema_cross_signal",
+    "trend_strength",
 ]
 
 
@@ -587,6 +610,554 @@ def parabolic_sar(
 #: Alias for :func:`bollinger` — many LLM-generated scripts call it
 #: ``bollinger_bands`` (the more descriptive name).
 bollinger_bands = bollinger
+
+
+# ---------------------------------------------------------------------------
+# Stochastic RSI
+# ---------------------------------------------------------------------------
+
+def stochrsi(
+    series: SeriesLike,
+    rsi_period: int = 14,
+    stoch_period: int = 14,
+    k_period: int = 3,
+    d_period: int = 3,
+) -> Tuple[pd.Series, pd.Series]:
+    """Stochastic RSI — momentum oscillator combining RSI and Stochastic.
+
+    Returns
+    -------
+    (k, d) : tuple of pandas.Series
+        ``%K`` and ``%D`` values in ``[0, 100]``.
+    """
+    rsi_s = rsi(series, rsi_period)
+    rsi_min = rsi_s.rolling(window=stoch_period, min_periods=stoch_period).min()
+    rsi_max = rsi_s.rolling(window=stoch_period, min_periods=stoch_period).max()
+    stoch = safe_divide(rsi_s - rsi_min, rsi_max - rsi_min, fill=0.5) * 100.0
+    k = sma(stoch, k_period)
+    d = sma(k, d_period)
+    return k, d
+
+
+# ---------------------------------------------------------------------------
+# RSI Zone classifier
+# ---------------------------------------------------------------------------
+
+def rsi_zone(
+    rsi_series: SeriesLike,
+    overbought: float = 70.0,
+    oversold: float = 30.0,
+) -> pd.Series:
+    """Classify RSI into ``"OVERBOUGHT"`` / ``"OVERSOLD"`` / ``"NEUTRAL"`` at each bar.
+
+    Vectorised equivalent of :func:`atomic.signals.momentum.rsi_zone_detect`.
+    """
+    r = ensure_series(rsi_series).astype(float)
+    out = pd.Series("NEUTRAL", index=r.index)
+    out = out.where(~(r >= overbought), "OVERBOUGHT")
+    out = out.where(~(r <= oversold), "OVERSOLD")
+    return out
+
+
+# ---------------------------------------------------------------------------
+# ATR ratio
+# ---------------------------------------------------------------------------
+
+def atr_ratio(df: pd.DataFrame, period: int = 14) -> pd.Series:
+    """ATR as a percentage of the current close price.
+
+    Equivalent of :func:`atomic.signals.volatility.atr_ratio`.
+    """
+    period = positive_int(period, "period")
+    df = ensure_df(df, required=("high", "low", "close"))
+    atr_s = atr(df, period)
+    return safe_divide(atr_s, df["close"].astype(float), fill=0.0) * 100.0
+
+
+# ---------------------------------------------------------------------------
+# Bollinger Band bandwidth / %B / squeeze
+# ---------------------------------------------------------------------------
+
+def bb_bandwidth(
+    series: SeriesLike, period: int = 20, std_mult: float = 2.0
+) -> pd.Series:
+    """Bollinger Band bandwidth: ``(upper - lower) / middle * 100``."""
+    period = positive_int(period, "period")
+    upper, mid, lower = bollinger(series, period, std_mult)
+    return safe_divide(upper - lower, mid, fill=0.0) * 100.0
+
+
+def bb_pct_b(
+    series: SeriesLike, period: int = 20, std_mult: float = 2.0
+) -> pd.Series:
+    r"""Bollinger ``%B``: position of price within the band, ``(price - lower) / (upper - lower)``.
+
+    0 = at lower band, 1 = at upper band, 0.5 = at middle.
+    """
+    period = positive_int(period, "period")
+    s = ensure_series(series).astype(float)
+    upper, mid, lower = bollinger(s, period, std_mult)
+    return safe_divide(s - lower, upper - lower, fill=0.5)
+
+
+def bb_squeeze(
+    series: SeriesLike,
+    period: int = 20,
+    std_mult: float = 2.0,
+    lookback: int = 20,
+    squeeze_threshold: float = 2.0,
+) -> pd.Series:
+    """Bollinger Band squeeze: True when bandwidth is historically compressed.
+
+    Squeeze is active when *current_bw <= squeeze_threshold* OR
+    *current_bw / avg_bw_lookback < 0.5*.
+
+    Vectorised equivalent of :func:`atomic.signals.volatility.bb_squeeze_detect`.
+    """
+    bw = bb_bandwidth(series, period, std_mult)
+    avg_bw = bw.rolling(window=lookback, min_periods=lookback).mean()
+    ratio = safe_divide(bw, avg_bw, fill=1.0)
+    return ((bw <= squeeze_threshold) | (ratio < 0.5)).fillna(False).astype(bool)
+
+
+# ---------------------------------------------------------------------------
+# Dual-speed ATR (volatility expansion/contraction)
+# ---------------------------------------------------------------------------
+
+def dual_speed_atr(
+    df: pd.DataFrame,
+    fast_period: int = 7,
+    slow_period: int = 21,
+) -> Tuple[pd.Series, pd.Series, pd.Series, pd.Series]:
+    """Compare fast vs slow ATR to detect volatility expansion / contraction.
+
+    Returns
+    -------
+    (fast_atr, slow_atr, ratio, expanding) : tuple of pandas.Series
+        ``ratio = fast_atr / slow_atr``.  ``expanding`` is True when ratio > 1.
+    """
+    fast_period = positive_int(fast_period, "fast_period")
+    slow_period = positive_int(slow_period, "slow_period")
+    fast_s = atr(df, fast_period)
+    slow_s = atr(df, slow_period)
+    ratio = safe_divide(fast_s, slow_s, fill=1.0)
+    expanding = (ratio > 1.0).fillna(False).astype(bool)
+    return fast_s, slow_s, ratio, expanding
+
+
+# ---------------------------------------------------------------------------
+# Volume surge ratio
+# ---------------------------------------------------------------------------
+
+def volume_surge_ratio(df: pd.DataFrame, lookback: int = 20) -> pd.Series:
+    """Volume ratio: latest bar volume / rolling average of prior *lookback* bars.
+
+    Values > 1 mean above-average volume; ``surge_threshold`` (typically 2.0)
+    separates normal from surge.  Vectorised equivalent of
+    :func:`atomic.signals.volume.volume_surge_detect`.
+    """
+    lookback = positive_int(lookback, "lookback")
+    df = ensure_df(df, required=("volume",))
+    vol = df["volume"].astype(float)
+    avg = vol.shift(1).rolling(window=lookback, min_periods=lookback).mean()
+    return safe_divide(vol, avg, fill=1.0)
+
+
+# ---------------------------------------------------------------------------
+# Volume trend (accumulation / distribution)
+# ---------------------------------------------------------------------------
+
+def volume_trend(
+    df: pd.DataFrame,
+    short_window: int = 5,
+    long_window: int = 20,
+) -> pd.Series:
+    """Classify volume trend into ``"ACCUMULATING"`` / ``"DISTRIBUTING"`` / ``"DRYING_UP"`` / ``"NEUTRAL"``.
+
+    Logic mirrors :func:`atomic.signals.volume.volume_trend`:
+
+    * ``vol_ratio > 1.2 and buy_ratio > 0.6``  → ACCUMULATING
+    * ``vol_ratio > 1.2 and buy_ratio < 0.4``  → DISTRIBUTING
+    * ``vol_ratio < 0.5``                       → DRYING_UP
+    * otherwise                                 → NEUTRAL
+
+    *buy_ratio* is the fraction of volume on bullish bars (green candles)
+    within the short window.
+    """
+    short_window = positive_int(short_window, "short_window")
+    long_window = positive_int(long_window, "long_window")
+    df = ensure_df(df, required=("open", "close", "volume"))
+    vol = df["volume"].astype(float)
+    is_green = (df["close"] >= df["open"]).astype(float)
+
+    short_avg = vol.rolling(window=short_window, min_periods=short_window).mean()
+    long_avg = vol.rolling(window=long_window, min_periods=long_window).mean()
+
+    buy_vol = (vol * is_green).rolling(window=short_window, min_periods=short_window).sum()
+    total_vol = vol.rolling(window=short_window, min_periods=short_window).sum()
+    buy_ratio = safe_divide(buy_vol, total_vol, fill=0.5)
+
+    vol_ratio = safe_divide(short_avg, long_avg, fill=1.0)
+
+    out = pd.Series("NEUTRAL", index=df.index)
+    # Apply in priority order to avoid overwriting with lower-priority rule
+    drying = vol_ratio < 0.5
+    distributing = (vol_ratio > 1.2) & (buy_ratio < 0.4) & ~drying
+    accumulating = (vol_ratio > 1.2) & (buy_ratio > 0.6) & ~drying & ~distributing
+    out = out.where(~drying, "DRYING_UP")
+    out = out.where(~distributing, "DISTRIBUTING")
+    out = out.where(~accumulating, "ACCUMULATING")
+    return out
+
+
+# ---------------------------------------------------------------------------
+# EMA cross signal (GOLDEN / DEATH / NONE)
+# ---------------------------------------------------------------------------
+
+def ema_cross_signal(
+    series: SeriesLike,
+    fast_period: int = 9,
+    slow_period: int = 21,
+) -> pd.Series:
+    """Vectorised EMA cross detector.
+
+    Returns a string Series:
+
+    * ``"GOLDEN"`` on the bar where fast EMA crosses above slow EMA
+    * ``"DEATH"``  on the bar where fast EMA crosses below slow EMA
+    * ``"NONE"``   otherwise
+
+    Vectorised equivalent of :func:`atomic.signals.trend.ema_cross_detect`.
+    """
+    fast_period = positive_int(fast_period, "fast_period")
+    slow_period = positive_int(slow_period, "slow_period")
+    fast_s = ema(series, fast_period)
+    slow_s = ema(series, slow_period)
+    out = pd.Series("NONE", index=fast_s.index)
+    out = out.where(~crossover(fast_s, slow_s), "GOLDEN")
+    out = out.where(~crossunder(fast_s, slow_s), "DEATH")
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Trend strength composite
+# ---------------------------------------------------------------------------
+
+def trend_strength(df: pd.DataFrame, lookback: int = 10) -> pd.Series:
+    """Composite trend strength: 0.0 (choppy) → 1.0 (strong directional move).
+
+    Combines rolling green-candle ratio (60%) and average body-to-range
+    fraction normalised by 80% (40%).  Mirrors
+    :func:`atomic.signals.trend.trend_strength`.
+    """
+    lookback = positive_int(lookback, "lookback")
+    df = ensure_df(df, required=("open", "high", "low", "close"))
+    is_green = (df["close"] >= df["open"]).astype(float)
+    body = (df["close"] - df["open"]).abs()
+    hl_range = df["high"] - df["low"]
+    body_pct = safe_divide(body, hl_range, fill=0.0) * 100.0
+
+    green_ratio = is_green.rolling(window=lookback, min_periods=lookback).mean()
+    avg_body = body_pct.rolling(window=lookback, min_periods=lookback).mean()
+
+    return (green_ratio * 0.6 + (avg_body / 80.0).clip(upper=1.0) * 0.4).rename(
+        "trend_strength"
+    )
+
+
+# ---------------------------------------------------------------------------
+# TradingView-style indicators (hand-written, pandas/numpy)
+# ---------------------------------------------------------------------------
+
+
+def vwma(df: pd.DataFrame, period: int = 20) -> pd.Series:
+    """Volume-weighted moving average — Σ(price × volume) / Σ(volume).
+
+    Equivalent to TradingView's ``ta.vwma``. Common use: weight a moving
+    average toward bars with higher participation. Less smooth than a
+    plain SMA on low-volume bars and reacts faster on high-volume ones.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Must contain ``close`` and ``volume``.
+    period : int, default 20
+        Window length.
+
+    Returns
+    -------
+    pd.Series
+        VWMA, NaN for first ``period - 1`` bars.
+    """
+    period = positive_int(period, "period")
+    df = ensure_df(df, required=("close", "volume"))
+    pv = df["close"].astype(float) * df["volume"].astype(float)
+    return safe_divide(
+        pv.rolling(window=period, min_periods=period).sum(),
+        df["volume"].rolling(window=period, min_periods=period).sum(),
+        fill=float("nan"),
+    )
+
+
+def hma(series: SeriesLike, period: int = 20) -> pd.Series:
+    """Hull Moving Average — WMA(2*WMA(n/2) − WMA(n), sqrt(n)).
+
+    Equivalent to TradingView's ``ta.hma``. Designed by Alan Hull to
+    reduce lag of a traditional MA while keeping smoothness.
+
+    Parameters
+    ----------
+    series : pd.Series or DataFrame column
+    period : int, default 20
+
+    Returns
+    -------
+    pd.Series
+        HMA values; NaN until ``period + sqrt(period) - 2`` bars are
+        available.
+    """
+    period = positive_int(period, "period")
+    half = max(1, period // 2)
+    sqrt_n = max(1, int(round(period ** 0.5)))
+    s = ensure_series(series).astype(float)
+    raw = 2.0 * wma(s, half) - wma(s, period)
+    return wma(raw, sqrt_n)
+
+
+def mfi(df: pd.DataFrame, period: int = 14) -> pd.Series:
+    """Money Flow Index — RSI computed on typical price × volume.
+
+    Equivalent to TradingView's ``ta.mfi``. Reads 0-100; >80 typically
+    signals overbought, <20 oversold. Distinguishes accumulation vs
+    distribution by incorporating volume.
+
+    Formula:
+        TP        = (high + low + close) / 3
+        RawFlow   = TP × volume
+        PosFlow   = sum(RawFlow where TP rose) over `period`
+        NegFlow   = sum(RawFlow where TP fell) over `period`
+        MFI       = 100 - 100 / (1 + PosFlow/NegFlow)
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Must contain ``high``, ``low``, ``close``, ``volume``.
+    period : int, default 14
+
+    Returns
+    -------
+    pd.Series
+        MFI in [0, 100]; NaN for the first ``period`` bars.
+    """
+    period = positive_int(period, "period")
+    df = ensure_df(df, required=("high", "low", "close", "volume"))
+    tp = (df["high"].astype(float) + df["low"].astype(float) + df["close"].astype(float)) / 3.0
+    raw_flow = tp * df["volume"].astype(float)
+    delta = tp.diff()
+
+    pos_flow = raw_flow.where(delta > 0, 0.0)
+    neg_flow = raw_flow.where(delta < 0, 0.0)
+    pos_sum = pos_flow.rolling(window=period, min_periods=period).sum()
+    neg_sum = neg_flow.rolling(window=period, min_periods=period).sum()
+
+    money_ratio = safe_divide(pos_sum, neg_sum, fill=float("inf"))
+    mfi_series = 100.0 - 100.0 / (1.0 + money_ratio)
+    # Where neg_sum was zero (all positive), MFI saturates at 100
+    return mfi_series.where(neg_sum > 0, 100.0).where(pos_sum + neg_sum > 0, float("nan"))
+
+
+def cci(df: pd.DataFrame, period: int = 20) -> pd.Series:
+    """Commodity Channel Index — Lambert (1980).
+
+    Equivalent to TradingView's ``ta.cci``. Measures how far the
+    typical price is from its moving average in units of mean deviation.
+    Often capped at ±100 for "overbought/oversold" signal generation.
+
+    Formula:
+        TP        = (high + low + close) / 3
+        SMA_TP    = SMA(TP, period)
+        MeanDev   = mean(|TP − SMA_TP|) over `period`
+        CCI       = (TP − SMA_TP) / (0.015 × MeanDev)
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Must contain ``high``, ``low``, ``close``.
+    period : int, default 20
+
+    Returns
+    -------
+    pd.Series
+        CCI; NaN for the first ``period - 1`` bars.
+    """
+    period = positive_int(period, "period")
+    df = ensure_df(df, required=("high", "low", "close"))
+    tp = (df["high"].astype(float) + df["low"].astype(float) + df["close"].astype(float)) / 3.0
+    sma_tp = sma(tp, period)
+    mean_dev = (tp - sma_tp).abs().rolling(window=period, min_periods=period).mean()
+    return safe_divide(tp - sma_tp, 0.015 * mean_dev, fill=float("nan"))
+
+
+def williams_r(df: pd.DataFrame, period: int = 14) -> pd.Series:
+    """Williams %R — momentum oscillator from highest-high range.
+
+    Equivalent to TradingView's ``ta.wpr``. Outputs values in [-100, 0]:
+        ≥ -20 → overbought
+        ≤ -80 → oversold
+
+    Formula:
+        Highest = max(high, period)
+        Lowest  = min(low, period)
+        %R      = (Highest − Close) / (Highest − Lowest) × -100
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Must contain ``high``, ``low``, ``close``.
+    period : int, default 14
+
+    Returns
+    -------
+    pd.Series
+        Williams %R in [-100, 0]; NaN for the first ``period - 1`` bars.
+    """
+    period = positive_int(period, "period")
+    df = ensure_df(df, required=("high", "low", "close"))
+    hh = rolling_max(df["high"].astype(float), period)
+    ll = rolling_min(df["low"].astype(float), period)
+    return safe_divide(hh - df["close"].astype(float), hh - ll, fill=float("nan")) * -100.0
+
+
+def keltner(
+    df: pd.DataFrame,
+    period: int = 20,
+    atr_period: int = 10,
+    multiplier: float = 2.0,
+) -> Tuple[pd.Series, pd.Series, pd.Series]:
+    """Keltner Channel — EMA-centred bands at ``±multiplier × ATR``.
+
+    Equivalent to TradingView's ``ta.keltner`` (with the EMA midline
+    convention; some old references use SMA). Wider/narrower than
+    Bollinger because volatility is measured by ATR (range-based)
+    rather than std (close-based).
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Must contain ``high``, ``low``, ``close``.
+    period : int, default 20
+        EMA period for the midline.
+    atr_period : int, default 10
+        ATR period.
+    multiplier : float, default 2.0
+        Band width factor.
+
+    Returns
+    -------
+    (upper, middle, lower) : tuple of pd.Series
+    """
+    period = positive_int(period, "period")
+    atr_period = positive_int(atr_period, "atr_period")
+    if multiplier <= 0:
+        raise ValueError(f"multiplier must be positive, got {multiplier}")
+    df = ensure_df(df, required=("high", "low", "close"))
+    middle = ema(df["close"], period)
+    atr_series = atr(df, period=atr_period)
+    upper = middle + multiplier * atr_series
+    lower = middle - multiplier * atr_series
+    return upper, middle, lower
+
+
+def heikin_ashi(df: pd.DataFrame) -> pd.DataFrame:
+    """Heikin Ashi candle transformation.
+
+    Equivalent to TradingView's ``ta.heikinashi`` view (or built-in
+    Heikin Ashi candle type). Smooths price action by averaging OHLC
+    against the prior smoothed open. Helps to identify clean trends
+    but lags reversals by 1-2 bars.
+
+    Formula:
+        HA_Close = (O + H + L + C) / 4
+        HA_Open  = (prev_HA_Open + prev_HA_Close) / 2  (seed: (O[0]+C[0])/2)
+        HA_High  = max(H, HA_Open, HA_Close)
+        HA_Low   = min(L, HA_Open, HA_Close)
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Must contain ``open``, ``high``, ``low``, ``close``.
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns: ``ha_open``, ``ha_high``, ``ha_low``, ``ha_close``.
+    """
+    df = ensure_df(df, required=("open", "high", "low", "close"))
+    o = df["open"].astype(float)
+    h = df["high"].astype(float)
+    low = df["low"].astype(float)
+    c = df["close"].astype(float)
+
+    ha_close = (o + h + low + c) / 4.0
+
+    # ha_open needs recurrence — fill iteratively (numpy loop, ~250 bars trivial)
+    ha_open_arr = np.empty(len(df), dtype=float)
+    ha_open_arr[0] = (o.iloc[0] + c.iloc[0]) / 2.0
+    ha_close_arr = ha_close.to_numpy()
+    for i in range(1, len(df)):
+        ha_open_arr[i] = (ha_open_arr[i - 1] + ha_close_arr[i - 1]) / 2.0
+    ha_open = pd.Series(ha_open_arr, index=df.index)
+
+    ha_high = pd.concat([h, ha_open, ha_close], axis=1).max(axis=1)
+    ha_low = pd.concat([low, ha_open, ha_close], axis=1).min(axis=1)
+
+    return pd.DataFrame(
+        {
+            "ha_open": ha_open,
+            "ha_high": ha_high,
+            "ha_low": ha_low,
+            "ha_close": ha_close,
+        }
+    )
+
+
+def cmf(df: pd.DataFrame, period: int = 20) -> pd.Series:
+    """Chaikin Money Flow — accumulation/distribution over `period`.
+
+    Equivalent to TradingView's ``ta.cmf``. Reads in [-1, 1]:
+        > 0 → net accumulation (buyers in control)
+        < 0 → net distribution (sellers in control)
+
+    Formula:
+        MFM     = ((C − L) − (H − C)) / (H − L)         # close position in range
+        MFV     = MFM × volume
+        CMF     = sum(MFV, period) / sum(volume, period)
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Must contain ``high``, ``low``, ``close``, ``volume``.
+    period : int, default 20
+
+    Returns
+    -------
+    pd.Series
+        CMF in [-1, 1]; NaN for the first ``period - 1`` bars.
+    """
+    period = positive_int(period, "period")
+    df = ensure_df(df, required=("high", "low", "close", "volume"))
+    h = df["high"].astype(float)
+    low = df["low"].astype(float)
+    c = df["close"].astype(float)
+    v = df["volume"].astype(float)
+    hl_range = h - low
+    mfm = safe_divide((c - low) - (h - c), hl_range, fill=0.0)
+    mfv = mfm * v
+    return safe_divide(
+        mfv.rolling(window=period, min_periods=period).sum(),
+        v.rolling(window=period, min_periods=period).sum(),
+        fill=0.0,
+    )
 
 
 def __getattr__(name: str):
