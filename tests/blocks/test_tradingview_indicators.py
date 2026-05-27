@@ -294,3 +294,243 @@ class TestCMF:
         )
         c = ind.cmf(df, 20)
         assert c.iloc[-1] == pytest.approx(-1.0, abs=0.01)
+
+
+# ---------------------------------------------------------------------------
+# TEMA / DEMA
+# ---------------------------------------------------------------------------
+
+class TestTEMA:
+    def test_returns_series(self, synth_ohlcv):
+        t = ind.tema(synth_ohlcv["close"], 14)
+        assert isinstance(t, pd.Series)
+        assert len(t) == len(synth_ohlcv)
+
+    def test_constant_input_yields_constant_output(self):
+        s = pd.Series([100.0] * 50)
+        t = ind.tema(s, 10)
+        # After EMA warmup, TEMA of a constant series should equal that constant
+        assert t.iloc[-1] == pytest.approx(100.0, abs=0.01)
+
+    def test_converges_to_step_change_eventually(self):
+        # Big step then 50 bars to settle: TEMA should converge close to 200
+        s = pd.Series([100.0] * 30 + [200.0] * 50)
+        t = ind.tema(s, 10)
+        # After 50 bars at 200, TEMA should be within 1% of 200
+        assert t.iloc[-1] == pytest.approx(200.0, rel=0.01)
+
+
+class TestDEMA:
+    def test_returns_series(self, synth_ohlcv):
+        d = ind.dema(synth_ohlcv["close"], 14)
+        assert isinstance(d, pd.Series)
+        assert len(d) == len(synth_ohlcv)
+
+    def test_differs_from_ema_under_step_change(self):
+        # DEMA exists specifically to lag less than EMA, so on a sharp step
+        # they should diverge meaningfully
+        s = pd.Series([100.0] * 30 + [200.0] * 30)
+        ema_val = ind.ema(s, 10)
+        dema_val = ind.dema(s, 10)
+        # On a step up, DEMA reacts faster than EMA → DEMA > EMA on first
+        # post-step bars (peak divergence early in the move)
+        post_step = ema_val.iloc[30:50]
+        post_dema = dema_val.iloc[30:50]
+        assert (post_dema >= post_step).all()
+
+
+# ---------------------------------------------------------------------------
+# Aroon
+# ---------------------------------------------------------------------------
+
+class TestAroon:
+    def test_returns_three_series(self, synth_ohlcv):
+        up, down, osc = ind.aroon(synth_ohlcv, 14)
+        for s in (up, down, osc):
+            assert isinstance(s, pd.Series)
+            assert len(s) == len(synth_ohlcv)
+
+    def test_value_ranges(self, synth_ohlcv):
+        up, down, osc = ind.aroon(synth_ohlcv, 14)
+        assert (up.dropna().between(0, 100)).all()
+        assert (down.dropna().between(0, 100)).all()
+        assert (osc.dropna().between(-100, 100)).all()
+
+    def test_strictly_rising_yields_max_up(self):
+        # Strictly rising series → highest is always the latest bar
+        df = pd.DataFrame(
+            {
+                "high": [100.0 + i for i in range(20)],
+                "low": [99.0 + i for i in range(20)],
+            }
+        )
+        up, down, osc = ind.aroon(df, 14)
+        # Last bar has highest high → bars_since_high = 0 → Aroon Up = 100
+        assert up.iloc[-1] == pytest.approx(100.0)
+        # Lowest low at bar 0; 14-period window doesn't reach back that far
+        # at last bar, so bars_since_low = 14 → Aroon Down = 0
+        assert down.iloc[-1] == pytest.approx(0.0)
+        assert osc.iloc[-1] == pytest.approx(100.0)
+
+
+# ---------------------------------------------------------------------------
+# TRIX
+# ---------------------------------------------------------------------------
+
+class TestTRIX:
+    def test_returns_series(self, synth_ohlcv):
+        t = ind.trix(synth_ohlcv["close"], 14)
+        assert isinstance(t, pd.Series)
+        assert len(t) == len(synth_ohlcv)
+
+    def test_zero_for_constant_input(self):
+        s = pd.Series([100.0] * 50)
+        t = ind.trix(s, 10)
+        # Triple-EMA of constant is constant → ROC = 0
+        # Allow tiny float artefact during EMA warmup
+        assert (t.iloc[20:].abs() < 0.01).all()
+
+
+# ---------------------------------------------------------------------------
+# Awesome Oscillator
+# ---------------------------------------------------------------------------
+
+class TestAwesomeOscillator:
+    def test_returns_series(self, synth_ohlcv):
+        ao = ind.awesome_oscillator(synth_ohlcv)
+        assert isinstance(ao, pd.Series)
+        assert len(ao) == len(synth_ohlcv)
+
+    def test_warmup_count(self, synth_ohlcv):
+        ao = ind.awesome_oscillator(synth_ohlcv)
+        # Needs 34 bars of SMA warmup, so first 33 are NaN
+        assert ao.iloc[:33].isna().all()
+        assert ao.iloc[33:].notna().all()
+
+    def test_zero_for_constant_input(self):
+        df = pd.DataFrame({"high": [100.0] * 50, "low": [100.0] * 50})
+        ao = ind.awesome_oscillator(df)
+        assert (ao.iloc[33:].abs() < 1e-9).all()
+
+
+# ---------------------------------------------------------------------------
+# Pivot Points
+# ---------------------------------------------------------------------------
+
+class TestPivotPoints:
+    def test_returns_dataframe(self, synth_ohlcv):
+        pp = ind.pivot_points(synth_ohlcv)
+        assert isinstance(pp, pd.DataFrame)
+        assert list(pp.columns) == ["pp", "r1", "r2", "r3", "s1", "s2", "s3"]
+        assert len(pp) == len(synth_ohlcv)
+
+    def test_first_row_is_nan(self, synth_ohlcv):
+        # PP uses prev bar → first row has no prev → all NaN
+        pp = ind.pivot_points(synth_ohlcv)
+        assert pp.iloc[0].isna().all()
+
+    def test_level_ordering(self, synth_ohlcv):
+        pp = ind.pivot_points(synth_ohlcv).iloc[1:]  # skip first NaN row
+        assert (pp["r3"] >= pp["r2"]).all()
+        assert (pp["r2"] >= pp["r1"]).all()
+        assert (pp["r1"] >= pp["pp"]).all()
+        assert (pp["pp"] >= pp["s1"]).all()
+        assert (pp["s1"] >= pp["s2"]).all()
+        assert (pp["s2"] >= pp["s3"]).all()
+
+    def test_hand_computed(self):
+        # 2 bars: prev bar high=110, low=100, close=105
+        # PP = (110+100+105)/3 = 105
+        # R1 = 2*105 - 100 = 110
+        # S1 = 2*105 - 110 = 100
+        # R2 = 105 + (110-100) = 115
+        # S2 = 105 - 10 = 95
+        # R3 = 110 + 2*(105-100) = 120
+        # S3 = 100 - 2*(110-105) = 90
+        df = pd.DataFrame(
+            {
+                "high": [110.0, 115.0],
+                "low": [100.0, 105.0],
+                "close": [105.0, 110.0],
+            }
+        )
+        pp = ind.pivot_points(df)
+        assert pp["pp"].iloc[1] == pytest.approx(105.0)
+        assert pp["r1"].iloc[1] == pytest.approx(110.0)
+        assert pp["s1"].iloc[1] == pytest.approx(100.0)
+        assert pp["r2"].iloc[1] == pytest.approx(115.0)
+        assert pp["s2"].iloc[1] == pytest.approx(95.0)
+        assert pp["r3"].iloc[1] == pytest.approx(120.0)
+        assert pp["s3"].iloc[1] == pytest.approx(90.0)
+
+
+# ---------------------------------------------------------------------------
+# ZigZag
+# ---------------------------------------------------------------------------
+
+class TestZigZag:
+    def test_returns_series(self, synth_ohlcv):
+        zz = ind.zigzag(synth_ohlcv["close"], deviation_pct=3.0)
+        assert isinstance(zz, pd.Series)
+        assert len(zz) == len(synth_ohlcv)
+
+    def test_seeds_first_bar(self, synth_ohlcv):
+        zz = ind.zigzag(synth_ohlcv["close"], 5.0)
+        assert pd.notna(zz.iloc[0])
+
+    def test_invalid_deviation_raises(self, synth_ohlcv):
+        with pytest.raises(ValueError):
+            ind.zigzag(synth_ohlcv["close"], deviation_pct=0.0)
+
+    def test_finds_pivots_on_zigzag_pattern(self):
+        # Synthetic: 100 → 110 (+10%) → 99 (-10%) → 120 (+21%)
+        s = pd.Series([100.0, 105.0, 110.0, 105.0, 99.0, 110.0, 120.0])
+        zz = ind.zigzag(s, deviation_pct=5.0)
+        assert zz.notna().sum() >= 2
+
+    def test_no_pivots_when_below_threshold(self):
+        # Drift within 0.5% — should produce 1 pivot (the seed)
+        s = pd.Series([100.0, 100.3, 100.5, 100.2, 100.4])
+        zz = ind.zigzag(s, deviation_pct=2.0)
+        # Only the seed bar
+        assert zz.notna().sum() == 1
+
+
+# ---------------------------------------------------------------------------
+# PVT
+# ---------------------------------------------------------------------------
+
+class TestPVT:
+    def test_returns_series(self, synth_ohlcv):
+        p = ind.pvt(synth_ohlcv)
+        assert isinstance(p, pd.Series)
+        assert len(p) == len(synth_ohlcv)
+
+    def test_seed_is_zero(self, synth_ohlcv):
+        p = ind.pvt(synth_ohlcv)
+        assert p.iloc[0] == 0.0
+
+    def test_monotonic_for_strict_uptrend(self):
+        # Strictly rising close × constant volume → PVT must rise monotonically
+        df = pd.DataFrame(
+            {
+                "close": [100.0 * (1.01 ** i) for i in range(30)],
+                "volume": [1000.0] * 30,
+            }
+        )
+        p = ind.pvt(df)
+        assert (p.diff().iloc[1:] >= 0).all()
+
+    def test_hand_computed(self):
+        # close: 100 → 110 (10% up) → 99 (-10% down)
+        # volume: 1000 each
+        # PVT[0] = 0 (seed)
+        # PVT[1] = 0 + (110-100)/100 * 1000 = 100
+        # PVT[2] = 100 + (99-110)/110 * 1000 = 100 - 100 = 0
+        df = pd.DataFrame(
+            {"close": [100.0, 110.0, 99.0], "volume": [1000.0, 1000.0, 1000.0]}
+        )
+        p = ind.pvt(df)
+        assert p.iloc[0] == pytest.approx(0.0)
+        assert p.iloc[1] == pytest.approx(100.0)
+        assert p.iloc[2] == pytest.approx(0.0, abs=0.01)

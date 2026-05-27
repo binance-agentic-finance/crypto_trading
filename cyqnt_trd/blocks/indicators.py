@@ -76,6 +76,15 @@ __all__ = [
     "keltner",
     "heikin_ashi",
     "cmf",
+    # mid-priority TradingView indicators (path A)
+    "tema",
+    "dema",
+    "aroon",
+    "trix",
+    "awesome_oscillator",
+    "pivot_points",
+    "zigzag",
+    "pvt",
     # new: ported from atomic_strategy_lib
     "stochrsi",
     "rsi_zone",
@@ -1158,6 +1167,324 @@ def cmf(df: pd.DataFrame, period: int = 20) -> pd.Series:
         v.rolling(window=period, min_periods=period).sum(),
         fill=0.0,
     )
+
+
+# ---------------------------------------------------------------------------
+# TradingView-style indicators — mid-priority batch
+# ---------------------------------------------------------------------------
+
+
+def tema(series: SeriesLike, period: int = 20) -> pd.Series:
+    """Triple Exponential Moving Average.
+
+    Equivalent to TradingView's ``ta.tema``. Designed by Patrick Mulloy
+    to reduce EMA lag while keeping smoothness, with stronger reactivity
+    than DEMA.
+
+    Formula:
+        EMA1 = EMA(close, n)
+        EMA2 = EMA(EMA1, n)
+        EMA3 = EMA(EMA2, n)
+        TEMA = 3*EMA1 − 3*EMA2 + EMA3
+
+    Parameters
+    ----------
+    series : pd.Series or DataFrame column
+    period : int, default 20
+
+    Returns
+    -------
+    pd.Series
+    """
+    period = positive_int(period, "period")
+    s = ensure_series(series).astype(float)
+    e1 = ema(s, period)
+    e2 = ema(e1, period)
+    e3 = ema(e2, period)
+    return 3.0 * e1 - 3.0 * e2 + e3
+
+
+def dema(series: SeriesLike, period: int = 20) -> pd.Series:
+    """Double Exponential Moving Average.
+
+    Equivalent to TradingView's ``ta.dema``. Less lag than EMA but more
+    responsive than TEMA. Computed as ``2*EMA1 - EMA(EMA1)``.
+
+    Parameters
+    ----------
+    series : pd.Series or DataFrame column
+    period : int, default 20
+
+    Returns
+    -------
+    pd.Series
+    """
+    period = positive_int(period, "period")
+    s = ensure_series(series).astype(float)
+    e1 = ema(s, period)
+    e2 = ema(e1, period)
+    return 2.0 * e1 - e2
+
+
+def aroon(
+    df: pd.DataFrame, period: int = 14
+) -> Tuple[pd.Series, pd.Series, pd.Series]:
+    """Aroon Up, Aroon Down, and Aroon Oscillator (Tushar Chande, 1995).
+
+    Equivalent to TradingView's ``ta.aroon``. Measures how recently the
+    highest high (Aroon Up) or lowest low (Aroon Down) occurred within
+    the lookback window. Each ranges in [0, 100]; the oscillator
+    (= up − down) ranges in [-100, +100].
+
+    Interpretation:
+        Aroon Up   ≥ 70 → strong uptrend
+        Aroon Down ≥ 70 → strong downtrend
+        Aroon Osc  > 0 → bullish bias, < 0 → bearish bias
+
+    Formula:
+        Aroon Up   = 100 * (period - bars_since_highest_high) / period
+        Aroon Down = 100 * (period - bars_since_lowest_low)  / period
+        Aroon Osc  = Aroon Up - Aroon Down
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Must contain ``high`` and ``low``.
+    period : int, default 14
+
+    Returns
+    -------
+    (aroon_up, aroon_down, aroon_osc) : tuple of pd.Series
+    """
+    period = positive_int(period, "period")
+    df = ensure_df(df, required=("high", "low"))
+    high = df["high"].astype(float)
+    low = df["low"].astype(float)
+
+    # Argmax / argmin position within rolling window (counting from window start)
+    def _bars_since_extreme(series: pd.Series, mode: str) -> pd.Series:
+        # rolling apply: position of max/min within window, 0..period
+        if mode == "high":
+            pos = series.rolling(window=period + 1, min_periods=period + 1).apply(
+                lambda x: float(np.argmax(x[::-1])), raw=True
+            )
+        else:  # low
+            pos = series.rolling(window=period + 1, min_periods=period + 1).apply(
+                lambda x: float(np.argmin(x[::-1])), raw=True
+            )
+        return pos
+
+    bars_since_high = _bars_since_extreme(high, "high")
+    bars_since_low = _bars_since_extreme(low, "low")
+    aroon_up = 100.0 * (period - bars_since_high) / period
+    aroon_down = 100.0 * (period - bars_since_low) / period
+    aroon_osc = aroon_up - aroon_down
+    return aroon_up, aroon_down, aroon_osc
+
+
+def trix(series: SeriesLike, period: int = 14) -> pd.Series:
+    """TRIX — triple-smoothed exponential rate of change (Jack Hutson).
+
+    Equivalent to TradingView's ``ta.trix``. A triple-EMA-smoothed
+    momentum oscillator. Good for filtering out short-term noise from
+    rate-of-change signals. Sign change at zero line is the canonical
+    entry/exit cue.
+
+    Formula:
+        EMA3 = EMA(EMA(EMA(close, n), n), n)
+        TRIX = (EMA3 − EMA3.shift(1)) / EMA3.shift(1) × 10000   (basis points)
+
+    Parameters
+    ----------
+    series : pd.Series or DataFrame column
+    period : int, default 14
+
+    Returns
+    -------
+    pd.Series
+        TRIX in basis points (1.0 = 0.01% per bar).
+    """
+    period = positive_int(period, "period")
+    s = ensure_series(series).astype(float)
+    e1 = ema(s, period)
+    e2 = ema(e1, period)
+    e3 = ema(e2, period)
+    return safe_divide(e3 - e3.shift(1), e3.shift(1), fill=0.0) * 10000.0
+
+
+def awesome_oscillator(df: pd.DataFrame) -> pd.Series:
+    """Awesome Oscillator (Bill Williams).
+
+    Equivalent to TradingView's ``ta.ao``. Measures the difference
+    between a 5-period and 34-period SMA of the median price (H+L)/2.
+    Sign reveals momentum direction; histogram colour change marks
+    momentum shifts.
+
+    Formula:
+        median = (high + low) / 2
+        AO     = SMA(median, 5) − SMA(median, 34)
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Must contain ``high`` and ``low``.
+
+    Returns
+    -------
+    pd.Series
+    """
+    df = ensure_df(df, required=("high", "low"))
+    median = (df["high"].astype(float) + df["low"].astype(float)) / 2.0
+    return sma(median, 5) - sma(median, 34)
+
+
+def pivot_points(df: pd.DataFrame) -> pd.DataFrame:
+    """Standard (Floor) Pivot Points + R1/R2/R3 + S1/S2/S3.
+
+    Equivalent to TradingView's ``ta.pivot_point_levels`` (Standard /
+    Floor variant). Uses the *previous* bar's high, low, close to
+    project today's pivot levels. Works at any timeframe; for "daily
+    pivots" pass a daily-resampled DataFrame.
+
+    Formula (Standard):
+        PP = (prev_high + prev_low + prev_close) / 3
+        R1 = 2 × PP - prev_low      ;  S1 = 2 × PP - prev_high
+        R2 = PP + (prev_high - prev_low) ; S2 = PP - (prev_high - prev_low)
+        R3 = prev_high + 2 × (PP - prev_low)
+        S3 = prev_low  - 2 × (prev_high - PP)
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Must contain ``high``, ``low``, ``close``.
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns: pp, r1, r2, r3, s1, s2, s3. First row is NaN
+        (no previous bar available).
+    """
+    df = ensure_df(df, required=("high", "low", "close"))
+    ph = df["high"].astype(float).shift(1)
+    pl = df["low"].astype(float).shift(1)
+    pc = df["close"].astype(float).shift(1)
+    pp = (ph + pl + pc) / 3.0
+    range_ = ph - pl
+    r1 = 2.0 * pp - pl
+    s1 = 2.0 * pp - ph
+    r2 = pp + range_
+    s2 = pp - range_
+    r3 = ph + 2.0 * (pp - pl)
+    s3 = pl - 2.0 * (ph - pp)
+    return pd.DataFrame(
+        {"pp": pp, "r1": r1, "r2": r2, "r3": r3, "s1": s1, "s2": s2, "s3": s3}
+    )
+
+
+def zigzag(series: SeriesLike, deviation_pct: float = 5.0) -> pd.Series:
+    """ZigZag pivot detector by percentage deviation.
+
+    Approximates TradingView's built-in ``ZigZag`` indicator. Marks
+    confirmed swing pivots — the previous trend extreme is locked in
+    only after price reverses by ``deviation_pct`` from it.
+
+    .. note::
+
+        Like TradingView's reference implementation, the *most-recent*
+        pivot is **tentative** and may shift forward as new bars arrive
+        (it represents "the current swing leg"). Pivots before the
+        last reversal are stable. Use only completed (non-final) pivots
+        for backtesting to remain look-ahead-safe.
+
+    Parameters
+    ----------
+    series : pd.Series or DataFrame column
+        Typically ``close`` or ``(high+low)/2``.
+    deviation_pct : float, default 5.0
+        Percentage move required to confirm a reversal.
+
+    Returns
+    -------
+    pd.Series
+        Pivot prices at confirmed/tentative pivot bars; NaN otherwise.
+    """
+    if deviation_pct <= 0:
+        raise ValueError(f"deviation_pct must be positive, got {deviation_pct}")
+    s = ensure_series(series).astype(float).reset_index(drop=True)
+    n = len(s)
+    pivots = pd.Series(np.nan, index=s.index)
+    if n < 2:
+        return pivots
+
+    last_pivot_idx = 0
+    last_pivot_price = s.iloc[0]
+    pivots.iloc[0] = last_pivot_price
+    direction = 0  # 0 = unknown, +1 = up, -1 = down
+
+    for i in range(1, n):
+        price = s.iloc[i]
+        change_pct = (price - last_pivot_price) / last_pivot_price * 100.0
+
+        if direction == 0:
+            if abs(change_pct) >= deviation_pct:
+                pivots.iloc[i] = price
+                last_pivot_idx = i
+                last_pivot_price = price
+                direction = 1 if change_pct > 0 else -1
+        elif direction == 1:  # uptrend
+            if price > last_pivot_price:
+                pivots.iloc[last_pivot_idx] = np.nan
+                pivots.iloc[i] = price
+                last_pivot_idx = i
+                last_pivot_price = price
+            elif change_pct <= -deviation_pct:
+                pivots.iloc[i] = price
+                last_pivot_idx = i
+                last_pivot_price = price
+                direction = -1
+        else:  # direction == -1, downtrend
+            if price < last_pivot_price:
+                pivots.iloc[last_pivot_idx] = np.nan
+                pivots.iloc[i] = price
+                last_pivot_idx = i
+                last_pivot_price = price
+            elif change_pct >= deviation_pct:
+                pivots.iloc[i] = price
+                last_pivot_idx = i
+                last_pivot_price = price
+                direction = 1
+
+    # Restore original index
+    pivots.index = ensure_series(series).index
+    return pivots
+
+
+def pvt(df: pd.DataFrame) -> pd.Series:
+    """Price-Volume Trend (PVT, Joseph Granville's modification of OBV).
+
+    Equivalent to TradingView's ``ta.pvt``. Cumulative volume weighted
+    by relative price change. Less binary than OBV — captures the
+    *magnitude* of the move, not just direction. Divergences from price
+    often signal reversal.
+
+    Formula:
+        PVT[i] = PVT[i-1] + ((close[i] − close[i-1]) / close[i-1]) × volume[i]
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Must contain ``close`` and ``volume``.
+
+    Returns
+    -------
+    pd.Series
+        Cumulative PVT. First bar = 0 (seed).
+    """
+    df = ensure_df(df, required=("close", "volume"))
+    close = df["close"].astype(float)
+    volume = df["volume"].astype(float)
+    pct_change = close.pct_change().fillna(0.0)
+    return (pct_change * volume).cumsum()
 
 
 def __getattr__(name: str):
