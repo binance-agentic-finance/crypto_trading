@@ -25,18 +25,18 @@ classifiers = [
 ]
 requires-python = ">=3.8,<3.13"
 dependencies = [
-    "pandas>=2.0.0",
-    "numpy>=1.26.0",
-    "polars>=1.0.0",
-    "numba>=0.60.0",
-    "pyarrow>=14.0.0",
-    "matplotlib>=3.8.0",
-    "scipy>=1.12.0",
-    "requests>=2.32.0",
-    "binance-sdk-spot>=9.0.0",
-    "binance-sdk-derivatives-trading-usds-futures>=10.3.0",
-    "binance-sdk-algo>=2.9.0",
-    "binance-common>=3.9.0"
+    "pandas>=2.0.0,<3.0",
+    "numpy>=1.24.0,<2.0",
+    "polars>=1.0.0,<2.0",
+    "numba>=0.60.0,<0.70",
+    "pyarrow>=14.0.0,<25.0",
+    "matplotlib>=3.7.0,<4.0",
+    "scipy>=1.10.0,<2.0",
+    "requests>=2.32.0,<3.0",
+    "binance-sdk-spot>=8.2.1,<10.0",
+    "binance-sdk-derivatives-trading-usds-futures>=10.0.1,<11.0",
+    "binance-sdk-algo>=2.6.0,<3.0",
+    "binance-common>=3.8.0,<4.0",
 ]
 
 [project.optional-dependencies]
