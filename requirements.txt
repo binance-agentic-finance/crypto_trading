@@ -7,6 +7,7 @@ pyarrow>=14.0.0,<25.0
 matplotlib>=3.7.0,<4.0
 scipy>=1.10.0,<2.0
 requests>=2.32.0,<3.0
+websockets>=15.0.1,<16.0
 
 # Binance SDK dependencies (lower bound = OpenClaw current; upper bound prevents breaking major upgrades)
 binance-sdk-spot>=8.2.1,<10.0

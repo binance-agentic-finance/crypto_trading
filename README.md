@@ -337,6 +337,7 @@ baselines, upper bound prevents breaking major-version upgrades):
 - `scipy>=1.10.0,<2.0`
 - `matplotlib>=3.7.0,<4.0`
 - `requests>=2.32.0,<3.0`
+- `websockets>=15.0.1,<16.0`
 
 Binance SDK dependencies:
 
@@ -345,13 +346,11 @@ Binance SDK dependencies:
 - `binance-sdk-algo>=2.6.0,<3.0`
 - `binance-common>=3.8.0,<4.0`
 
-`websockets` is brought in transitively via the binance SDKs at version
-`>=15.0.1,<16.0.0`.
-
 The upper bounds are deliberate: pip will not auto-upgrade a deployment
 that already has e.g. `numpy 1.24.4` or `binance-common 3.8.0`, so
 installing `cyqnt-trd` does not break neighbouring services that rely
-on those exact ABIs.
+on those exact ABIs. The `websockets` upper bound at `<16.0` matches
+the binance-SDK family's own constraint.
 
 ---
 
