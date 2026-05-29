@@ -146,6 +146,10 @@ class PythonLivePaperSession:
         self._last_target: int = 0
         self._target_history: List[int] = []
 
+        # --- Exit management (paper trade stop/TP/max_bars) ---
+        self._position_exit_spec: Optional[Dict[str, Any]] = None
+        self._position_entry_tick: int = 0
+
         # --- Trade log ---
         self.trade_log: List[PaperFill] = []
         self._tick_count: int = 0
@@ -197,15 +201,44 @@ class PythonLivePaperSession:
             )
             self._pending_order = None
 
-        # Step 2: Append bar to history
+        # Step 2: Check exit_spec (stop/TP/max_bars) if position is open
+        if (
+            self.position is not None
+            and self._position_exit_spec is not None
+            and self._pending_order is None  # don't override an already-queued close
+        ):
+            bar_high = float(bar["high"])
+            bar_low = float(bar["low"])
+            bar_close = float(bar["close"])
+            triggered, _exit_price, exit_reason = self._check_exit(
+                spec=self._position_exit_spec,
+                entry_price=self.position.entry_price,
+                entry_idx=self._position_entry_tick,
+                current_idx=self._tick_count,
+                bar_high=bar_high,
+                bar_low=bar_low,
+                bar_close=bar_close,
+            )
+            if triggered:
+                # Queue a close order for next bar open
+                close_target = 0  # flat
+                self._pending_order = PendingOrder(
+                    target_position=close_target,
+                    signal_bar_index=len(self._timestamps),
+                    signal_bar_timestamp_ms=int(bar["timestamp"]),
+                    signal_strength=0.0,
+                )
+                self._last_target = close_target
+
+        # Step 3: Append bar to history
         self._append_bar(bar)
         self._tick_count += 1
 
-        # Step 3: Compute latest target via the signal function
+        # Step 4: Compute latest target via the signal function
         target_at_this_bar, strength = self._compute_latest_target()
         self._target_history.append(target_at_this_bar)
 
-        # Step 4: If target changed, create pending order for next bar
+        # Step 5: If target changed, create pending order for next bar
         if target_at_this_bar != TARGET_KEEP:
             current_direction = self._position_direction()
             target_direction = int(target_at_this_bar)
@@ -344,6 +377,8 @@ class PythonLivePaperSession:
             "last_target": self._last_target,
             "tick_count": self._tick_count,
             "target_history": list(self._target_history),
+            "position_exit_spec": self._position_exit_spec,
+            "position_entry_tick": self._position_entry_tick,
             "bars": {
                 "timestamps": list(self._timestamps),
                 "open_times": list(self._open_times),
@@ -394,6 +429,8 @@ class PythonLivePaperSession:
         session._last_target = int(payload.get("last_target", 0))
         session._tick_count = int(payload.get("tick_count", 0))
         session._target_history = [int(v) for v in payload.get("target_history", [])]
+        session._position_exit_spec = payload.get("position_exit_spec")
+        session._position_entry_tick = int(payload.get("position_entry_tick", 0))
 
         bars = payload.get("bars", {})
         session._timestamps = [int(v) for v in bars.get("timestamps", [])]
@@ -453,7 +490,7 @@ class PythonLivePaperSession:
             return pd.DataFrame(
                 columns=[
                     "open", "high", "low", "close", "volume", "quote_volume",
-                    "open_time", "close_time", "timestamp",
+                    "timestamp", "close_time",
                 ]
             )
         df = pd.DataFrame(
@@ -464,9 +501,8 @@ class PythonLivePaperSession:
                 "close": self._closes,
                 "volume": self._volumes,
                 "quote_volume": self._quote_volumes,
-                "open_time": self._open_times,
-                "close_time": self._timestamps,
                 "timestamp": self._timestamps,
+                "close_time": self._timestamps,
             }
         )
         return df
@@ -540,10 +576,15 @@ class PythonLivePaperSession:
         if equity_ref < 0.0:
             equity_ref = 0.0
 
+        # --- Sizing: respect plugin's size parameter ---
+        size_fraction = 1.0
+        if hasattr(self._plugin, 'size') and self._plugin.size is not None:
+            size_fraction = float(self._plugin.size)
+
         if target_pos == 1:  # TARGET_LONG
-            target_qty = equity_ref / (open_price * multiplier)
+            target_qty = (equity_ref * size_fraction) / (open_price * multiplier)
         elif target_pos == -1:  # TARGET_SHORT
-            target_qty = -equity_ref / (open_price * multiplier)
+            target_qty = -(equity_ref * size_fraction) / (open_price * multiplier)
         else:
             target_qty = 0.0
 
@@ -593,6 +634,12 @@ class PythonLivePaperSession:
                 quantity=abs(self.position_qty),
                 opened_at_ms=bar_timestamp_ms,
             )
+            # Compute and store exit_spec when opening a new position
+            if old_position_qty <= 1e-12:
+                self._position_entry_tick = self._tick_count
+                self._position_exit_spec = self._build_exit_spec(
+                    side="long", fill_price=fill_price
+                )
         elif self.position_qty < 0:
             self.position = PaperPosition(
                 side="short",
@@ -600,8 +647,15 @@ class PythonLivePaperSession:
                 quantity=abs(self.position_qty),
                 opened_at_ms=bar_timestamp_ms,
             )
+            if old_position_qty >= -1e-12:
+                self._position_entry_tick = self._tick_count
+                self._position_exit_spec = self._build_exit_spec(
+                    side="short", fill_price=fill_price
+                )
         else:
             self.position = None
+            self._position_exit_spec = None
+            self._position_entry_tick = 0
 
         fill_id = str(uuid.uuid5(
             SESSION_NAMESPACE,
@@ -622,6 +676,84 @@ class PythonLivePaperSession:
         )
         self.trade_log.append(paper_fill)
         return paper_fill
+
+    # ------------------------------------------------------------------
+    # Exit management helpers
+    # ------------------------------------------------------------------
+
+    def _build_exit_spec(self, *, side: str, fill_price: float) -> Optional[Dict[str, Any]]:
+        """Build exit_spec from plugin's exit_cfg, then finalize prices using fill_price."""
+        if not self._plugin.exit_cfg:
+            return None
+        # Use the plugin's _compute_exit_spec if available, otherwise build manually
+        if hasattr(self._plugin, '_compute_exit_spec'):
+            spec = self._plugin._compute_exit_spec(
+                side=side, entry_close=fill_price, atr_value=None
+            )
+        else:
+            spec = dict(self._plugin.exit_cfg)
+            spec.setdefault("max_bars", 9999)
+        if spec is None:
+            return None
+        # Re-derive absolute prices from actual fill price
+        return self._finalize_exit_prices(spec, fill_price)
+
+    @staticmethod
+    def _check_exit(
+        *,
+        spec: Dict,
+        entry_price: float,
+        entry_idx: int,
+        current_idx: int,
+        bar_high: float,
+        bar_low: float,
+        bar_close: float,
+    ) -> tuple:
+        """Check if any exit condition triggers on this bar.
+
+        Returns (triggered: bool, exit_price: float, reason: str).
+        Checks in priority order: stop_loss → take_profit → max_bars.
+        """
+        # Check stop loss (intra-bar: bar low touches stop)
+        stop_price = spec.get("stop_loss_price")
+        if stop_price is not None and bar_low <= stop_price:
+            return True, stop_price, "stop_loss"
+
+        # Check take profit (intra-bar: bar high touches TP)
+        tp_price = spec.get("take_profit_price")
+        if tp_price is not None and bar_high >= tp_price:
+            return True, tp_price, "take_profit"
+
+        # Check max_bars
+        max_bars = spec.get("max_bars", 9999)
+        bars_held = current_idx - entry_idx
+        if bars_held >= max_bars:
+            return True, bar_close, "max_bars"
+
+        return False, 0.0, ""
+
+    @staticmethod
+    def _finalize_exit_prices(spec: Dict, fill_price: float) -> Dict:
+        """Recompute absolute stop/TP prices using actual fill price."""
+        spec = dict(spec)  # copy
+        etype = spec.get("type", "")
+
+        if etype == "pct_stop_tp":
+            stop_pct = float(spec.get("stop_pct", 0.02))
+            tp_pct = float(spec.get("tp_pct", 0.04))
+            spec["stop_loss_price"] = fill_price * (1.0 - stop_pct)
+            spec["take_profit_price"] = fill_price * (1.0 + tp_pct)
+
+        elif etype == "atr_stop_tp":
+            atr = spec.get("atr_at_entry")
+            if atr is not None and atr > 0:
+                stop_mult = float(spec.get("stop_mult", 2.0))
+                tp_mult = float(spec.get("tp_mult", 3.0))
+                spec["stop_loss_price"] = fill_price - stop_mult * atr
+                spec["take_profit_price"] = fill_price + tp_mult * atr
+
+        # time_only / ma_cross_exit / opposite_signal: no absolute prices needed
+        return spec
 
     def _position_direction(self) -> int:
         if self.position_qty > 1e-12:

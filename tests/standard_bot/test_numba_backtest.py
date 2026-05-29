@@ -39,7 +39,10 @@ from cyqnt_trd.standard_bot.signal.numba_kernels import (
     atr_breakout_target_updates,
     bollinger_mean_reversion_target_updates,
     liquidation_reversal_target_updates,
+    njit,
+    TARGET_FLAT,
     TARGET_KEEP,
+    TARGET_LONG,
     donchian_breakout_target_updates,
     macd_trend_follow_target_updates,
     moving_average_cross_target_updates,
@@ -47,6 +50,25 @@ from cyqnt_trd.standard_bot.signal.numba_kernels import (
     rsi_reversion_target_updates,
 )
 from cyqnt_trd.standard_bot.simulation import NumbaBacktestRunner
+
+
+@njit(cache=True)
+def close_threshold_external_target_updates(
+    closes: np.ndarray,
+    entry_level: float,
+    exit_level: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    target_updates = np.full(closes.shape[0], TARGET_KEEP, dtype=np.int8)
+    strengths = np.zeros(closes.shape[0], dtype=np.float64)
+    for index in range(closes.shape[0]):
+        close_value = closes[index]
+        if close_value >= entry_level:
+            target_updates[index] = TARGET_LONG
+            strengths[index] = (close_value - entry_level) / max(entry_level, 1e-9)
+        elif close_value <= exit_level:
+            target_updates[index] = TARGET_FLAT
+            strengths[index] = (exit_level - close_value) / max(exit_level, 1e-9)
+    return target_updates, strengths
 
 
 def _market_bundle(
@@ -194,6 +216,67 @@ def _request_5m(*, strategy: str, config: dict) -> BacktestRequest:
         fee_model={"taker_fee_bps": 0.0},
         slippage_model={"slippage_bps": 0.0, "max_bar_volume_fraction": 1.0},
     )
+
+
+def test_numba_runner_supports_registered_external_kernel_backtests() -> None:
+    NumbaBacktestRunner.clear_custom_kernels()
+    try:
+        spec = NumbaBacktestRunner.register_kernel(
+            "close_threshold_external",
+            close_threshold_external_target_updates,
+            input_fields=["closes"],
+            param_names=["entry_level", "exit_level"],
+        )
+        assert spec.strategy_id == "close_threshold_external"
+        assert NumbaBacktestRunner.list_custom_kernels() == ("close_threshold_external",)
+
+        closes = [100.0, 105.0, 111.0, 112.0, 94.0, 96.0]
+        bundle = _market_bundle(opens=closes, closes=closes)
+        request = _request(
+            strategy="close_threshold_external",
+            config={"entry_level": 110.0, "exit_level": 95.0},
+            slippage_model={"slippage_bps": 0.0, "max_bar_volume_fraction": 1.0},
+        )
+
+        result = NumbaBacktestRunner().run(request=request, market_bundle=bundle)
+
+        assert result.metrics["signal_count"] >= 2.0
+        trades = result.extras["trades"]
+        assert trades[0]["action"] == "open_long"
+        assert trades[-1]["action"] == "close_long"
+        assert result.signal_batches[0].signals[0].provenance.plugin_id == "close_threshold_external"
+    finally:
+        NumbaBacktestRunner.clear_custom_kernels()
+
+
+def test_numba_runner_requires_registered_external_kernel_params() -> None:
+    NumbaBacktestRunner.clear_custom_kernels()
+    try:
+        NumbaBacktestRunner.register_kernel(
+            "close_threshold_external",
+            close_threshold_external_target_updates,
+            input_fields=["closes"],
+            param_names=["entry_level", "exit_level"],
+        )
+        bundle = _market_bundle(
+            opens=[100.0, 101.0, 102.0],
+            closes=[100.0, 101.0, 102.0],
+        )
+        request = _request(strategy="close_threshold_external", config={"entry_level": 110.0})
+
+        with pytest.raises(ValueError, match="missing required config parameter 'exit_level'"):
+            NumbaBacktestRunner().run(request=request, market_bundle=bundle)
+    finally:
+        NumbaBacktestRunner.clear_custom_kernels()
+
+
+def test_numba_runner_unknown_strategy_error_mentions_registration() -> None:
+    NumbaBacktestRunner.clear_custom_kernels()
+    bundle = _market_bundle(opens=[100.0, 101.0, 102.0], closes=[100.0, 101.0, 102.0])
+    request = _request(strategy="not_registered_external", config={})
+
+    with pytest.raises(ValueError, match="register external kernels"):
+        NumbaBacktestRunner().run(request=request, market_bundle=bundle)
 
 
 def test_numba_backtest_uses_next_bar_open_for_price_ma_fills() -> None:

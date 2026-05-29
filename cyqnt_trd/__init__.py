@@ -8,6 +8,7 @@ Cyqnt Trading Package
 - trading_signal: 交易信号模块，包含因子计算和信号策略
 - backtesting: 回测框架，支持因子测试和策略回测
 - strategy_cases: 随 package 一起分发的策略案例与 preset 资源
+- compat: atomic_strategy_lib backward-compatible dataclass shim (Candle, Signal, Verdict, ...)
 """
 
 __version__ = "0.1.9.dev2"
@@ -28,6 +29,9 @@ def _safe_import(module_name: str):
 for _module_name in ("get_data", "trading_signal", "backtesting", "standard_bot", "strategy_cases"):
     _safe_import(_module_name)
 
+# compat: atomic_strategy_lib backward-compatible dataclass shim
+_safe_import("compat")
+
 __all__ = [
     'get_data',
     'trading_signal',
@@ -35,6 +39,7 @@ __all__ = [
     'standard_bot',
     'strategy_cases',
     'utils',
+    'compat',
     '__version__',
     '_OPTIONAL_IMPORT_ERRORS',
 ]

@@ -14,7 +14,7 @@ Examples
 
 from __future__ import annotations
 
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from ._utils import non_negative_float, positive_int
 
@@ -27,6 +27,14 @@ __all__ = [
     "grid_levels",
     "pyramid_add",
     "round_step_size",
+    # atomic ports (L4-03 … L4-07)
+    "fixed_dollar_loss",
+    "fixed_risk_pct",
+    "kelly_size",
+    "atr_inverse_size",
+    "adaptive_stop_pct",
+    "leverage_cap",
+    "compute_stop_price",
 ]
 
 
@@ -151,3 +159,365 @@ def round_step_size(qty: float, step_size: float) -> float:
         raise ValueError(f"step_size must be > 0, got {step_size}")
     n_steps = int(qty / step_size)
     return n_steps * step_size
+
+
+# ===========================================================================
+# Atomic ports — L4-03 to L4-07
+# ===========================================================================
+# Ported 1-to-1 from atomic_strategy_lib/decision/sizing.py.
+# Where an equivalent already exists in this module, the atomic function is
+# added as a complementary API (different signature / dict return value).
+# ===========================================================================
+
+
+def fixed_dollar_loss(
+    max_loss: Optional[float] = None,
+    stop_pct: float = 5.0,
+    balance: float = 0.0,
+    max_leverage: float = 5.0,
+    min_leverage: float = 1.0,
+    max_loss_usd: Optional[float] = None,
+) -> dict:
+    """Position sizing via fixed-dollar-loss method (L4-03).
+
+    Ported from ``atomic_strategy_lib.decision.sizing.fixed_dollar_loss``.
+
+    Derives the leverage that would risk *max_loss* dollars on a *stop_pct* stop.
+    Clamps to ``[min_leverage, max_leverage]`` and recomputes actual risk.
+
+    Parameters
+    ----------
+    max_loss:
+        Maximum dollar loss per trade (use ``max_loss_usd`` as alias if preferred).
+    stop_pct:
+        Stop distance as a percentage (e.g. 5.0 = 5 %).
+    balance:
+        Account balance in USD.
+    max_leverage / min_leverage:
+        Leverage bounds.
+
+    Returns
+    -------
+    dict with keys: ``notional``, ``leverage``, ``actual_max_loss``, ``stop_distance``.
+    """
+    if max_loss is None:
+        max_loss = max_loss_usd if max_loss_usd is not None else 0.0
+
+    stop_distance = stop_pct / 100.0 if stop_pct > 0 else 0.05
+    notional = max_loss / stop_distance if stop_distance > 0 else 0.0
+
+    lev = notional / balance if balance > 0 else 0.0
+    lev = max(min_leverage, min(round(lev, 1), max_leverage))
+
+    actual_notional = balance * lev
+    actual_max_loss = actual_notional * stop_distance
+
+    return {
+        "notional": round(actual_notional, 2),
+        "leverage": lev,
+        "actual_max_loss": round(actual_max_loss, 2),
+        "stop_distance": stop_distance,
+    }
+
+
+def fixed_risk_pct(
+    balance: float,
+    risk_pct: float = 2.0,
+    stop_pct: float = 5.0,
+    max_leverage: float = 5.0,
+    leverage: Optional[float] = None,
+    stop_distance_pct: Optional[float] = None,
+) -> dict:
+    """Position sizing: risk a fixed percentage of account balance (L4-03b).
+
+    Ported from ``atomic_strategy_lib.decision.sizing.fixed_risk_pct``.
+
+    Distinct from :func:`risk_based_size` which takes absolute entry/stop prices.
+    This variant works purely from percentage parameters and returns leverage.
+
+    Parameters
+    ----------
+    balance:
+        Account balance in USD.
+    risk_pct:
+        Percentage of balance to risk per trade (e.g. 2.0 = 2 %).
+    stop_pct:
+        Stop distance as a percentage.
+    max_leverage:
+        Maximum allowed leverage (overridden by *leverage* if provided).
+    stop_distance_pct:
+        Alias for *stop_pct*.
+
+    Returns
+    -------
+    dict with keys: ``notional``, ``leverage``, ``risk_amount``, ``risk_pct_actual``.
+    """
+    if leverage is not None:
+        max_leverage = leverage
+    if stop_distance_pct is not None:
+        stop_pct = stop_distance_pct
+
+    risk_amount = balance * (risk_pct / 100.0)
+    stop_distance = stop_pct / 100.0 if stop_pct > 0 else 0.05
+
+    notional = risk_amount / stop_distance if stop_distance > 0 else 0.0
+    lev = notional / balance if balance > 0 else 0.0
+    lev = min(round(lev, 1), max_leverage)
+
+    actual_notional = balance * lev
+    actual_risk = actual_notional * stop_distance
+
+    return {
+        "notional": round(actual_notional, 2),
+        "leverage": lev,
+        "risk_amount": round(actual_risk, 2),
+        "risk_pct_actual": round(actual_risk / balance * 100, 2) if balance > 0 else 0.0,
+    }
+
+
+def kelly_size(
+    win_rate: float,
+    avg_win_pct: float,
+    avg_loss_pct: float,
+    fraction: float = 0.5,
+    balance: float = 1000.0,
+    max_leverage: float = 5.0,
+) -> dict:
+    """Kelly-criterion position sizing returning notional + leverage (L4-05).
+
+    Ported from ``atomic_strategy_lib.decision.sizing.kelly_size``.
+
+    Internally uses the same Kelly formula as :func:`kelly_fraction` but
+    returns a richer dict including notional and clamped leverage.
+
+    Parameters
+    ----------
+    win_rate:
+        Historical win rate in [0, 1].
+    avg_win_pct:
+        Average winning trade size as a percentage (positive).
+    avg_loss_pct:
+        Average losing trade size as a percentage (positive number).
+    fraction:
+        Kelly fraction multiplier, e.g. 0.5 = half-Kelly.
+    balance:
+        Account balance in USD.
+    max_leverage:
+        Maximum allowed leverage.
+
+    Returns
+    -------
+    dict with keys: ``kelly_pct``, ``kelly_adjusted_pct``, ``notional``,
+    ``leverage``, ``fraction``.  On invalid input: ``reason`` key is added.
+    """
+    if avg_loss_pct <= 0 or win_rate <= 0 or win_rate >= 1:
+        return {"kelly_pct": 0, "notional": 0, "leverage": 0, "reason": "Invalid inputs"}
+
+    b = avg_win_pct / avg_loss_pct
+    q = 1.0 - win_rate
+    kelly_full = (win_rate * b - q) / b
+
+    if kelly_full <= 0:
+        return {"kelly_pct": 0, "notional": 0, "leverage": 0, "reason": "Negative edge — no bet"}
+
+    kelly_adj = kelly_full * fraction
+    kelly_adj = max(0.0, min(kelly_adj, 1.0))
+
+    notional = balance * kelly_adj
+    lev = min(round(kelly_adj, 2), max_leverage)
+
+    return {
+        "kelly_pct": round(kelly_full * 100, 2),
+        "kelly_adjusted_pct": round(kelly_adj * 100, 2),
+        "notional": round(notional, 2),
+        "leverage": lev,
+        "fraction": fraction,
+    }
+
+
+def atr_inverse_size(
+    balance: float,
+    atr_pct: float,
+    target_risk_pct: float = 2.0,
+    max_leverage: float = 5.0,
+    min_leverage: float = 1.0,
+) -> dict:
+    """Size inversely proportional to ATR percentage (L4-06).
+
+    Ported from ``atomic_strategy_lib.decision.sizing.atr_inverse_size``.
+
+    Distinct from :func:`atr_position_size` which takes an absolute ATR value
+    and mark price.  This variant expects *atr_pct* (ATR as % of current price)
+    and returns leverage rather than raw notional.
+
+    Higher ATR → smaller position. Lower ATR → larger position.
+
+    Parameters
+    ----------
+    balance:
+        Account balance in USD.
+    atr_pct:
+        ATR expressed as a percentage of current price (e.g. 2.5 = 2.5 %).
+    target_risk_pct:
+        Desired risk per trade as % of balance.
+    max_leverage / min_leverage:
+        Leverage bounds.
+
+    Returns
+    -------
+    dict with keys: ``notional``, ``leverage``, ``atr_pct``, ``actual_risk``.
+    On zero/negative ATR: returns ``reason`` key.
+    """
+    if atr_pct <= 0:
+        return {"notional": 0.0, "leverage": min_leverage, "reason": "ATR unavailable"}
+
+    risk_amount = balance * (target_risk_pct / 100.0)
+    notional = risk_amount / (atr_pct / 100.0)
+
+    lev = notional / balance if balance > 0 else 0.0
+    lev = max(min_leverage, min(round(lev, 1), max_leverage))
+
+    actual_notional = balance * lev
+    actual_risk = actual_notional * (atr_pct / 100.0)
+
+    return {
+        "notional": round(actual_notional, 2),
+        "leverage": lev,
+        "atr_pct": atr_pct,
+        "actual_risk": round(actual_risk, 2),
+    }
+
+
+def adaptive_stop_pct(
+    default_stop_pct: float = 5.0,
+    change_7d: Optional[float] = None,
+    volatile_threshold_7d: float = 50.0,
+    volatile_stop_pct: float = 12.0,
+    days_since_listing: Optional[int] = None,
+    new_coin_days: int = 30,
+    new_coin_stop_pct: float = 8.0,
+) -> dict:
+    """Return an adaptive stop percentage based on coin characteristics (L4-07a).
+
+    Ported from ``atomic_strategy_lib.decision.sizing.adaptive_stop_pct``.
+
+    Priority:
+
+    1. **New coin** (listed < *new_coin_days* ago) → *new_coin_stop_pct* (widest).
+    2. **High volatility** (|7-day change| > *volatile_threshold_7d*) → *volatile_stop_pct*.
+    3. **Default** → *default_stop_pct*.
+
+    Returns
+    -------
+    dict with keys: ``stop_pct``, ``reason``.
+    """
+    if days_since_listing is not None and days_since_listing < new_coin_days:
+        return {
+            "stop_pct": new_coin_stop_pct,
+            "reason": "Very new coin (%d days) → wider stop %.1f%%" % (
+                days_since_listing, new_coin_stop_pct),
+        }
+    if change_7d is not None and abs(change_7d) > volatile_threshold_7d:
+        return {
+            "stop_pct": volatile_stop_pct,
+            "reason": "Volatile (7d %.1f%%) → wide stop %.1f%%" % (change_7d, volatile_stop_pct),
+        }
+    return {
+        "stop_pct": default_stop_pct,
+        "reason": "Default stop %.1f%%" % default_stop_pct,
+    }
+
+
+def leverage_cap(
+    proposed_leverage: float,
+    max_leverage: float = 5.0,
+    min_leverage: float = 1.0,
+    days_since_listing: Optional[int] = None,
+    new_coin_max_leverage: float = 2.0,
+    new_coin_days: int = 30,
+    atr_pct: Optional[float] = None,
+    high_vol_atr_threshold: float = 8.0,
+    high_vol_max_leverage: float = 3.0,
+) -> dict:
+    """Cap leverage based on market conditions (L4-07b).
+
+    Ported from ``atomic_strategy_lib.decision.sizing.leverage_cap``.
+
+    Reduces leverage for:
+
+    * **New coins** (listed < *new_coin_days* ago) → capped at *new_coin_max_leverage*.
+    * **High-volatility** instruments (ATR % > *high_vol_atr_threshold*) → capped at
+      *high_vol_max_leverage*.
+
+    Returns
+    -------
+    dict with keys: ``leverage``, ``proposed``, ``effective_max``, ``capped``, ``reasons``.
+    """
+    effective_max = max_leverage
+    cap_reasons: list[str] = []
+
+    if days_since_listing is not None and days_since_listing < new_coin_days:
+        if effective_max > new_coin_max_leverage:
+            effective_max = new_coin_max_leverage
+            cap_reasons.append(
+                "New coin (%d days) → max %sx" % (days_since_listing, new_coin_max_leverage)
+            )
+
+    if atr_pct is not None and atr_pct > high_vol_atr_threshold:
+        if effective_max > high_vol_max_leverage:
+            effective_max = high_vol_max_leverage
+            cap_reasons.append(
+                "High ATR (%.1f%%) → max %sx" % (atr_pct, high_vol_max_leverage)
+            )
+
+    capped = max(min_leverage, min(proposed_leverage, effective_max))
+
+    return {
+        "leverage": capped,
+        "proposed": proposed_leverage,
+        "effective_max": effective_max,
+        "capped": capped != proposed_leverage,
+        "reasons": cap_reasons if cap_reasons else ["No cap applied"],
+    }
+
+
+def compute_stop_price(
+    entry_price: float,
+    direction: str,
+    stop_pct: Optional[float] = None,
+    atr_val: Optional[float] = None,
+    multiplier: float = 1.0,
+) -> float:
+    """Unified stop-price calculator (L4-07c).
+
+    Ported from ``atomic_strategy_lib.decision.sizing.compute_stop_price``.
+
+    If *stop_pct* is ``None`` and *atr_val* is provided, derives the stop
+    percentage from ``atr_val * multiplier / entry_price * 100``.
+
+    Parameters
+    ----------
+    entry_price:
+        Trade entry price.
+    direction:
+        ``"LONG"`` or ``"SHORT"`` (case-sensitive).
+    stop_pct:
+        Stop distance as a percentage (e.g. 3.0 = 3 %).
+    atr_val:
+        Absolute ATR value; only used when *stop_pct* is None.
+    multiplier:
+        ATR multiplier when deriving stop from ATR.
+
+    Returns
+    -------
+    float — the absolute stop price, rounded to 8 decimal places.
+    """
+    if stop_pct is None:
+        if entry_price > 0 and atr_val is not None:
+            stop_pct = atr_val * multiplier / entry_price * 100.0
+        else:
+            stop_pct = 0.0
+    distance = stop_pct / 100.0
+    if direction == "LONG":
+        return round(entry_price * (1.0 - distance), 8)
+    return round(entry_price * (1.0 + distance), 8)
