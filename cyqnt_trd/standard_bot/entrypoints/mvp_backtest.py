@@ -75,6 +75,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--quantity-step", type=float, default=0.0)
     parser.add_argument("--min-quantity", type=float, default=0.0)
     parser.add_argument("--fixed-fee-per-contract", type=float, default=0.0)
+    parser.add_argument("--execution-model", choices=["close_fill", "next_bar_open"], default="close_fill",
+                        help="Fill model: 'close_fill' (legacy, fill at signal bar close) or "
+                             "'next_bar_open' (realistic, fill at next bar open)")
     parser.add_argument("--tail-bars", type=int, default=120)
     parser.add_argument("--output-json", default=None)
     parser.add_argument("--download-derivatives-missing", action="store_true")
@@ -86,6 +89,20 @@ def build_market_query(args: argparse.Namespace) -> MarketQuery:
     timeframes = [args.interval]
     if args.strategy == "multi_timeframe_ma_spread" and args.secondary_interval not in timeframes:
         timeframes.append(args.secondary_interval)
+
+    # If this is a block strategy with HTF requirements, include those TFs
+    # in the market query so HTF bars are available in every snapshot.
+    try:
+        from ...blocks.strategy import get_block_plugin  # type: ignore
+
+        plugin = get_block_plugin(args.strategy)
+        if plugin is not None:
+            for htf in plugin.needed_timeframes():
+                if htf and htf not in timeframes:
+                    timeframes.append(htf)
+    except ImportError:
+        pass
+
     return MarketQuery(
         instruments=[args.symbol.upper()],
         timeframes=timeframes,
@@ -207,6 +224,7 @@ def main() -> int:
         extras={
             "engine": args.engine,
             "execution_assumption": "signal_at_bar_close_fill_next_bar_open",
+            "execution_model": args.execution_model,
             "market_type": args.market_type,
             "contract_multiplier": (
                 args.contract_multiplier

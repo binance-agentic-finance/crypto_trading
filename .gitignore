@@ -62,3 +62,6 @@ docs/backtests/*_smoke.json
 # Environment variables
 .env
 .env.local
+
+# strategy_lab (local experiment, not tracked)
+strategy_lab/

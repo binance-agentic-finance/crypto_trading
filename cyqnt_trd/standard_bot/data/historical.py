@@ -30,7 +30,7 @@ except ImportError:  # pragma: no cover - exercised in environments without pyar
     pq = None
 
 
-SUPPORTED_RESAMPLE_TIMEFRAMES = {"5m", "15m", "1h"}
+SUPPORTED_RESAMPLE_TIMEFRAMES = {"5m", "15m", "1h", "4h"}
 PARQUET_COLUMNS = [
     "open_time",
     "close_time",
