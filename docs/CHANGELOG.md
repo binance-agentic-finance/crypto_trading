@@ -6,6 +6,155 @@ PyPI 版本變動見 `pyproject.toml` 與 git tag。
 
 ---
 
+## 2026-05-29 — Paper Trade Exit Management + Scoring/Sizing 擴充 + PyPI 0.1.9.dev6
+
+### 摘要
+
+把 Python engine 的 **paper trade daemon** 補上完整的 TP/SL/max_bars exit
+management，讓 `strategy.register(exit_cfg={...})` 的 blocks 策略能在
+`mvp_paper_daemon --engine python` 中觸發止盈止損。同步擴充 `scoring.py` /
+`sizing.py` 模組，新增 8 個策略範例，修復 atomic data shim 相容性問題，
+最終發版 **0.1.9.dev6** 到 PyPI。
+
+### Paper Trade Exit Management
+
+`cyqnt_trd/standard_bot/simulation/python_live_paper_session.py` (+148 lines)：
+
+- 新增 `_position_exit_spec: Optional[Dict]` 狀態欄位
+- 新增 `_position_entry_tick: int` 追蹤持倉起始 bar
+- 新增 `_check_exit()` 方法：每根 bar 按優先級檢查
+  - **SL**: `bar_low <= stop_loss_price` → 觸發止損
+  - **TP**: `bar_high >= take_profit_price` → 觸發止盈
+  - **max_bars**: `bars_held >= max_bars` → 超時平倉
+- 新增 `_build_exit_spec()` 方法：開倉時從 `plugin.exit_cfg` 讀取配置，
+  計算絕對價格（`fill_price * (1 ± pct)` 或 `fill_price ± ATR * mult`）
+- 觸發後 queue `PendingOrder(target_position=0)` → next-bar-open 模型平倉
+- 支援 `strategy.register(exit_cfg={...})` 的 5 種類型：
+  - `pct_stop_tp`（百分比止損止盈）
+  - `atr_stop_tp`（ATR 倍數止損止盈）
+  - `time_only`（純時間止損）
+  - `ma_cross_exit`（MA cross 平倉）
+  - `opposite_signal`（反向訊號平倉）
+
+Paper trade daemon 用法：
+
+```bash
+python -m cyqnt_trd.standard_bot.entrypoints.mvp_paper_daemon \
+  --engine python \
+  --strategy my_strategy_v1 \
+  --strategy-module workspace.my_strategy \
+  --symbol BTCUSDT --interval 15m \
+  --state-dir ./paper_runs/run1/
+```
+
+### Atomic Data Shim Fixes
+
+`cyqnt_trd/compat/` 內的 atomic data shim 修正：
+
+| 檔案 | 修正 |
+|---|---|
+| `funding.py` | `fetch_funding_rate()` 回傳 float（非 DataFrame）|
+| `open_interest.py` | `fetch_open_interest()` 回傳 dict（非 DataFrame）|
+| `open_interest.py` | `oi_history_fetch()` 參數名修正（period, 非 interval）|
+| `scanner.py` | `scan_with_filter()` 回傳 `list[dict]`（atomic 相容）|
+| 全部 shim | 接受 `profile=` / `binary=` kwargs 不 raise error |
+
+### blocks/scoring.py 擴充（+281 lines）
+
+擴充評分 combinators 與 gate functions，覆蓋更多 atomic 原版的用法模式。
+
+### blocks/sizing.py 擴充（+372 lines）
+
+擴充倉位管理工具，覆蓋更多 sizing 方案（Kelly / fixed-risk / ATR-inverse 等
+在原有基礎上的延伸變體）。
+
+### 新增 8 個策略範例
+
+| 策略 | 行數 | 說明 |
+|---|---|---|
+| `channel_breakout.py` | 60 | Donchian 通道突破 |
+| `ada_usdt_multi_tf.py` | 128 | 多時間框架 ADA 策略 |
+| `consecutive_opposite_days.py` | 62 | 連續反向日反轉 |
+| `ema_rsi_10pt.py` | 236 | EMA + RSI 含 10% TP/SL |
+| `hermes_v12_1h_trend.py` | 75 | 1h 趨勢追蹤 |
+| `lana_cron_takeprofit.py` | 240 | Cron 定時止盈策略 |
+| `lana_style_momentum.py` | 118 | 動量風格策略 |
+| `profitable_3indicators.py` | 120 | 三指標複合策略 |
+
+### Python Engine Phase 1-2（commit f58d29a，同日稍早）
+
+| 功能 | 說明 |
+|---|---|
+| Multi-TF HTF 自動附加 | `htf_specs` in `strategy.register()` 自動下載 + 附到 snapshot |
+| Position sizing | `size` param 控制每次開倉大小 |
+| Exit management | `exit_cfg` → `SnapshotBacktestRunner._check_exit()` |
+| next_bar_open 執行模型 | `--execution-model` flag，signal bar close → next bar open 成交 |
+| Full metrics | Sharpe, MaxDD, WinRate, avg_trade_pnl（via metrics_kernels）|
+| 4h resample | `SUPPORTED_RESAMPLE_TIMEFRAMES` 加入 4h |
+
+### Dependency 版本兼容性修復（dev5 遺留）
+
+今天確認所有 13 個 dependency bounded ranges 仍正確：
+
+```
+pandas>=2.0.0,<3.0  numpy>=1.24.0,<2.0  polars>=1.0.0,<2.0
+numba>=0.60.0,<0.70  pyarrow>=14.0.0,<25.0  matplotlib>=3.7.0,<4.0
+scipy>=1.10.0,<2.0  requests>=2.32.0,<3.0  websockets>=15.0.1,<16.0
+binance-sdk-spot>=8.2.1,<10.0  binance-sdk-usds-futures>=10.0.1,<11.0
+binance-sdk-algo>=2.6.0,<3.0  binance-common>=3.8.0,<4.0
+```
+
+### PyPI Release
+
+| 版本 | 內容 |
+|---|---|
+| **0.1.9.dev6** | 含以上所有改動；wheel 581 KB, 280 cyqnt_trd files + 53 atomic_strategy_lib shim files |
+
+### SKILL.md 更新（dev_trading_bot + GHE）
+
+同日也完成 skill 文件更新：
+
+| 改動 | 位置 |
+|---|---|
+| dev3→dev5 版本號 (5 處) | SKILL.md + repo-bootstrap.md |
+| SKILL.md 6 處加 python engine | description, Rule 10, Reference Map ×2, Workflow §3, Summary |
+| `binance-cli spot get-account` 餘額快照規則 | SKILL.md (3 處) + risk-controls.md (section 1.1) |
+| 新建 blocks-library.md (295 行) | 完整 blocks 模組清單 + 策略寫法 + 回測格式 |
+| 新建 indicator-authoring-guide.md (317 行) | 新指標 inline 寫法 + 4 個必跑驗證 |
+| backtest-workflow.md 加 python engine 段 | section 4.1 python engine 命令模板 |
+| strategy-routing.md 加 blocks 段 | section 3 cyqnt_trd.blocks + python engine |
+| repo-bootstrap.md 加 Available Library Modules | section 1.1 |
+| YAML frontmatter 修復 | `## name:` → `name:` + `flow.metadata:` 拆行 + 加 `---` |
+
+### Commits（2026-05-29）
+
+| Hash | Subject | Remote |
+|---|---|---|
+| `f58d29a` | feat(engine+compat): Python engine Phase 1-2 + atomic data shim fixes | binance + origin |
+| `0e2c2c6` | feat(engine): paper trade exit management + scoring/sizing expansion + 8 strategies | binance + origin |
+| `4d3a085` | chore(release): bump cyqnt-trd 0.1.9.dev5 → 0.1.9.dev6 | binance + origin |
+| `0195965` | docs(skill): mandate binance-cli spot get-account for balance snapshots | dev_trading_bot |
+| `0025436` | docs(skill): mention python engine alongside numba in 6 places | dev_trading_bot |
+| `9d244ae` | fix(skill): repair YAML frontmatter | dev_trading_bot |
+| `b3a458b` | docs(skill): mandate binance-cli (GHE) | GHE feature branch |
+| `76bcc25` | docs(skill): mention python engine (GHE) | GHE feature branch |
+| `d88e898` | fix(skill): repair YAML frontmatter (GHE) | GHE feature branch |
+
+### 整體統計
+
+| 指標 | 數字 |
+|---|---|
+| Paper trade 新增 exit management | +148 lines |
+| blocks/scoring 擴充 | +281 lines |
+| blocks/sizing 擴充 | +372 lines |
+| 新增策略範例 | 8 個 (+1,039 lines) |
+| Atomic shim fixes | 5 個函數修正 |
+| PyPI release | 0.1.9.dev6 |
+| SKILL.md + references 更新 | ~800 lines across 7 files |
+| Dependency 版本兼容 | 13 packages bounded, 0 upgrade on OpenClaw |
+
+---
+
 ## 2026-05-28 — Official Python Engine（SnapshotBacktestRunner）補完 + 正式驗證
 
 ### 摘要
