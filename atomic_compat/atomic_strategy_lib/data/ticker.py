@@ -33,11 +33,60 @@ def ticker_price_fetch(symbol, market="spot", profile=None, binary="binance-cli"
 
 
 def gainers_list_fetch(market="spot", min_quote_volume=0.0, top_n=10, profile=None,
-                      binary="binance-cli"):
-    """atomic-style — returns list[Ticker] sorted by 24h change."""
-    from cyqnt_trd.data_cli import full_market_scan
-    df = full_market_scan(market=market, min_quote_volume=min_quote_volume)
-    if df is None or df.empty:
+                      binary="binance-cli", min_change_pct=None, **_legacy):
+    """atomic-style — returns list[dict] sorted by 24h change.
+
+    Each dict carries: ``symbol``, ``price``, ``change_pct``,
+    ``volume_quote``, ``volume_base``, ``high_24h``, ``low_24h``,
+    ``trades``, ``weighted_avg_price``. Case scripts consume this with
+    dict access (``g["symbol"]``, ``g.get("change_pct")``), so we keep
+    the dict shape rather than the Ticker dataclass.
+
+    cyqnt_trd's ``full_market_scan`` only returns a list of symbol
+    strings — it does not carry change_pct / volume_quote and does not
+    accept ``min_quote_volume``. We therefore call the 24h-ticker
+    endpoint directly, filter by quote volume / change %, and sort by
+    24h change.
+    """
+    from cyqnt_trd.data_cli._subprocess import run_binance_cli
+
+    if market == "futures":
+        args = ["futures-usds", "ticker24hr-price-change-statistics"]
+    else:
+        args = ["spot", "ticker24hr"]
+
+    raw = run_binance_cli(args)
+    items = raw if isinstance(raw, list) else []
+
+    def _f(v, default=0.0):
+        try:
+            return float(v) if v is not None else default
+        except (TypeError, ValueError):
+            return default
+
+    rows = []
+    for item in items:
+        sym = item.get("symbol", "")
+        if not sym.endswith("USDT"):
+            continue
+        rows.append({
+            "symbol":             sym,
+            "price":              _f(item.get("lastPrice", item.get("price"))),
+            "change_pct":         _f(item.get("priceChangePercent")),
+            "high_24h":           _f(item.get("highPrice")),
+            "low_24h":            _f(item.get("lowPrice")),
+            "volume_base":        _f(item.get("volume")),
+            "volume_quote":       _f(item.get("quoteVolume")),
+            "trades":             int(item.get("count", 0) or 0),
+            "weighted_avg_price": _f(item.get("weightedAvgPrice")),
+        })
+    if not rows:
         return []
-    df_sorted = df.sort_values("change_pct", ascending=False).head(top_n)
-    return [_df_row_to_ticker(df_sorted.iloc[[i]]) for i in range(len(df_sorted))]
+
+    if min_quote_volume and min_quote_volume > 0:
+        rows = [r for r in rows if r["volume_quote"] >= float(min_quote_volume)]
+    if min_change_pct is not None:
+        rows = [r for r in rows if r["change_pct"] >= float(min_change_pct)]
+
+    rows.sort(key=lambda r: r["change_pct"], reverse=True)
+    return rows[:top_n]
