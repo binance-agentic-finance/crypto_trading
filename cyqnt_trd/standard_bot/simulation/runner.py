@@ -142,7 +142,7 @@ class SnapshotBacktestRunner:
                         position_exit_spec = payload.get("exit_spec")
                         if position_exit_spec:
                             position_exit_spec = self._finalize_exit_prices(
-                                position_exit_spec, execution_price
+                                position_exit_spec, execution_price, side="long"
                             )
                         trade_rows.append(
                             {
@@ -226,7 +226,7 @@ class SnapshotBacktestRunner:
                             position_exit_spec = payload.get("exit_spec")
                             if position_exit_spec:
                                 position_exit_spec = self._finalize_exit_prices(
-                                    position_exit_spec, execution_price
+                                    position_exit_spec, execution_price, side="long"
                                 )
                             trade_rows.append(
                                 {
@@ -368,18 +368,29 @@ class SnapshotBacktestRunner:
 
         Returns (triggered: bool, exit_price: float, reason: str).
         Checks in priority order: stop_loss → take_profit → max_bars.
+
+        Side-aware:
+          Long:  SL triggers when bar_low  <= stop (price drops to stop)
+                 TP triggers when bar_high >= tp   (price rises to TP)
+          Short: SL triggers when bar_high >= stop (price rises to stop)
+                 TP triggers when bar_low  <= tp   (price drops to TP)
         """
-        etype = spec.get("type", "")
+        side = spec.get("side", "long")
 
-        # Check stop loss (intra-bar: bar low touches stop)
         stop_price = spec.get("stop_loss_price")
-        if stop_price is not None and bar_low <= stop_price:
-            return True, stop_price, "stop_loss"
-
-        # Check take profit (intra-bar: bar high touches TP)
         tp_price = spec.get("take_profit_price")
-        if tp_price is not None and bar_high >= tp_price:
-            return True, tp_price, "take_profit"
+
+        if side == "long":
+            if stop_price is not None and bar_low <= stop_price:
+                return True, stop_price, "stop_loss"
+            if tp_price is not None and bar_high >= tp_price:
+                return True, tp_price, "take_profit"
+        else:
+            # Short: stop when price rises, TP when price drops
+            if stop_price is not None and bar_high >= stop_price:
+                return True, stop_price, "stop_loss"
+            if tp_price is not None and bar_low <= tp_price:
+                return True, tp_price, "take_profit"
 
         # Check max_bars
         max_bars = spec.get("max_bars", 9999)
@@ -390,30 +401,38 @@ class SnapshotBacktestRunner:
         return False, 0.0, ""
 
     @staticmethod
-    def _finalize_exit_prices(spec: Dict, fill_price: float) -> Dict:
-        """Recompute absolute stop/TP prices using actual fill price if needed.
+    def _finalize_exit_prices(spec: Dict, fill_price: float, side: str = "long") -> Dict:
+        """Recompute absolute stop/TP prices using actual fill price.
 
-        The plugin pre-computes prices using bar close at signal time, but the
-        actual fill might be slightly different due to slippage. We re-derive
-        from fill price for correctness.
+        Side-aware:
+          Long:  SL = fill × (1 - stop_pct),  TP = fill × (1 + tp_pct)
+          Short: SL = fill × (1 + stop_pct),  TP = fill × (1 - tp_pct)
         """
         spec = dict(spec)  # copy
+        spec["side"] = side
         etype = spec.get("type", "")
 
         if etype == "pct_stop_tp":
             stop_pct = float(spec.get("stop_pct", 0.02))
             tp_pct = float(spec.get("tp_pct", 0.04))
-            spec["stop_loss_price"] = fill_price * (1.0 - stop_pct)
-            spec["take_profit_price"] = fill_price * (1.0 + tp_pct)
+            if side == "long":
+                spec["stop_loss_price"] = fill_price * (1.0 - stop_pct)
+                spec["take_profit_price"] = fill_price * (1.0 + tp_pct)
+            else:  # short
+                spec["stop_loss_price"] = fill_price * (1.0 + stop_pct)
+                spec["take_profit_price"] = fill_price * (1.0 - tp_pct)
 
         elif etype == "atr_stop_tp":
-            # Use atr_at_entry (baked by plugin) but re-derive from fill price
             atr = spec.get("atr_at_entry")
             if atr is not None and atr > 0:
                 stop_mult = float(spec.get("stop_mult", 2.0))
                 tp_mult = float(spec.get("tp_mult", 3.0))
-                spec["stop_loss_price"] = fill_price - stop_mult * atr
-                spec["take_profit_price"] = fill_price + tp_mult * atr
+                if side == "long":
+                    spec["stop_loss_price"] = fill_price - stop_mult * atr
+                    spec["take_profit_price"] = fill_price + tp_mult * atr
+                else:  # short
+                    spec["stop_loss_price"] = fill_price + stop_mult * atr
+                    spec["take_profit_price"] = fill_price - tp_mult * atr
 
         # time_only / ma_cross_exit / opposite_signal: no absolute prices needed
         return spec
