@@ -6,6 +6,111 @@ PyPI 版本變動見 `pyproject.toml` 與 git tag。
 
 ---
 
+## 2026-06-02 — Live Trade Executor (binance-cli) + MA Cross Strategy 整合
+
+### 摘要
+
+新增 **BinanceCliExecutor** — 一個 strategy-agnostic 的 live trade 執行器，
+讓任何透過 `cyqnt_trd.blocks.strategy.register()` 註冊的策略都能從 paper trade
+直接進入 live trade。同時整合 MA cross strategy 作為第一個完整走通
+backtest → paper → live 全路徑的範例策略。
+
+### 新增：Live Executor
+
+`cyqnt_trd/standard_bot/execution/cli_executor.py`：
+
+- **BinanceCliExecutor class** — 監聽 paper daemon 的 `trades.jsonl`，將
+  每筆 paper fill 的 `action` 翻譯成 `binance-cli futures-usds new-order` 真實下單
+- 支援所有 action types：
+  - `open_long` / `open_short` / `close_long` / `close_short`
+  - `flip_to_long` / `flip_to_short`（拆成 close → verify → open 兩步安全執行）
+- **Position reconciliation**：每次下單前查真實倉位，防止重複開倉或空平
+- **Retry with exponential backoff**：失敗自動重試（base 2s, max 3 次）
+- **Audit trail**：每筆 execution 寫入 `executions.jsonl`
+- **Kill switch**：`touch EMERGENCY_STOP` → 取消所有掛單 + 退出
+- **Heartbeat**：每 5 分鐘寫一次 alive log
+- **Sizing 獨立於 paper**：用真實帳戶餘額計算下單量（`min(balance * fraction, max_notional) / price`）
+
+`cyqnt_trd/standard_bot/entrypoints/mvp_live_executor.py`：
+
+- CLI 入口，可以 `python -m cyqnt_trd.standard_bot.entrypoints.mvp_live_executor` 呼叫
+- 參數：`--state-dir`, `--symbol`, `--max-notional`, `--notional-fraction`, `--dry-run`, `--max-retries`, `--poll-interval`
+
+### Live Trade 架構
+
+```
+mvp_paper_daemon (訊號來源，不改)
+    │ writes trades.jsonl
+    ▼
+mvp_live_executor (真實下單)
+    │ reads action → binance-cli futures-usds new-order
+    ▼
+Binance REST API → 撮合引擎
+```
+
+兩個 process 配對運行，訊號一致性由「三條路共用同一個 `make_signals(df)`」保證。
+
+### 關鍵修正：flip action 支援
+
+**問題**：MA cross 等 position-flip 策略的 paper daemon 產生 `flip_to_short` /
+`flip_to_long` action（佔 ~97% 的交易），但舊版 signal_executor 不認識這些
+action 直接 skip。
+
+**驗證**：用 2000 根 1h bars 模擬 paper session，31 筆 fills 中 30 筆是 flip。
+
+**修正**：BinanceCliExecutor 將 flip 拆成兩步：
+1. 先平反向倉位（reduce-only）
+2. 確認成功後再開新方向倉位
+若第一步失敗則不執行第二步（防止裸露風險）。
+
+### MA Cross Strategy 整合
+
+- `strategies/ma_cross_v1.py`：SMA(20) / SMA(60) 金叉死叉策略
+- Backtest 驗證：2000 snapshots, 16 trades (long-only), +3.37% → -1.8%
+- Paper 驗證：2000 bars, 31 fills (bidirectional with flips)
+- Live 驗證：E2E dry-run test 全部 action 正確翻譯成 binance-cli 指令
+
+### 文件更新
+
+- `README.md`：新增 Paper Trade Daemon 和 Live Trade 段落
+- `references/trading-modes.md`：Mode 4 加入技術實作路徑
+
+### 使用方式
+
+```bash
+# Backtest
+python -m cyqnt_trd.standard_bot.entrypoints.mvp_backtest \
+  --engine python --strategy ma_cross_v1 --strategy-module strategies.ma_cross_v1 \
+  --symbol BTCUSDT --interval 1h --market-type futures \
+  --initial-capital 10000 --commission-bps 4 --slippage-bps 2
+
+# Paper trade
+python -m cyqnt_trd.standard_bot.entrypoints.mvp_paper_daemon \
+  --engine python --strategy ma_cross_v1 --strategy-module strategies.ma_cross_v1 \
+  --symbol BTCUSDT --interval 1h --market-type futures \
+  --state-dir ./watcher/MA_CROSS_V1_BTCUSDT_1h
+
+# Live trade (dry-run → real)
+python -m cyqnt_trd.standard_bot.entrypoints.mvp_live_executor \
+  --state-dir ./watcher/MA_CROSS_V1_BTCUSDT_1h \
+  --symbol BTCUSDT --max-notional 200 --dry-run
+```
+
+### 檔案變更清單
+
+| 檔案 | 動作 |
+|------|------|
+| `cyqnt_trd/standard_bot/execution/cli_executor.py` | 新增 |
+| `cyqnt_trd/standard_bot/entrypoints/mvp_live_executor.py` | 新增 |
+| `cyqnt_trd/standard_bot/execution/__init__.py` | 修改（加入 export） |
+| `strategies/__init__.py` | 新增 |
+| `strategies/ma_cross_v1.py` | 新增 |
+| `scripts/run_strategy.py` | 新增 |
+| `README.md` | 修改 |
+| `references/trading-modes.md` | 修改 |
+
+---
+
 ## 2026-05-29 — Paper Trade Exit Management + Scoring/Sizing 擴充 + PyPI 0.1.9.dev6
 
 ### 摘要
