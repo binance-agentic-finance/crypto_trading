@@ -123,6 +123,56 @@ python -m cyqnt_trd.standard_bot.entrypoints.mvp_monitor_http \
   --port 8787
 ```
 
+### Paper Trade Daemon (long-running, for block strategies)
+
+```bash
+python -m cyqnt_trd.standard_bot.entrypoints.mvp_paper_daemon \
+  --engine python \
+  --strategy ma_cross_v1 \
+  --strategy-module strategies.ma_cross_v1 \
+  --symbol BTCUSDT --interval 1h \
+  --market-type futures \
+  --state-dir ./watcher/MA_CROSS_V1_BTCUSDT_1h \
+  --poll-interval 3570 --warm-up-bars 80 \
+  --initial-capital 10000 --fee-bps 4 --slippage-bps 2
+```
+
+### Live Trade (via binance-cli)
+
+Live trade requires **two processes** running in parallel:
+1. Paper daemon (signal source — identical to paper mode)
+2. Live executor (translates paper fills into real binance-cli orders)
+
+```bash
+# Terminal 1: Paper daemon (signal source)
+python -m cyqnt_trd.standard_bot.entrypoints.mvp_paper_daemon \
+  --engine python \
+  --strategy ma_cross_v1 \
+  --strategy-module strategies.ma_cross_v1 \
+  --symbol BTCUSDT --interval 1h \
+  --market-type futures \
+  --state-dir ./watcher/MA_CROSS_V1_BTCUSDT_1h \
+  --poll-interval 3570 --warm-up-bars 80 \
+  --initial-capital 10000 --fee-bps 4 --slippage-bps 2
+
+# Terminal 2: Live executor (dry-run first!)
+python -m cyqnt_trd.standard_bot.entrypoints.mvp_live_executor \
+  --state-dir ./watcher/MA_CROSS_V1_BTCUSDT_1h \
+  --symbol BTCUSDT \
+  --max-notional 200 \
+  --dry-run
+
+# Terminal 2: Live executor (real orders — remove --dry-run)
+python -m cyqnt_trd.standard_bot.entrypoints.mvp_live_executor \
+  --state-dir ./watcher/MA_CROSS_V1_BTCUSDT_1h \
+  --symbol BTCUSDT \
+  --max-notional 200
+```
+
+Emergency stop: `touch ./watcher/MA_CROSS_V1_BTCUSDT_1h/EMERGENCY_STOP`
+
+See [references/trading-modes.md](references/trading-modes.md) for complete live trade documentation.
+
 ---
 
 ## Indicator Library

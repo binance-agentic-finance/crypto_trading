@@ -4,6 +4,7 @@ Execution layer exports for the standard bot architecture.
 
 from .binance_futures_mainnet import BinanceFuturesMainnetBrokerAdapter
 from .binance_futures_testnet import BinanceFuturesTestnetBrokerAdapter
+from .cli_executor import BinanceCliExecutor
 from .idempotency import build_client_tag
 from .interfaces import BrokerAdapter, ExecutionPlanner, RiskRule
 from .paper import PaperBrokerAdapter
@@ -15,6 +16,7 @@ from .rules import (
 )
 
 __all__ = [
+    "BinanceCliExecutor",
     "BinanceFuturesMainnetBrokerAdapter",
     "BinanceFuturesTestnetBrokerAdapter",
     "BrokerAdapter",
