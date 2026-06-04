@@ -173,6 +173,27 @@ Emergency stop: `touch ./watcher/MA_CROSS_V1_BTCUSDT_1h/EMERGENCY_STOP`
 
 See [references/trading-modes.md](references/trading-modes.md) for complete live trade documentation.
 
+### MA Cross Strategy Reference Workspace
+
+A cleaned reference workspace is included under:
+
+`cyqnt_trd/standard_bot/ma_cross_strategy/`
+
+In Binance AI Pro installs, the equivalent path is typically:
+
+`/usr/local/lib/python3.11/dist-packages/cyqnt_trd/standard_bot/ma_cross_strategy/`
+
+This workspace is useful as a concrete example for block-strategy workflows:
+
+- `strategies/ma_cross_v1.py` — SMA 5/20 golden/death cross strategy
+- `scripts/run_strategy.py` — unified launcher for backtest, paper trade, and live trade
+- `scripts/run_paper_daemon.sh` — paper daemon shell entrypoint
+- `scripts/signal_executor.py` — standalone wrapper for `BinanceCliExecutor`
+- `scripts/session_watcher.py` — watcher for fills, live executions, and risk-stop checks
+- `tests/test_strategy_composition.py` — import/register and signal behavior tests
+
+See `cyqnt_trd/standard_bot/ma_cross_strategy/README.md` for the focused usage notes.
+
 ---
 
 ## Indicator Library

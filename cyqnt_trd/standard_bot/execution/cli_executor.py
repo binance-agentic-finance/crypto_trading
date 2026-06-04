@@ -50,6 +50,7 @@ DEFAULT_POLL_SEC = 5
 DEFAULT_MAX_RETRIES = 3
 DEFAULT_RETRY_BASE_SEC = 2.0
 DEFAULT_HEARTBEAT_INTERVAL = 300  # 5 minutes
+EXECUTOR_STATE_FILENAME = "live_executor_state.json"
 
 ALL_KNOWN_ACTIONS = frozenset({
     "open_long", "open_short",
@@ -128,8 +129,10 @@ class BinanceCliExecutor:
         trades_path = state_dir / "trades.jsonl"
         executions_path = state_dir / "executions.jsonl"
         kill_switch_path = state_dir / "EMERGENCY_STOP"
+        executor_state_path = state_dir / EXECUTOR_STATE_FILENAME
         seen_ids: set = set()
         last_heartbeat = time.time()
+        executor_state = self._load_executor_state(executor_state_path)
 
         self._log("═══════════════════════════════════════════════")
         self._log(f"watching {trades_path}")
@@ -180,6 +183,17 @@ class BinanceCliExecutor:
             if not trades_path.exists():
                 continue
 
+            # If we are mid-transition, finish reconciling before consuming
+            # additional paper fills. This keeps live orders sequential and
+            # avoids compounding drift after transient API failures.
+            if self._has_pending_transition(executor_state):
+                executor_state = self._advance_pending_transition(
+                    executor_state, executions_path
+                )
+                self._save_executor_state(executor_state_path, executor_state)
+                if self._has_pending_transition(executor_state):
+                    continue
+
             # Process new fills
             for line in trades_path.read_text().splitlines():
                 if not line.strip():
@@ -200,7 +214,12 @@ class BinanceCliExecutor:
                 self._log(f"fill_id={fill_id[:12]}  action={action}  ts={ts}")
 
                 try:
-                    self.handle_fill(fill, executions_path)
+                    executor_state = self.handle_fill(
+                        fill, executions_path, executor_state
+                    )
+                    self._save_executor_state(executor_state_path, executor_state)
+                    if self._has_pending_transition(executor_state):
+                        break
                 except Exception as e:
                     self._log(f"UNHANDLED ERROR: {e}")
                     traceback.print_exc()
@@ -212,49 +231,58 @@ class BinanceCliExecutor:
                         "error": str(e),
                     })
 
-    def handle_fill(self, fill: Dict[str, Any], executions_path: Path) -> None:
+    def handle_fill(
+        self,
+        fill: Dict[str, Any],
+        executions_path: Path,
+        executor_state: Dict[str, Any],
+    ) -> Dict[str, Any]:
         """
-        Process a single paper fill. Strategy-agnostic — only reads ``action``.
+        Process a single paper fill and update the desired live position.
 
-        Handles all action types including flip (two-step: close + open).
+        Rather than assuming each paper fill maps 1:1 to a fixed list of live
+        orders, we persist a target-direction transition and let the reconcile
+        loop walk the real account toward that target. This makes transient
+        failures (502, timeout, ReduceOnly rejection after drift) recoverable.
         """
         action = fill.get("action", "")
 
-        # Simple actions
-        if action in ("open_long", "open_short", "close_long", "close_short"):
-            # Pre-flight: skip if position already matches
-            if action == "open_long" and self._has_position_direction("long"):
-                self._log(f"SKIP: open_long but already have long position")
-                return
-            if action == "open_short" and self._has_position_direction("short"):
-                self._log(f"SKIP: open_short but already have short position")
-                return
-            self._place_single_order(action, executions_path)
-
-        # Flip actions — decompose into close + open
-        elif action == "flip_to_long":
-            self._log("FLIP: close_short → open_long")
-            close_result = self._place_single_order("close_short", executions_path)
-            if close_result.get("status") not in ("failed", "skipped"):
-                time.sleep(1)  # let exchange settle
-                self._place_single_order("open_long", executions_path)
-            else:
-                self._log("ABORT flip: close_short failed/skipped, won't open_long")
-
-        elif action == "flip_to_short":
-            self._log("FLIP: close_long → open_short")
-            close_result = self._place_single_order("close_long", executions_path)
-            if close_result.get("status") not in ("failed", "skipped"):
-                time.sleep(1)
-                self._place_single_order("open_short", executions_path)
-            else:
-                self._log("ABORT flip: close_long failed/skipped, won't open_short")
-
-        elif action == "rebalance":
+        if action == "rebalance":
             self._log("REBALANCE: not implemented (should not occur in position-flip strategies)")
+            return executor_state
 
-        else:
+        if action not in ALL_KNOWN_ACTIONS:
             self._log(f"UNKNOWN action={action!r}, skip")
+            return executor_state
+
+        target_direction = self._target_direction_for_action(action)
+        if target_direction is None:
+            self._log(f"UNKNOWN target direction for action={action!r}, skip")
+            return executor_state
+
+        transition = {
+            "origin_fill_id": fill.get("fill_id", ""),
+            "source_action": action,
+            "target_direction": target_direction,
+            "created_at": _now_iso(),
+            "updated_at": _now_iso(),
+            "attempt_count": 0,
+            "last_attempt_action": None,
+            "last_attempt_at": None,
+            "last_error": None,
+            "last_observed_direction": self._get_position_direction(),
+        }
+        executor_state["pending_transition"] = transition
+        self._log(
+            "QUEUE transition:"
+            f" action={action} target={target_direction}"
+            f" actual={transition['last_observed_direction']}"
+        )
+        return self._advance_pending_transition(
+            executor_state,
+            executions_path,
+            use_cached_position=True,
+        )
 
     # ──────────────────────────────────────────────────────────────────────────
     # Order placement
@@ -363,6 +391,108 @@ class BinanceCliExecutor:
         _append_jsonl(executions_path, record)
         return record
 
+    def _advance_pending_transition(
+        self,
+        executor_state: Dict[str, Any],
+        executions_path: Path,
+        *,
+        use_cached_position: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Move the real account one or two safe steps toward the pending target.
+
+        The executor never blindly assumes the previous order succeeded. Each
+        pass re-reads the real account position and chooses the next atomic
+        action needed to reach ``target_direction``.
+        """
+        transition = executor_state.get("pending_transition")
+        if not transition:
+            return executor_state
+
+        for _ in range(2):
+            transition = executor_state.get("pending_transition")
+            if not transition:
+                return executor_state
+
+            target_direction = transition["target_direction"]
+            if use_cached_position and transition.get("last_observed_direction") in {
+                "long",
+                "short",
+                "flat",
+            }:
+                actual_direction = str(transition["last_observed_direction"])
+            else:
+                actual_direction = self._get_position_direction()
+            transition["updated_at"] = _now_iso()
+            transition["last_observed_direction"] = actual_direction
+
+            if actual_direction == target_direction:
+                self._log(
+                    "RECONCILE OK:"
+                    f" target={target_direction} actual={actual_direction}"
+                    f" source={transition.get('source_action')}"
+                )
+                executor_state["pending_transition"] = None
+                return executor_state
+
+            next_action = self._next_action_for(actual_direction, target_direction)
+            if next_action is None:
+                transition["last_error"] = (
+                    f"unsupported transition actual={actual_direction} "
+                    f"target={target_direction}"
+                )
+                executor_state["pending_transition"] = transition
+                return executor_state
+
+            transition["attempt_count"] = int(transition.get("attempt_count", 0)) + 1
+            transition["last_attempt_action"] = next_action
+            transition["last_attempt_at"] = _now_iso()
+            self._log(
+                "RECONCILE STEP:"
+                f" actual={actual_direction} target={target_direction}"
+                f" -> {next_action}"
+            )
+            result = self._place_single_order(next_action, executions_path)
+            status = result.get("status")
+
+            if status in ("failed", "skipped"):
+                transition["last_error"] = (
+                    result.get("error")
+                    or result.get("reason")
+                    or str(status)
+                )
+                executor_state["pending_transition"] = transition
+                return executor_state
+
+            transition["last_error"] = None
+            if self.dry_run:
+                actual_after = target_direction
+            else:
+                time.sleep(1)
+                actual_after = self._get_position_direction()
+
+            transition["last_observed_direction"] = actual_after
+            executor_state["pending_transition"] = transition
+
+            if actual_after == target_direction:
+                self._log(
+                    "RECONCILE OK:"
+                    f" target={target_direction} actual={actual_after}"
+                    f" source={transition.get('source_action')}"
+                )
+                executor_state["pending_transition"] = None
+                return executor_state
+
+            if actual_after == actual_direction:
+                transition["last_error"] = (
+                    f"{next_action} acknowledged but actual_position stayed "
+                    f"{actual_after}"
+                )
+                executor_state["pending_transition"] = transition
+                return executor_state
+
+        return executor_state
+
     # ──────────────────────────────────────────────────────────────────────────
     # binance-cli interface
     # ──────────────────────────────────────────────────────────────────────────
@@ -470,6 +600,68 @@ class BinanceCliExecutor:
         if direction == "short":
             return amt < 0
         return False
+
+    def _get_position_direction(self) -> str:
+        if self.dry_run:
+            return "flat"
+        pos = self._get_position()
+        if pos is None:
+            return "flat"
+        amt = float(pos.get("positionAmt", 0))
+        if amt > 0:
+            return "long"
+        if amt < 0:
+            return "short"
+        return "flat"
+
+    @staticmethod
+    def _target_direction_for_action(action: str) -> Optional[str]:
+        mapping = {
+            "open_long": "long",
+            "flip_to_long": "long",
+            "open_short": "short",
+            "flip_to_short": "short",
+            "close_long": "flat",
+            "close_short": "flat",
+        }
+        return mapping.get(action)
+
+    @staticmethod
+    def _next_action_for(actual_direction: str, target_direction: str) -> Optional[str]:
+        transitions = {
+            ("flat", "long"): "open_long",
+            ("flat", "short"): "open_short",
+            ("long", "flat"): "close_long",
+            ("short", "flat"): "close_short",
+            ("long", "short"): "close_long",
+            ("short", "long"): "close_short",
+        }
+        return transitions.get((actual_direction, target_direction))
+
+    @staticmethod
+    def _default_executor_state() -> Dict[str, Any]:
+        return {
+            "schema_version": 1,
+            "pending_transition": None,
+        }
+
+    def _load_executor_state(self, path: Path) -> Dict[str, Any]:
+        if not path.exists():
+            return self._default_executor_state()
+        try:
+            payload = json.loads(path.read_text())
+        except Exception:
+            return self._default_executor_state()
+        state = self._default_executor_state()
+        state.update(payload if isinstance(payload, dict) else {})
+        return state
+
+    def _save_executor_state(self, path: Path, state: Dict[str, Any]) -> None:
+        path.write_text(json.dumps(state, ensure_ascii=False, indent=2))
+
+    @staticmethod
+    def _has_pending_transition(state: Dict[str, Any]) -> bool:
+        return bool(state.get("pending_transition"))
 
     # ──────────────────────────────────────────────────────────────────────────
     # Utilities

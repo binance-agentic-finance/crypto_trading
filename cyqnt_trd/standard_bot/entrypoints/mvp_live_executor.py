@@ -44,10 +44,16 @@ Emergency stop::
 from __future__ import annotations
 
 import argparse
+import json
+import shutil
 import sys
+import time
 from pathlib import Path
 
-from ..execution.cli_executor import BinanceCliExecutor
+from ..execution.cli_executor import (
+    EXECUTOR_STATE_FILENAME,
+    BinanceCliExecutor,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -83,10 +89,136 @@ def build_parser() -> argparse.ArgumentParser:
         help="Max retry attempts per order (default: 3)",
     )
     parser.add_argument(
+        "--retry-base-sec", type=float, default=2.0,
+        help="Base seconds for exponential retry backoff (default: 2.0)",
+    )
+    parser.add_argument(
         "--poll-interval", type=int, default=5,
         help="Seconds between trades.jsonl polls (default: 5)",
     )
+    parser.add_argument(
+        "--heartbeat-interval", type=int, default=300,
+        help="Seconds between heartbeat logs while running (default: 300)",
+    )
+    parser.add_argument(
+        "--reconcile-only", action="store_true",
+        help=(
+            "Do not consume new paper fills. Only resume and reconcile any "
+            "pending live transition already stored in live_executor_state.json."
+        ),
+    )
+    parser.add_argument(
+        "--max-reconcile-cycles", type=int, default=50,
+        help="Maximum reconcile cycles in --reconcile-only mode (default: 50)",
+    )
     return parser
+
+
+def _executor_state_path(state_dir: Path) -> Path:
+    return state_dir / EXECUTOR_STATE_FILENAME
+
+
+def _load_pending_transition(state_dir: Path) -> dict | None:
+    state_path = _executor_state_path(state_dir)
+    if not state_path.exists():
+        return None
+    try:
+        payload = json.loads(state_path.read_text())
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    pending = payload.get("pending_transition")
+    return pending if isinstance(pending, dict) else None
+
+
+def _format_pending_transition(pending: dict | None) -> str:
+    if not pending:
+        return "none"
+    return (
+        f"target={pending.get('target_direction')} "
+        f"source={pending.get('source_action')} "
+        f"attempts={pending.get('attempt_count', 0)} "
+        f"last_action={pending.get('last_attempt_action')} "
+        f"last_error={pending.get('last_error') or '-'}"
+    )
+
+
+def _run_preflight(state_dir: Path, executor: BinanceCliExecutor) -> dict:
+    trades_path = state_dir / "trades.jsonl"
+    state_path = state_dir / "state.json"
+
+    if not trades_path.exists():
+        raise FileNotFoundError(
+            f"missing trades.jsonl in state-dir: {trades_path}. Start paper daemon first."
+        )
+    if not state_path.exists():
+        raise FileNotFoundError(
+            f"missing state.json in state-dir: {state_path}. Start paper daemon first."
+        )
+    if shutil.which("binance-cli") is None:
+        raise RuntimeError("binance-cli not found on PATH")
+
+    balance = executor._get_usdt_balance()
+    price = executor._get_current_price()
+    step = executor._get_step_size()
+    notional = min(balance * executor.notional_fraction, executor.max_notional)
+    qty = executor._round_step(notional / price, step)
+    actual_direction = executor._get_position_direction()
+    pending = _load_pending_transition(state_dir)
+
+    if qty <= 0:
+        raise RuntimeError(
+            "configured max_notional rounds to zero quantity after step-size "
+            f"constraints for {executor.symbol}; increase max_notional or use another symbol"
+        )
+
+    return {
+        "balance": balance,
+        "price": price,
+        "step_size": step,
+        "preview_notional": notional,
+        "preview_qty": qty,
+        "actual_direction": actual_direction,
+        "pending_transition": pending,
+    }
+
+
+def _reconcile_only(
+    state_dir: Path,
+    executor: BinanceCliExecutor,
+    *,
+    max_cycles: int,
+    sleep_sec: int,
+) -> int:
+    executions_path = state_dir / "executions.jsonl"
+    executor_state_path = _executor_state_path(state_dir)
+    executor_state = executor._load_executor_state(executor_state_path)
+
+    if not executor._has_pending_transition(executor_state):
+        print("[live-executor] reconcile-only: no pending transition found")
+        return 0
+
+    print(
+        "[live-executor] reconcile-only: resuming "
+        f"{_format_pending_transition(executor_state.get('pending_transition'))}"
+    )
+    for cycle in range(1, max_cycles + 1):
+        executor_state = executor._advance_pending_transition(
+            executor_state, executions_path
+        )
+        executor._save_executor_state(executor_state_path, executor_state)
+        if not executor._has_pending_transition(executor_state):
+            print(f"[live-executor] reconcile-only: completed in {cycle} cycle(s)")
+            return 0
+        time.sleep(sleep_sec)
+
+    pending = executor_state.get("pending_transition")
+    print(
+        "[live-executor] reconcile-only: still pending after "
+        f"{max_cycles} cycles -> {_format_pending_transition(pending)}"
+    )
+    return 2
 
 
 def main() -> int:
@@ -104,7 +236,29 @@ def main() -> int:
         notional_fraction=args.notional_fraction,
         dry_run=args.dry_run,
         max_retries=args.max_retries,
+        retry_base_sec=args.retry_base_sec,
         poll_sec=args.poll_interval,
+        heartbeat_interval=args.heartbeat_interval,
+    )
+
+    try:
+        summary = _run_preflight(state_dir, executor)
+    except Exception as e:
+        print(f"[live-executor] PRECHECK FAILED: {e}")
+        return 1
+
+    print(
+        "[live-executor] preflight ok:"
+        f" balance≈{summary['balance']:.4f} USDT"
+        f" price≈{summary['price']:.4f}"
+        f" step={summary['step_size']}"
+        f" preview_qty={summary['preview_qty']}"
+        f" preview_notional≈{summary['preview_notional']:.4f}"
+        f" actual_position={summary['actual_direction']}"
+    )
+    print(
+        "[live-executor] pending transition:"
+        f" {_format_pending_transition(summary['pending_transition'])}"
     )
 
     if args.dry_run:
@@ -113,6 +267,14 @@ def main() -> int:
         print(f"[live-executor] ⚠️  LIVE mode: real orders on {args.symbol}")
         print(f"[live-executor] ⚠️  max_notional={args.max_notional} USDT")
         print(f"[live-executor] ⚠️  Emergency stop: touch {state_dir}/EMERGENCY_STOP")
+
+    if args.reconcile_only:
+        return _reconcile_only(
+            state_dir,
+            executor,
+            max_cycles=args.max_reconcile_cycles,
+            sleep_sec=args.poll_interval,
+        )
 
     try:
         executor.watch_trades(state_dir=state_dir)

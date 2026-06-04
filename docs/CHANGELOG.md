@@ -6,6 +6,162 @@ PyPI 版本變動見 `pyproject.toml` 與 git tag。
 
 ---
 
+## 2026-06-04 — PyPI 0.1.11：Live Trade Recovery 強化 + OpenClaw / Docker 驗證 + MA Cross Workspace
+
+### 摘要
+
+本次發版聚焦在兩件事：
+
+1. **補強 live trade 安全恢復機制**，降低 Binance Demo / futures API 在 `502`、timeout、
+   reduce-only reject 等情況下造成 paper/live 倉位漂移的風險。
+2. **整理一套可直接給 OpenClaw / Binance AI Pro 使用的 MA Cross Strategy workspace**，
+   讓策略能從 blocks 組成、回測、paper trade、watcher、到 `binance-cli` live trade
+   做完整驗證。
+
+此版本對應：
+
+- `pyproject.toml` → `version = "0.1.11"`
+
+### Live Trade：從一次性下單改為可恢復的 transition/reconcile 流程
+
+`cyqnt_trd/standard_bot/execution/cli_executor.py`
+
+原本的 live executor 對 `flip_to_long` / `flip_to_short` 採一次性執行：
+
+1. 先平舊倉
+2. 成功後再開反向新倉
+
+這種做法在交易所端短暫失敗時會偏安全，但容易留下：
+
+- paper 已翻倉
+- live 還停在舊方向
+- 後續沒有自動補完 transition
+
+本次補上：
+
+- **`live_executor_state.json`**：持久化未完成的 live transition 狀態
+- **pending transition / reconcile loop**
+  - 每輪先查真實帳戶方向
+  - 再決定下一個原子動作（`close_long` / `open_short` 等）
+  - 若未達 `desired_position`，下輪繼續補
+- **target-direction based recovery**
+  - 不再只假設「上一筆指令成功」
+  - 改成持續把 `actual_position` 拉回 `target_direction`
+- **drift-aware flip recovery**
+  - 若 `close_*` 因 `502` / timeout 未完成，不會默默放棄
+  - 若帳戶其實已經 flat，會直接補正確的 `open_*`
+
+這讓 live executor 更接近「長時間自動交易的狀態機」，而不是單純的事件觸發器。
+
+### Live Trade 安全性改善
+
+這次的目標不是讓 executor 更激進，而是讓它在錯誤情況下**更保守但更能恢復一致性**：
+
+- **不因平倉失敗就貿然開反向倉**
+- **保留 pending 狀態，等待下一輪再次對帳**
+- **避免 paper / live 因單次 API 異常長期失去同步**
+
+這對廣大用戶尤其重要，因為 live trade 執行正確性比單次回測結果更關鍵。
+
+### mvp_live_executor：前置檢查、恢復模式、預設值補強
+
+`cyqnt_trd/standard_bot/entrypoints/mvp_live_executor.py`
+
+入口層新增：
+
+- **preflight checks**
+  - `state.json` / `trades.jsonl` 是否存在
+  - `binance-cli` 是否可用
+  - futures 帳戶是否可讀
+  - `max_notional` 是否會因 step size round 成 0
+- **`--reconcile-only` 模式**
+  - 只做 live transition 恢復
+  - 不消費新的 paper fills
+  - 方便在 OpenClaw / watcher / operator 發現 drift 後做補正
+- **可調整的執行參數**
+  - `--retry-base-sec`
+  - `--heartbeat-interval`
+  - `--max-reconcile-cycles`
+- **更清楚的啟動摘要**
+  - 顯示可用餘額、預估下單量、真實倉位、pending transition 狀態
+
+這讓 `mvp_live_executor` 更適合作為正式長跑的 entrypoint，而不只是一次性測試工具。
+
+### 新增測試：覆蓋 502 / drift recovery 與 preflight
+
+新增測試：
+
+- `tests/standard_bot/test_cli_executor_recovery.py`
+- `tests/standard_bot/test_mvp_live_executor.py`
+
+覆蓋場景包括：
+
+- `flip_to_short` 遇到 `502` 後，pending transition 仍被保留
+- 下輪先 `close_*` 再 `open_*`，完成 flip recovery
+- 帳戶已 flat 時，不再重複 reduce-only close，直接補 `open_*`
+- preflight 檢查缺檔、下單量 round-to-zero、reconcile-only 流程
+
+### MA Cross Strategy Workspace：提供給 OpenClaw / Binance AI Pro 的完整範例
+
+新增 workspace：
+
+- `cyqnt_trd/standard_bot/ma_cross_strategy/`
+
+內容包括：
+
+- `strategies/ma_cross_v1.py`
+- `strategies/ma_cross_validation_fast.py`
+- `strategies/bar_direction_validation.py`
+- `scripts/run_strategy.py`
+- `scripts/run_paper_daemon.sh`
+- `scripts/signal_executor.py`
+- `scripts/session_watcher.py`
+- `tests/test_strategy_composition.py`
+- `README.md`
+
+這套 workspace 的設計目標是：
+
+- 直接讓 OpenClaw 用外部腳本調用 `cyqnt_trd`
+- 不需要改套件核心即可完成驗證
+- 支援 backtest / paper / live / watcher 全流程
+
+### OpenClaw 驗證友善設計
+
+為了讓 Docker OpenClaw / Binance AI Pro 更順利使用，這次的範例與入口腳本特別強調：
+
+- **`cyqnt_trd` 視為 readonly 套件**
+- **透過 `python -m cyqnt_trd...` 與外部 launcher 調用**
+- **不依賴 `setup_env`**
+- **live trade 直接走 `binance-cli`**
+- **watcher 可以從 template 衍生 session runtime，回報 fills / risk / stop**
+
+### MA Cross 驗證預設：ETHUSDT + 1m
+
+為了讓 paper / live / watcher 驗證在短時間內更容易觀察到成交：
+
+- 預設標的改為 `ETHUSDT`
+- 預設策略週期改為 `1m`
+
+這使得 OpenClaw 在 Docker 內測試時，更容易：
+
+- 快速產生成交
+- 檢查 paper/live 是否同源
+- 驗證 watcher 是否能即時通知
+
+### 版本定位
+
+`0.1.11` 可以視為：
+
+- `0.1.9.dev6 ~ dev7` 的 paper / exit / atomic compat 能力之上
+- 補上更完整的 **live trade 安全恢復**
+- 加入可供 OpenClaw 實際操作的 **workspace / launcher / watcher 範例**
+
+也就是讓 `cyqnt_trd` 更接近：
+
+**「可被 agent 安全調用、可長時間運行、可監控、可恢復」的交易框架。**
+
+---
+
 ## 2026-06-02 — Live Trade Executor (binance-cli) + MA Cross Strategy 整合
 
 ### 摘要
