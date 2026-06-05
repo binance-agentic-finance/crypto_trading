@@ -112,34 +112,23 @@ def _check_exit_long(
     bar_low: float,
     bar_close: float,
     atr_at_entry: float,
-    long_sig_prev: bool,
-    short_sig_prev: bool,
+    opposite_signal: bool,
     ma_val: Optional[float],
     exit_cfg: dict,
 ) -> Tuple[bool, float, str]:
-    """Return (should_exit, exit_price, reason)."""
-    etype = exit_cfg["type"]
+    """Return (should_exit, exit_price, reason) for a long position.
+
+    Unified exit priority (first hit wins):
+        1. Stop Loss      — intra-bar, fill at stop price (pct_stop_tp / atr_stop_tp)
+        2. Take Profit    — intra-bar, fill at tp price   (pct_stop_tp / atr_stop_tp)
+        3. MA cross       — bar close,  fill at next-bar open (ma_cross_exit only)
+        4. Opposite signal — bar close, fill at next-bar open (always checked, all types)
+        5. max_bars       — bar close,  fill at next-bar open (timeout)
+    """
+    etype = exit_cfg.get("type", "opposite_signal")
     max_bars = int(exit_cfg.get("max_bars", 9999))
 
-    if etype == "time_only":
-        if i - entry_idx >= max_bars:
-            return True, bar_open, "max_bars"
-        return False, 0.0, ""
-
-    if etype == "opposite_signal":
-        if short_sig_prev:
-            return True, bar_open, "opposite_signal"
-        if i - entry_idx >= max_bars:
-            return True, bar_open, "max_bars"
-        return False, 0.0, ""
-
-    if etype == "ma_cross_exit":
-        if ma_val is not None and bar_close < ma_val:
-            return True, bar_open, "ma_cross"
-        if i - entry_idx >= max_bars:
-            return True, bar_open, "max_bars"
-        return False, 0.0, ""
-
+    # Priority 1 & 2: Stop Loss / Take Profit (intra-bar) — only when configured
     if etype == "pct_stop_tp":
         stop_pct = float(exit_cfg.get("stop_pct", 0.02))
         tp_pct = float(exit_cfg.get("tp_pct", 0.04))
@@ -149,26 +138,29 @@ def _check_exit_long(
             return True, stop_price, "stop_loss"
         if bar_high >= tp_price:
             return True, tp_price, "take_profit"
-        if i - entry_idx >= max_bars:
-            return True, bar_open, "max_bars"
-        return False, 0.0, ""
-
-    if etype == "atr_stop_tp":
+    elif etype == "atr_stop_tp":
         stop_mult = float(exit_cfg.get("stop_mult", 2.0))
         tp_mult = float(exit_cfg.get("tp_mult", 3.0))
-        if atr_at_entry <= 0 or math.isnan(atr_at_entry):
-            if i - entry_idx >= max_bars:
-                return True, bar_open, "max_bars"
-            return False, 0.0, ""
-        stop_price = entry_price - stop_mult * atr_at_entry
-        tp_price = entry_price + tp_mult * atr_at_entry
-        if bar_low <= stop_price:
-            return True, stop_price, "stop_loss"
-        if bar_high >= tp_price:
-            return True, tp_price, "take_profit"
-        if i - entry_idx >= max_bars:
-            return True, bar_open, "max_bars"
-        return False, 0.0, ""
+        if atr_at_entry > 0 and not math.isnan(atr_at_entry):
+            stop_price = entry_price - stop_mult * atr_at_entry
+            tp_price = entry_price + tp_mult * atr_at_entry
+            if bar_low <= stop_price:
+                return True, stop_price, "stop_loss"
+            if bar_high >= tp_price:
+                return True, tp_price, "take_profit"
+
+    # Priority 3: MA cross (bar close) — only when type=ma_cross_exit
+    if etype == "ma_cross_exit":
+        if ma_val is not None and bar_close < ma_val:
+            return True, bar_open, "ma_cross"
+
+    # Priority 4: Opposite signal (bar close) — checked for ALL exit types
+    if opposite_signal:
+        return True, bar_open, "opposite_signal"
+
+    # Priority 5: max_bars timeout (bar close)
+    if i - entry_idx >= max_bars:
+        return True, bar_open, "max_bars"
 
     return False, 0.0, ""
 
@@ -183,63 +175,50 @@ def _check_exit_short(
     bar_low: float,
     bar_close: float,
     atr_at_entry: float,
-    long_sig_prev: bool,
-    short_sig_prev: bool,
+    opposite_signal: bool,
     ma_val: Optional[float],
     exit_cfg: dict,
 ) -> Tuple[bool, float, str]:
-    """Return (should_exit, exit_price, reason). Short side-aware."""
-    etype = exit_cfg["type"]
+    """Return (should_exit, exit_price, reason) for a short position.
+
+    Same priority as long, with side-aware SL/TP and MA cross direction.
+    """
+    etype = exit_cfg.get("type", "opposite_signal")
     max_bars = int(exit_cfg.get("max_bars", 9999))
 
-    if etype == "time_only":
-        if i - entry_idx >= max_bars:
-            return True, bar_open, "max_bars"
-        return False, 0.0, ""
-
-    if etype == "opposite_signal":
-        if long_sig_prev:
-            return True, bar_open, "opposite_signal"
-        if i - entry_idx >= max_bars:
-            return True, bar_open, "max_bars"
-        return False, 0.0, ""
-
-    if etype == "ma_cross_exit":
-        if ma_val is not None and bar_close > ma_val:
-            return True, bar_open, "ma_cross"
-        if i - entry_idx >= max_bars:
-            return True, bar_open, "max_bars"
-        return False, 0.0, ""
-
+    # Priority 1 & 2: Stop Loss / Take Profit (intra-bar)
     if etype == "pct_stop_tp":
         stop_pct = float(exit_cfg.get("stop_pct", 0.02))
         tp_pct = float(exit_cfg.get("tp_pct", 0.04))
-        stop_price = entry_price * (1.0 + stop_pct)  # short: stop above
-        tp_price = entry_price * (1.0 - tp_pct)      # short: TP below
+        stop_price = entry_price * (1.0 + stop_pct)  # short: stop above entry
+        tp_price = entry_price * (1.0 - tp_pct)      # short: TP below entry
         if bar_high >= stop_price:
             return True, stop_price, "stop_loss"
         if bar_low <= tp_price:
             return True, tp_price, "take_profit"
-        if i - entry_idx >= max_bars:
-            return True, bar_open, "max_bars"
-        return False, 0.0, ""
-
-    if etype == "atr_stop_tp":
+    elif etype == "atr_stop_tp":
         stop_mult = float(exit_cfg.get("stop_mult", 2.0))
         tp_mult = float(exit_cfg.get("tp_mult", 3.0))
-        if atr_at_entry <= 0 or math.isnan(atr_at_entry):
-            if i - entry_idx >= max_bars:
-                return True, bar_open, "max_bars"
-            return False, 0.0, ""
-        stop_price = entry_price + stop_mult * atr_at_entry  # short: stop above
-        tp_price = entry_price - tp_mult * atr_at_entry      # short: TP below
-        if bar_high >= stop_price:
-            return True, stop_price, "stop_loss"
-        if bar_low <= tp_price:
-            return True, tp_price, "take_profit"
-        if i - entry_idx >= max_bars:
-            return True, bar_open, "max_bars"
-        return False, 0.0, ""
+        if atr_at_entry > 0 and not math.isnan(atr_at_entry):
+            stop_price = entry_price + stop_mult * atr_at_entry  # short: stop above
+            tp_price = entry_price - tp_mult * atr_at_entry      # short: TP below
+            if bar_high >= stop_price:
+                return True, stop_price, "stop_loss"
+            if bar_low <= tp_price:
+                return True, tp_price, "take_profit"
+
+    # Priority 3: MA cross (bar close) — short exits when close > MA
+    if etype == "ma_cross_exit":
+        if ma_val is not None and bar_close > ma_val:
+            return True, bar_open, "ma_cross"
+
+    # Priority 4: Opposite signal (bar close) — checked for ALL exit types
+    if opposite_signal:
+        return True, bar_open, "opposite_signal"
+
+    # Priority 5: max_bars timeout
+    if i - entry_idx >= max_bars:
+        return True, bar_open, "max_bars"
 
     return False, 0.0, ""
 
@@ -257,6 +236,7 @@ def run_vectorized_backtest(
     slippage_bps: float = 2.0,
     initial_capital: float = 10_000.0,
     record_trades: bool = True,
+    long_only: bool = False,
 ) -> VectorizedBacktestResult:
     """Run a single vectorized backtest.
 
@@ -280,6 +260,9 @@ def run_vectorized_backtest(
         Starting equity (default 10000).
     record_trades : bool
         If True, record individual trades in result.trades.
+    long_only : bool
+        If True, short signals can only close long positions (spot market behavior).
+        Short positions are never opened. Default False (futures: long + short).
 
     Returns
     -------
@@ -318,6 +301,12 @@ def run_vectorized_backtest(
     fee_rate = fee_bps / 10_000.0
     slip_rate = slippage_bps / 10_000.0
 
+    # Flip vs close-only: when exit_cfg is opposite_signal (or None default),
+    # an exit at bar i may be followed by an entry on the same bar (flip).
+    # When exit_cfg is anything else (pct_stop_tp / atr_stop_tp / time_only /
+    # ma_cross_exit), the engine must close-only — no re-entry on the same bar.
+    exit_allows_flip = (exit_cfg.get("type", "opposite_signal") == "opposite_signal")
+
     # ── Step 3: Position loop (lightweight numpy) ─────────────────────
     pos = 0  # 0=flat, 1=long, -1=short
     entry_price = 0.0
@@ -341,13 +330,15 @@ def run_vectorized_backtest(
         s_prev = bool(short_sig[i - 1]) if i > 0 else False
         ma_val = float(ma_arr[i]) if ma_arr is not None and not math.isnan(ma_arr[i]) else None
 
+        exited_this_bar = False
+
         # ── Exit check ────────────────────────────────────────────────
         if pos == 1:
             should_exit, ex_px, reason = _check_exit_long(
                 i=i, entry_price=entry_price, entry_idx=entry_idx,
                 bar_open=bar_o, bar_high=bar_h, bar_low=bar_l, bar_close=bar_c,
-                atr_at_entry=atr_at_entry, long_sig_prev=l_prev,
-                short_sig_prev=s_prev, ma_val=ma_val, exit_cfg=exit_cfg,
+                atr_at_entry=atr_at_entry, opposite_signal=s_prev,
+                ma_val=ma_val, exit_cfg=exit_cfg,
             )
             if should_exit:
                 fill_px = ex_px * (1.0 - slip_rate)
@@ -364,13 +355,14 @@ def run_vectorized_backtest(
                         "reason": reason,
                     })
                 pos = 0
+                exited_this_bar = True
 
         elif pos == -1:
             should_exit, ex_px, reason = _check_exit_short(
                 i=i, entry_price=entry_price, entry_idx=entry_idx,
                 bar_open=bar_o, bar_high=bar_h, bar_low=bar_l, bar_close=bar_c,
-                atr_at_entry=atr_at_entry, long_sig_prev=l_prev,
-                short_sig_prev=s_prev, ma_val=ma_val, exit_cfg=exit_cfg,
+                atr_at_entry=atr_at_entry, opposite_signal=l_prev,
+                ma_val=ma_val, exit_cfg=exit_cfg,
             )
             if should_exit:
                 fill_px = ex_px * (1.0 + slip_rate)
@@ -387,16 +379,20 @@ def run_vectorized_backtest(
                         "reason": reason,
                     })
                 pos = 0
+                exited_this_bar = True
 
         # ── Entry (signal on bar i-1 → fill at bar i open) ───────────
-        if pos == 0 and i > 0:
+        # Close-only: if we just exited under a non-opposite_signal exit_cfg,
+        # skip re-entry on the same bar — wait for the next bar.
+        can_enter = (pos == 0 and i > 0 and not (exited_this_bar and not exit_allows_flip))
+        if can_enter:
             if long_sig[i - 1]:
                 pos = 1
                 entry_price = bar_o * (1.0 + slip_rate)
                 entry_idx = i
                 atr_at_entry = atr_arr[i - 1] if not math.isnan(atr_arr[i - 1]) else 0.0
                 equity -= equity * size * fee_rate  # entry fee
-            elif short_sig[i - 1]:
+            elif short_sig[i - 1] and not long_only:
                 pos = -1
                 entry_price = bar_o * (1.0 - slip_rate)
                 entry_idx = i
@@ -470,6 +466,7 @@ def run_vectorized_batch(
     fee_bps: float = 4.0,
     slippage_bps: float = 2.0,
     initial_capital: float = 10_000.0,
+    long_only: bool = False,
 ) -> List[Dict[str, Any]]:
     """Run multiple strategies on the same data in batch.
 
@@ -483,6 +480,7 @@ def run_vectorized_batch(
             - "signal_fn": callable (make_signals)
             - "exit_cfg": dict (optional, defaults to opposite_signal)
             - "size": float (optional, default 0.5)
+            - "long_only": bool (optional, overrides batch-level long_only)
 
     Returns
     -------
@@ -507,6 +505,7 @@ def run_vectorized_batch(
             slippage_bps=slippage_bps,
             initial_capital=initial_capital,
             record_trades=False,
+            long_only=spec.get("long_only", long_only),
         )
         entry = {"strategy_id": strategy_id, **result.to_dict()}
         results.append(entry)

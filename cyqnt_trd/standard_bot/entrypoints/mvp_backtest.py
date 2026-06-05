@@ -82,6 +82,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-json", default=None)
     parser.add_argument("--download-derivatives-missing", action="store_true")
     parser.add_argument("--record-liquidations-seconds", type=int, default=0)
+    parser.add_argument("--long-only", default=None, action="store_true",
+                        help="Only open long positions (no shorts). Auto-detected from "
+                             "--market-type if not specified (spot=long_only, futures=both).")
     return add_historical_data_arguments(parser)
 
 
@@ -157,6 +160,13 @@ def main() -> int:
             timeframe_ms=timeframe_to_ms(args.interval),
             instrument_ids=[args.symbol.upper()],
         )
+
+    # Resolve long_only: explicit flag > auto-detect from market_type
+    if args.long_only is None:
+        long_only = (args.market_type == "spot")
+    else:
+        long_only = bool(args.long_only)
+
     policy = AlignmentPolicy(policy_id="bar_close_v1", primary_timeframe=args.interval)
     market_query = build_market_query(args)
     market_bundle = load_market_bundle(args, market_query)
@@ -226,6 +236,7 @@ def main() -> int:
             "execution_assumption": "signal_at_bar_close_fill_next_bar_open",
             "execution_model": args.execution_model,
             "market_type": args.market_type,
+            "long_only": long_only,
             "contract_multiplier": (
                 args.contract_multiplier
                 if args.contract_multiplier is not None

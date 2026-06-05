@@ -159,9 +159,36 @@ class SnapshotBacktestRunner:
                     pending_entry_signal = None
 
             # =============================================================
-            # Step 2: Check exit_spec (stop/TP/max_bars) on current bar
+            # Step 2: Check exit_spec (stop/TP/MA cross/opposite/max_bars)
             # =============================================================
+            exited_this_bar = False
+            # Track exit_cfg type for close-only enforcement in Step 3.
+            exit_cfg_type = (position_exit_spec or {}).get("type", "opposite_signal")
+
             if position_qty > 0 and position_exit_spec is not None:
+                # Detect opposite signal in this bar's batch (SELL while long).
+                has_sell_signal = any(
+                    s.kind == SignalKind.TRADE and s.side == TradeSide.SELL
+                    for s in step_result.batch.signals
+                )
+
+                # Pre-compute MA value at this bar for ma_cross_exit.
+                ma_value: Optional[float] = None
+                if exit_cfg_type == "ma_cross_exit":
+                    period = int(position_exit_spec.get("period", 50))
+                    ma_type = str(position_exit_spec.get("ma_type", "ema"))
+                    closes = [float(b.close) for b in series[-max(period * 3, period + 1):]]
+                    if len(closes) >= period:
+                        if ma_type == "ema":
+                            # Simple EMA
+                            k = 2.0 / (period + 1.0)
+                            ema_v = closes[0]
+                            for c in closes[1:]:
+                                ema_v = c * k + ema_v * (1.0 - k)
+                            ma_value = float(ema_v)
+                        else:
+                            ma_value = float(sum(closes[-period:]) / period)
+
                 triggered, exit_price, exit_reason = self._check_exit(
                     spec=position_exit_spec,
                     entry_price=position_entry,
@@ -170,6 +197,8 @@ class SnapshotBacktestRunner:
                     bar_high=float(latest_bar.high),
                     bar_low=float(latest_bar.low),
                     bar_close=float(latest_bar.close),
+                    ma_value=ma_value,
+                    opposite_signal=has_sell_signal,
                 )
                 if triggered:
                     exit_px = exit_price * (1.0 - slippage_bps / 10_000.0)
@@ -193,18 +222,31 @@ class SnapshotBacktestRunner:
                     position_qty = 0.0
                     position_entry = 0.0
                     position_exit_spec = None
+                    # Cancel any queued SELL — Step 2 just exited.
+                    pending_exit_sell = False
+                    exited_this_bar = True
 
             # =============================================================
             # Step 3: Process trade signals
             # =============================================================
             trade_signals = [signal for signal in step_result.batch.signals if signal.kind == SignalKind.TRADE]
 
+            # Close-only: when exit_cfg.type != "opposite_signal", we just
+            # exited via Step 2 (or have an active spec) — let exit_spec own
+            # the exits. SELL signals are ignored, and BUY entries on the
+            # same bar as an exit are skipped to enforce close-only behavior.
+            close_only = exit_cfg_type != "opposite_signal"
+
             if execution_model == "next_bar_open":
                 # Queue signals for next bar fill
                 for signal in trade_signals:
                     if signal.side == TradeSide.BUY and position_qty == 0 and pending_entry_signal is None:
+                        if exited_this_bar and close_only:
+                            continue  # close-only: no re-entry on same bar
                         pending_entry_signal = signal
                     elif signal.side == TradeSide.SELL and position_qty > 0:
+                        if close_only:
+                            continue  # exit_spec manages exits, ignore SELL
                         pending_exit_sell = True
             else:
                 # Legacy close_fill model: execute immediately at bar close
@@ -213,6 +255,8 @@ class SnapshotBacktestRunner:
                         1.0 + (slippage_bps / 10_000.0 if signal.side == TradeSide.BUY else -slippage_bps / 10_000.0)
                     )
                     if signal.side == TradeSide.BUY and position_qty == 0:
+                        if exited_this_bar and close_only:
+                            continue  # close-only: no re-entry on same bar
                         size_frac = float((signal.payload or {}).get("size", 1.0))
                         target_notional = cash * size_frac
                         qty = target_notional / execution_price if execution_price > 0 else 0.0
@@ -241,6 +285,8 @@ class SnapshotBacktestRunner:
                                 }
                             )
                     elif signal.side == TradeSide.SELL and position_qty > 0:
+                        if close_only:
+                            continue  # exit_spec manages exits, ignore SELL
                         fee = position_qty * execution_price * commission_bps / 10_000.0
                         realized = position_qty * execution_price - fee
                         pnl = (execution_price - position_entry) * position_qty - fee
@@ -363,11 +409,19 @@ class SnapshotBacktestRunner:
         bar_high: float,
         bar_low: float,
         bar_close: float,
+        ma_value: Optional[float] = None,
+        opposite_signal: bool = False,
     ) -> tuple:
         """Check if any exit condition triggers on this bar.
 
         Returns (triggered: bool, exit_price: float, reason: str).
-        Checks in priority order: stop_loss → take_profit → max_bars.
+
+        Unified priority order (first hit wins):
+            1. Stop Loss      — intra-bar (side-aware)
+            2. Take Profit    — intra-bar (side-aware)
+            3. MA cross       — bar close, fill at bar close (only when type=ma_cross_exit)
+            4. Opposite signal — bar close, fill at bar close (always checked)
+            5. max_bars       — bar close, fill at bar close (timeout)
 
         Side-aware:
           Long:  SL triggers when bar_low  <= stop (price drops to stop)
@@ -376,7 +430,9 @@ class SnapshotBacktestRunner:
                  TP triggers when bar_low  <= tp   (price drops to TP)
         """
         side = spec.get("side", "long")
+        etype = spec.get("type", "opposite_signal")
 
+        # Priority 1 & 2: Stop Loss / Take Profit (intra-bar, side-aware)
         stop_price = spec.get("stop_loss_price")
         tp_price = spec.get("take_profit_price")
 
@@ -392,7 +448,18 @@ class SnapshotBacktestRunner:
             if tp_price is not None and bar_low <= tp_price:
                 return True, tp_price, "take_profit"
 
-        # Check max_bars
+        # Priority 3: MA cross (bar close) — only when type=ma_cross_exit
+        if etype == "ma_cross_exit" and ma_value is not None:
+            if side == "long" and bar_close < ma_value:
+                return True, bar_close, "ma_cross"
+            if side == "short" and bar_close > ma_value:
+                return True, bar_close, "ma_cross"
+
+        # Priority 4: Opposite signal (bar close) — checked for ALL exit types
+        if opposite_signal:
+            return True, bar_close, "opposite_signal"
+
+        # Priority 5: max_bars timeout (bar close)
         max_bars = spec.get("max_bars", 9999)
         bars_held = current_idx - entry_idx
         if bars_held >= max_bars:

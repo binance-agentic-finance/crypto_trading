@@ -201,7 +201,21 @@ class PythonLivePaperSession:
             )
             self._pending_order = None
 
-        # Step 2: Check exit_spec (stop/TP/max_bars) if position is open
+        # Step 2: Append bar to history (so signal_fn can see this bar)
+        self._append_bar(bar)
+        self._tick_count += 1
+
+        # Step 3: Compute the user signal at THIS bar
+        target_at_this_bar, strength = self._compute_latest_target()
+        self._target_history.append(target_at_this_bar)
+
+        # Step 4: Check exit_spec (unified priority — SL > TP > MA cross >
+        # opposite_signal > max_bars). Uses this bar's high/low/close and
+        # the just-computed signal as the opposite_signal flag.
+        exited_this_bar = False
+        exit_cfg_type = (self._position_exit_spec or {}).get(
+            "type", "opposite_signal"
+        )
         if (
             self.position is not None
             and self._position_exit_spec is not None
@@ -210,6 +224,32 @@ class PythonLivePaperSession:
             bar_high = float(bar["high"])
             bar_low = float(bar["low"])
             bar_close = float(bar["close"])
+
+            # Detect opposite signal vs current position direction.
+            current_dir = self._position_direction()
+            if current_dir > 0:
+                opposite_signal = (int(target_at_this_bar) == int(TARGET_SHORT))
+            elif current_dir < 0:
+                opposite_signal = (int(target_at_this_bar) == int(TARGET_LONG))
+            else:
+                opposite_signal = False
+
+            # Pre-compute MA value at this bar for ma_cross_exit.
+            ma_value: Optional[float] = None
+            if exit_cfg_type == "ma_cross_exit":
+                period = int(self._position_exit_spec.get("period", 50))
+                ma_type = str(self._position_exit_spec.get("ma_type", "ema"))
+                closes = self._closes[-max(period * 3, period + 1):]
+                if len(closes) >= period:
+                    if ma_type == "ema":
+                        k = 2.0 / (period + 1.0)
+                        ema_v = closes[0]
+                        for c in closes[1:]:
+                            ema_v = c * k + ema_v * (1.0 - k)
+                        ma_value = float(ema_v)
+                    else:
+                        ma_value = float(sum(closes[-period:]) / period)
+
             triggered, _exit_price, exit_reason = self._check_exit(
                 spec=self._position_exit_spec,
                 entry_price=self.position.entry_price,
@@ -218,6 +258,8 @@ class PythonLivePaperSession:
                 bar_high=bar_high,
                 bar_low=bar_low,
                 bar_close=bar_close,
+                ma_value=ma_value,
+                opposite_signal=opposite_signal,
             )
             if triggered:
                 # Queue a close order for next bar open
@@ -229,27 +271,28 @@ class PythonLivePaperSession:
                     signal_strength=0.0,
                 )
                 self._last_target = close_target
+                exited_this_bar = True
 
-        # Step 3: Append bar to history
-        self._append_bar(bar)
-        self._tick_count += 1
-
-        # Step 4: Compute latest target via the signal function
-        target_at_this_bar, strength = self._compute_latest_target()
-        self._target_history.append(target_at_this_bar)
-
-        # Step 5: If target changed, create pending order for next bar
+        # Step 5: If target changed, create pending order for next bar.
+        # Close-only enforcement: when exit_cfg.type != "opposite_signal" and
+        # we already exited this bar via Step 4, do NOT override the pending
+        # close with a flip — wait for the next bar before re-entering.
+        close_only = (
+            self._plugin.exit_cfg is not None
+            and exit_cfg_type != "opposite_signal"
+        )
         if target_at_this_bar != TARGET_KEEP:
             current_direction = self._position_direction()
             target_direction = int(target_at_this_bar)
             if target_direction != current_direction:
-                self._pending_order = PendingOrder(
-                    target_position=target_direction,
-                    signal_bar_index=len(self._timestamps) - 1,
-                    signal_bar_timestamp_ms=int(bar["timestamp"]),
-                    signal_strength=strength,
-                )
-                self._last_target = target_direction
+                if not (exited_this_bar and close_only):
+                    self._pending_order = PendingOrder(
+                        target_position=target_direction,
+                        signal_bar_index=len(self._timestamps) - 1,
+                        signal_bar_timestamp_ms=int(bar["timestamp"]),
+                        signal_strength=strength,
+                    )
+                    self._last_target = target_direction
 
         return fill
 
@@ -708,11 +751,19 @@ class PythonLivePaperSession:
         bar_high: float,
         bar_low: float,
         bar_close: float,
+        ma_value: Optional[float] = None,
+        opposite_signal: bool = False,
     ) -> tuple:
         """Check if any exit condition triggers on this bar.
 
         Returns (triggered: bool, exit_price: float, reason: str).
-        Checks in priority order: stop_loss → take_profit → max_bars.
+
+        Unified priority order (first hit wins):
+            1. Stop Loss      — intra-bar (side-aware)
+            2. Take Profit    — intra-bar (side-aware)
+            3. MA cross       — bar close (only when type=ma_cross_exit)
+            4. Opposite signal — bar close (always checked, all types)
+            5. max_bars       — bar close (timeout)
 
         Side-aware:
           Long:  SL triggers when bar_low  <= stop (price drops to stop)
@@ -721,12 +772,13 @@ class PythonLivePaperSession:
                  TP triggers when bar_low  <= tp   (price drops to TP)
         """
         side = spec.get("side", "long")
+        etype = spec.get("type", "opposite_signal")
 
+        # Priority 1 & 2: Stop Loss / Take Profit (intra-bar, side-aware)
         stop_price = spec.get("stop_loss_price")
         tp_price = spec.get("take_profit_price")
 
         if side == "long":
-            # Long: stop when price drops, TP when price rises
             if stop_price is not None and bar_low <= stop_price:
                 return True, stop_price, "stop_loss"
             if tp_price is not None and bar_high >= tp_price:
@@ -738,7 +790,18 @@ class PythonLivePaperSession:
             if tp_price is not None and bar_low <= tp_price:
                 return True, tp_price, "take_profit"
 
-        # Check max_bars
+        # Priority 3: MA cross (bar close) — only when type=ma_cross_exit
+        if etype == "ma_cross_exit" and ma_value is not None:
+            if side == "long" and bar_close < ma_value:
+                return True, bar_close, "ma_cross"
+            if side == "short" and bar_close > ma_value:
+                return True, bar_close, "ma_cross"
+
+        # Priority 4: Opposite signal (bar close) — checked for ALL exit types
+        if opposite_signal:
+            return True, bar_close, "opposite_signal"
+
+        # Priority 5: max_bars timeout
         max_bars = spec.get("max_bars", 9999)
         bars_held = current_idx - entry_idx
         if bars_held >= max_bars:
