@@ -1,0 +1,67 @@
+{
+  "strategy": "btc_multi_factor_trend",
+  "symbols": ["BTCUSDT"],
+
+  "modes": {
+    "defensive": {
+      "description": "Wide stops, low leverage for choppy / high-vol regime",
+      "leverage_range": [1, 3],
+      "stop_pct": 8.0,
+      "risk_pct": 2.0
+    },
+    "balanced": {
+      "description": "Standard trend follow",
+      "leverage_range": [2, 5],
+      "stop_pct": 5.0,
+      "risk_pct": 3.0
+    },
+    "aggressive": {
+      "description": "Tight stops, high leverage for high-conviction entries",
+      "leverage_range": [5, 10],
+      "stop_pct": 3.0,
+      "risk_pct": 5.0
+    }
+  },
+
+  "signals": {
+    "ema":  { "fast": 20, "mid": 60, "slow": 200, "cross_fast": 20, "cross_slow": 60 },
+    "rsi":  { "period": 14, "overbought": 70, "oversold": 30 },
+    "macd": { "fast": 12, "slow": 26, "signal": 9 },
+    "atr":  { "period": 14, "stop_multiplier": 2.0 },
+    "timeframes": {
+      "primary": "4h",
+      "confirmation": ["1h", "1d"],
+      "entry": "15m"
+    }
+  },
+
+  "scoring": {
+    "tiers": {
+      "ema_trend":       { "all_aligned": 3, "two_aligned": 2, "one_aligned": 1, "none": -2 },
+      "rsi_zone":        { "favorable": 2, "neutral": 1, "extreme": -1 },
+      "macd_momentum":   { "strong": 2, "positive": 1, "negative": -1, "divergent": -2 },
+      "derivatives":     { "funding_squeeze": 2, "oi_building": 1, "crowded": -2, "neutral": 0 },
+      "volatility":      { "expanding": 1, "contracting": 0, "extreme": -1 },
+      "resonance":       { "all_aligned": 2, "partial": 1, "conflicting": -1 }
+    },
+    "verdict_thresholds": {
+      "STRONG_CANDIDATE": 10,
+      "CANDIDATE":         6,
+      "WATCHLIST":         2
+    }
+  },
+
+  "trade": {
+    "account_balance_usdt": 1000
+  },
+
+  "execution": {
+    "enabled": false,
+    "live":    false,
+    "mode":    "futures",
+    "profile": "default",
+    "min_verdict": "STRONG_CANDIDATE",
+    "max_concurrent_positions": 3,
+    "max_price_deviation_pct":  2.0
+  }
+}
