@@ -1,0 +1,6 @@
+# Fixed-risk-percent sizing:
+#   qty_usdt = balance * risk_pct / stop_pct
+# Additional leverage_cap ensures target ≤ balance * max_leverage.
+risk_pct:      0.03    # fraction of balance risked per trade
+stop_pct:      0.05    # fraction stop distance
+max_leverage:  5

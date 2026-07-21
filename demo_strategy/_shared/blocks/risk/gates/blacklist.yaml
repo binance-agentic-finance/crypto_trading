@@ -1,0 +1,2 @@
+# Symbols to skip regardless of signals (e.g. delisting notice / exchange freeze).
+symbols: []

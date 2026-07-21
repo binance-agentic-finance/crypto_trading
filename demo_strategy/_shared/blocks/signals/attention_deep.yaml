@@ -1,0 +1,8 @@
+# AttentionDeepBlock — hashtag deep-fetch mentions.
+thresholds:
+  strong: 3
+  mixed:  1
+tier_scores:
+  strong:  2
+  mixed:   1
+  none:   -1

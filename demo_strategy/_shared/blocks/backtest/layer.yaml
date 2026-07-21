@@ -1,0 +1,7 @@
+enabled:
+  - loader
+  - fee_model
+  - equity_curve
+  - metrics
+
+blocks: {}

@@ -1,0 +1,3 @@
+# Round-trip trading costs applied on every fill.
+fee_bps:  4.0     # 0.04% taker fee per side
+slip_bps: 2.0     # 0.02% slippage per side

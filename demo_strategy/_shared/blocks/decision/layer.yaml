@@ -1,0 +1,5 @@
+enabled:
+  - direction_vote
+  - position_size
+
+blocks: {}

@@ -1,0 +1,2 @@
+# Majority-vote direction. Ties → flat.
+tie_breaker: flat        # flat | long | short

@@ -1,0 +1,2 @@
+# Block new entries for N minutes around funding settlement (0h/8h/16h UTC).
+window_min: 15

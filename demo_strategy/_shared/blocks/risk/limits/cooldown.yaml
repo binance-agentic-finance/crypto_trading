@@ -1,0 +1,2 @@
+# After a stop-loss triggers, block new entries for N seconds.
+cooldown_sec: 3600

@@ -1,0 +1,6 @@
+# Historical bars loader for backtest runs.
+# Uses the daemon's data adapter under the hood; the loader block adds
+# time-range slicing + warmup handling on top.
+start_date: null              # "2026-01-01" — null = earliest available
+end_date:   null              # "2026-06-30" — null = latest available
+warmup_bars: 100              # bars to prepend before start_date for indicator seed

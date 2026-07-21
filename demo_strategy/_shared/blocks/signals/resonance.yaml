@@ -1,0 +1,9 @@
+# Multi-timeframe resonance detector.
+# For the single-tf case, the block does a "proxy" resonance from
+# short/mid/long slices of the same series.
+proxy_windows:
+  short: 6
+  mid:   20
+  long:  60
+# Absolute price-change threshold (fraction) to classify BULLISH/BEARISH
+direction_threshold: 0.005

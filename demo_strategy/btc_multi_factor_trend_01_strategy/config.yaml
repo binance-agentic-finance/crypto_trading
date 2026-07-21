@@ -1,0 +1,105 @@
+# ═════════════════════════════════════════════════════════════════════
+#  bdp-ai-trading-bot registration contract
+# ═════════════════════════════════════════════════════════════════════
+name:          btc_multi_factor_trend_01
+sid:           S_DEMO_BTC_MFT
+runtime:       paper
+template_id:   demo_btc_multi_factor_trend
+
+# ═════════════════════════════════════════════════════════════════════
+#  ① 数据段 · 该策略看哪些数据
+# ═════════════════════════════════════════════════════════════════════
+data:
+  symbol:     BTCUSDT
+  interval:   4h                     # primary timeframe
+  bars_limit: 250
+  source:     auto                   # auto | bdp_bot | atomic_lib | direct_rest
+  universe:                          # only used by selection-type strategies
+    kind: fixed                      # fixed | scanner | attention
+    symbols: [BTCUSDT]
+
+# ═════════════════════════════════════════════════════════════════════
+#  ② 指标段 · 选哪些指标 + 参数 + 打分翻译
+# ═════════════════════════════════════════════════════════════════════
+indicators:
+  enabled: [ema, rsi, macd, atr, resonance]
+
+  params:                            # overrides for each block's <name>.yaml
+    ema:  { periods: { fast: 20, mid: 60, slow: 200 } }
+    rsi:  { period: 14, overbought: 70, oversold: 30 }
+    macd: { fast: 12, slow: 26, signal: 9 }
+    atr:  { period: 14 }
+    resonance:
+      proxy_windows: { short: 6, mid: 20, long: 60 }
+      direction_threshold: 0.005
+
+  tier_scores:                       # how indicator output → tier score
+    ema_trend:     { all_aligned: 3, two_aligned: 2, one_aligned: 1, none: -2 }
+    rsi_zone:      { favorable: 2, neutral: 1, extreme: -1 }
+    macd_momentum: { strong: 2, positive: 1, negative: -1, divergent: -2 }
+    volatility:    { expanding: 1, contracting: 0, extreme: -1 }
+    resonance:     { all_aligned: 2, partial: 1, conflicting: -1 }
+
+  scoring:                           # tier aggregation + verdict
+    combinator: additive             # additive | weighted | max
+    verdict_thresholds:
+      STRONG_CANDIDATE: 8
+      CANDIDATE:        4
+      WATCHLIST:        1
+
+# ═════════════════════════════════════════════════════════════════════
+#  ③ 方向 / 仓位段 · 怎么定方向 + 用多少钱
+# ═════════════════════════════════════════════════════════════════════
+sizing:
+  direction:
+    voters:      [ema_direction, macd_histogram, resonance_dir]
+    tie_breaker: flat                # flat | long | short
+
+  position:
+    algo:         fixed_risk_pct     # fixed_risk_pct | fixed_notional | atr_inverse
+    risk_pct:     0.03               # for fixed_risk_pct: notional = balance*risk_pct/stop_pct
+    max_leverage: 5
+
+# ═════════════════════════════════════════════════════════════════════
+#  ④ 风险控制段 · 止损 / 止盈 / 上限 / 前置闸门
+# ═════════════════════════════════════════════════════════════════════
+risk:
+  stop_loss:
+    algo:     fixed_pct              # fixed_pct | atr_dynamic | trailing
+    stop_pct: 5.0
+
+  take_profit:
+    algo: graduated                  # graduated | none
+    stages:
+      - { profit_pct:  5, close_pct:  5 }
+      - { profit_pct: 10, close_pct: 10 }
+      - { profit_pct: 20, close_pct: 15 }
+
+  limits:
+    daily_loss:   { max_pct: 10.0 }
+    max_positions: { max_open: 3 }
+    max_exposure: { max_position_pct: 30.0 }
+    cooldown:     { cooldown_sec: 3600 }
+
+  gates:
+    funding_window:     { window_min: 15 }
+    liquidation_check:  { margin_buffer_pct: 20.0 }
+    blacklist:          { symbols: [] }
+
+# ═════════════════════════════════════════════════════════════════════
+#  ⑤ 回测段 · 只在 `run.sh backtest` 用到
+# ═════════════════════════════════════════════════════════════════════
+backtest:
+  loader:       { start_date: null, end_date: null, warmup_bars: 100 }
+  fee_model:    { fee_bps: 4.0, slip_bps: 2.0 }
+  equity_curve: { initial_usdt: 10000 }
+  metrics:
+    compute: [total_return, max_drawdown, sharpe, win_rate, n_trades]
+
+# ═════════════════════════════════════════════════════════════════════
+#  ⑥ 执行段 · 下单参数（daemon → order_router）
+# ═════════════════════════════════════════════════════════════════════
+execution:
+  mode:     futures                  # spot | futures
+  profile:  default                  # binance-cli profile for live
+  qty_usdt: 300                      # default notional per entry

@@ -1,0 +1,2 @@
+# stop = entry ± (atr_mult × latest ATR)
+atr_mult: 2.0

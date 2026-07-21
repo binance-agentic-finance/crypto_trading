@@ -1,0 +1,3 @@
+# Volume surge detector: current bar volume / rolling mean of past N.
+multiplier: 2.0
+lookback:   24

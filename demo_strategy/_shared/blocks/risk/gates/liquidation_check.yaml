@@ -1,0 +1,3 @@
+# Refuse to open a position whose margin buffer would leave < margin_buffer_pct
+# of the maintenance margin. Only meaningful for futures with leverage.
+margin_buffer_pct: 20.0

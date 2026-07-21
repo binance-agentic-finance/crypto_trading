@@ -1,0 +1,14 @@
+# signals layer — defaults + which blocks to enable
+enabled:
+  - ema
+  - rsi
+  - macd
+  - atr
+  - resonance
+  - volume_surge
+
+# per-block layer-scoped overrides (rarely needed — most blocks have good defaults)
+blocks:
+  # e.g. override the whole layer's RSI period without touching the block yaml
+  # rsi:
+  #   period: 21

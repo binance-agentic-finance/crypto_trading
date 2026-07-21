@@ -1,0 +1,2 @@
+# trailing stop: highest close (long) or lowest close (short) since entry ± offset_pct.
+offset_pct: 3.0

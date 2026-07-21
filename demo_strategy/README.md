@@ -1,89 +1,223 @@
-# `demo_strategy/` — 模块化策略参考实现
+# `demo_strategy/` — bdp-ai-trading-bot 契约下的模块化策略
 
-两条实战案例，重构为**同一套 7 模块骨架**，用来演示如何把一个策略拆成清晰的、可替换的组件。
+两条实战案例，按 **bdp-ai-trading-bot** 的数据/执行契约设计，可以**直接被 supervisor 注册运行**。
 
-## 策略清单
+## 关键 vs v1 的区别
 
-| 策略 | 目录 | 类型 | 核心信号 |
+v1 版本把每个策略写成"自己抓数据 / 自己下单"的单体脚本 —— 不能在 bdp-ai-trading-bot 里跑。
+v2 版本把每个策略拆成**两层**，让 supervisor 层负责数据/下单/状态，模板层只做纯计算。
+
+| 层 | 谁写 | 干什么 | 不能干什么 |
 |---|---|---|---|
-| BTC 多因子趋势 | [`btc_multi_factor_trend/`](btc_multi_factor_trend/) | 单标的 · 三档 mode | 6 因子（EMA/RSI/MACD/衍生品/ATR/多周期共振）|
-| Binance 广场热点扫描 | [`square_buzz_screener/`](square_buzz_screener/) | 多标的 · 注意力驱动 | 9 因子（Square 热度 + 市场验证）|
+| **① Template**（block） | 策略作者 | 输入 `StrategyContext` → 返回 `StrategyDecision` | 抓数据、下单、写 DB / Redis / 文件 |
+| **② Bot dir**（`*_01_strategy/`）| framework 集成 | `config.yaml` + `run.sh` + `paper_trade.py` + `state/*.json` + `logs/*.jsonl` | 处理复杂算法（应下沉到 block）|
 
-## 7 模块骨架（每个策略都是这套结构）
+一个 template 可以被多个 bot dir 复用（同算法不同参数、不同 symbol、不同 timeframe）。
+
+## 目录结构
 
 ```
-demo_strategy/<strategy>/
-├── README.md               # 策略概览、mode/参数、运行方式
-├── config/
-│   └── config.json         # 所有可调参数（阈值、时间框架、mode 定义、执行开关）
-├── strategy/
-│   ├── __init__.py         # 暴露给 run.py 用的 strategy 门面
-│   ├── m01_universe.py     # ① UNIVERSE  — 圈定候选标的（固定 / 扫描 / 注意力）
-│   ├── m02_data.py         # ② DATA      — 抓 K 线、ticker、衍生品、行情数据
-│   ├── m03_signals.py      # ③ SIGNALS   — 计算技术指标 / 社群信号（无阈值判定）
-│   ├── m04_scoring.py      # ④ SCORING   — 因子打分 + verdict 分级
-│   ├── m05_decision.py     # ⑤ DECISION  — 方向 + 仓位大小 + 止损止盈参数
-│   ├── m06_execution.py    # ⑥ EXECUTION — 下单 / dry-run / spot vs futures
-│   └── m07_report.py       # ⑦ REPORT    — 生成结构化输出（JSON + 人读文本）
-└── run.py                  # 入口：串起 7 模块，命令行 flag → config overlay
+demo_strategy/
+├── README.md                                # 本文
+│
+├── _shared/                                 # 通用组件
+│   ├── blocks/                              # ① 模块化 block 层 —— 一入一出、独立可测
+│   │   ├── base.py                          # Block 基类
+│   │   ├── registry.py                      # 自动发现 + 三层 YAML overlay + load_block/load_layer
+│   │   ├── contracts.py                     # StrategyContext / StrategyDecision / TemplateMeta
+│   │   ├── signals/                         # 每个 block 一对 <name>.py + <name>.yaml
+│   │   │   ├── layer.yaml                   # 层默认 + enabled 清单
+│   │   │   ├── ema.py + ema.yaml            # EmaBlock, compute(bars) → {ema_fast/mid/slow, direction}
+│   │   │   ├── rsi.py + rsi.yaml
+│   │   │   ├── macd.py + macd.yaml
+│   │   │   ├── atr.py + atr.yaml
+│   │   │   ├── resonance.py + resonance.yaml
+│   │   │   ├── volume_surge.py + volume_surge.yaml
+│   │   │   ├── attention_frequency.py + .yaml   ← 广场策略专用
+│   │   │   └── attention_deep.py + .yaml
+│   │   ├── scoring/
+│   │   │   ├── layer.yaml
+│   │   │   ├── hierarchical.py + .yaml      # additive / weighted / max
+│   │   │   └── verdict_gate.py + .yaml      # thresholds → labels
+│   │   └── decision/
+│   │       ├── layer.yaml
+│   │       ├── direction_vote.py + .yaml    # majority vote → long/short/flat
+│   │       └── position_size.py + .yaml     # fixed_risk_pct → qty_usdt/lev/stop
+│   └── bot/                                 # ② bot dir 的公共骨架
+│       ├── daemon.py                        # paper_trade / live_trade 共享的 daemon loop
+│       ├── state_writer.py                  # 原子写 state.json + 追加 events.jsonl / trades.jsonl
+│       ├── config_loader.py                 # 读 config.yaml；env override; profile 解析
+│       └── data_adapter.py                  # 数据源抽象：bdp-bot Redis / Kafka / 独立 REST fallback
+│
+├── btc_multi_factor_trend_01_strategy/      # 案例①（bot dir 命名遵循 <name>_01_strategy 契约）
+│   ├── config.yaml                          # bdp-bot 用来注册（name/sid/symbol/interval/runtime）
+│   ├── run.sh                               # `bash run.sh paper-fg|live|backtest`
+│   ├── scripts/
+│   │   ├── template.py                      # ① 纯 template: calculate_signal(ctx) → decision
+│   │   ├── paper_trade.py                   # ② paper-fg daemon 入口
+│   │   ├── live_trade.py                    # ② live daemon 入口（复用 daemon.py）
+│   │   └── backtest.py                      # ② backtest 一次性任务
+│   ├── logs/                                # events.jsonl / trades.jsonl / strategy.log（运行时生成）
+│   └── state/                               # state.json / pid / run_id（运行时生成）
+│
+└── square_buzz_screener_01_strategy/        # 案例②（同一契约）
+    ├── config.yaml
+    ├── run.sh
+    ├── scripts/
+    │   ├── template.py                      # calculate_selection(ctx) → SelectionDecision (选币型)
+    │   ├── universe_source.py               # 从 Binance Square 抓热点（独立于 template，不违反纯计算规则）
+    │   ├── paper_trade.py
+    │   ├── live_trade.py
+    │   └── backtest.py
+    ├── logs/
+    └── state/
 ```
 
-## 为什么这么切分
+## 三层 config overlay（block 层）
 
-| 模块 | 输入 | 输出 | 变动频率 |
-|---|---|---|---|
-| **① universe** | mode / 参数 | 待评估的 symbol 列表 | 低（几乎不改）|
-| **② data** | symbol × timeframe | K 线 / ticker / funding / OI | 底层稳定 |
-| **③ signals** | K 线 & 数据 | 一堆技术数值（EMA/RSI/…），**无阈值判断** | 中（指标增删）|
-| **④ scoring** | signals + tiers cfg | tier 分 + 总分 + verdict | **高**（调参重灾区）|
-| **⑤ decision** | verdict + mode | direction + size + stop/tp | 中（mode 定义）|
-| **⑥ execution** | decision + 开关 | 下单结果 / dry-run | 稳定 |
-| **⑦ report** | 全流程结果 | JSON + 文本 report | 独立演化 |
+每个 block 都有自己的 `<name>.yaml`（默认参数），每个 layer 有 `layer.yaml`（层默认 + 开关），策略最后在 `config.yaml::params` 里做最终覆盖 —— 后者优先：
 
-**核心设计取舍**：
-- **signals 与 scoring 严格分离** — signals 只算数字，scoring 只按阈值给分。调参不会碰指标计算。
-- **decision 独立** — 一份 signals+score 结果可以在不同 mode（defensive/balanced/aggressive）下产出完全不同的仓位与止损，无需重跑 signals。
-- **每模块单文件** — 200 行以内，能一屏看完，不藏 helper。
-- **模块间只传纯 dict / dataclass** — 不共享全局状态，便于单独测试和替换。
+```
+① signals/rsi.yaml          period: 14
+② signals/layer.yaml        blocks.rsi.period: 21     (未设时透传①)
+③ config.yaml::params.signals.rsi   period: 9         (最终生效)
+```
 
-## 共享工具
+深合并：`overrides={'periods': {'fast': 8}}` 只覆盖 `fast`，`mid`/`slow` 保留 block yaml 的默认。
 
-[`_shared/`](_shared/) 里放两个策略都会用的公共函数（config 加载、bar-count 建议、格式化 output）。策略特定逻辑一律**不放** `_shared`。
+## 用 block 写 template（示例）
+
+```python
+from demo_strategy._shared.blocks import load_block, TemplateMeta
+
+TEMPLATE_META = TemplateMeta(strategy_id="demo_xxx", display_name="…")
+
+def calculate_signal(ctx):
+    # 每个 block 独立实例化，overrides 从策略 config.yaml 传进来
+    ema  = load_block("signals", "ema",  overrides=ctx.config.get("signals", {}).get("ema"))
+    rsi  = load_block("signals", "rsi",  overrides=ctx.config.get("signals", {}).get("rsi"))
+    macd = load_block("signals", "macd").compute(ctx.market.bars)
+
+    # 或一次加载整层
+    layer = load_layer("signals", strategy_overrides=ctx.config.get("signals", {}))
+
+    tiers = [...]
+    total  = load_block("scoring", "hierarchical").compute(tiers)
+    verdict = load_block("scoring", "verdict_gate").compute(total)
+    return ...
+```
+
+**关键属性**：
+- `load_block()` 返回配置好的实例；`compute(inputs, **kwargs)` 是唯一入口
+- 每个 block ≤ 100 行，可单独 unit-test
+- 想调参？改 YAML —— 不动代码
+- 想扩指标？新增 `<layer>/<newname>.py + <newname>.yaml`，registry 自动发现
+
+## 契约（与 bdp-ai-trading-bot 逐条对齐）
+
+### 契约 1：template 层 —— 纯计算，不越界
+
+```python
+# scripts/template.py
+from demo_strategy._shared.blocks.contracts import (
+    StrategyContext, StrategyDecision, TemplateMeta,
+)
+
+TEMPLATE_META = TemplateMeta(
+    strategy_id="demo_btc_multi_factor_trend",
+    display_name="BTC Multi-Factor Trend (Demo)",
+    config_schema={ … },
+)
+
+def calculate_signal(ctx: StrategyContext) -> StrategyDecision:
+    # 只读 ctx.market.bars / ctx.account / ctx.config
+    # 计算 6 因子 → 打分 → verdict → direction
+    # 返回 StrategyDecision(side, strength, reason)
+    ...
+```
+
+**永远不能做**（框架契约）：
+- `requests.get(...)` / `redis.get(...)` — 数据来自 `ctx.market.bars`
+- `binance_client.new_order(...)` — 返回 `StrategyDecision`，framework 翻译成 OrderCommand
+- `open("state.json", "w")` — daemon 层负责持久化
+
+**允许**：`import numpy as np, pandas as pd` + `from _shared.blocks import signals/scoring/decision` 做计算。
+
+### 契约 2：bot dir —— supervisor 友好
+
+- **`config.yaml` 至少含**：`name` / `sid` / `symbol` / `interval` / `runtime` / `template_id`
+- **`run.sh` 支持**：`paper-fg`（前台，SIGTERM 干净退出）/ `live` / `backtest`
+- **`scripts/paper_trade.py` daemon loop**：
+  1. detect bar close
+  2. fetch bars（走 `_shared/bot/data_adapter.py` → 优先 bdp-bot Redis / Kafka，本地夹带 REST fallback）
+  3. `ctx = build_context(bars, account, config, close_time)`
+  4. `decision = template.calculate_signal(ctx)`
+  5. 走 `_shared/bot/state_writer.py` 落 `events.jsonl::signal` / `state/state.json`
+  6. 若 live —— publish OrderCommand（走 bdp-bot Kafka OR 本地 binance-cli 兜底）
+  7. 循环，处理 SIGTERM 干净关闭
+
+- **`state/state.json`** 至少含：`status`（running/stopped/risk_halted/error）、`equity`、`open_positions`、`last_bar_ts`、`last_signal_ts`
+- **`logs/events.jsonl`** 每行一 event：`{ts, kind, ...}`；`kind ∈ {started, signal, order_placed, order_filled, stopped, risk_halted, error}`
+- **`logs/trades.jsonl`** 每行一笔成交
+- **`logs/strategy.log`** stdout+stderr（run.sh 会重定向）
+
+### 契约 3：数据源三级 fallback
+
+`_shared/bot/data_adapter.py` 抽象数据获取：
+
+```
+① BDP_BOT_KAFKA_URL  → Kafka hot store（strategy_service.market.fetch_bars 或 kline topic）
+② BDP_BOT_REDIS_URL  → Redis snapshot（market/indicators.py 里那种）
+③ 独立 REST fallback → binance-cli 或 requests（本地/dev/backtest）
+```
+
+同一份 template.py 在三种数据源下都能跑 —— 不同的是 daemon 层怎么装 `ctx.market.bars`。
+
+### 契约 4：执行
+
+- **`live_trade.py` 优先** publish OrderCommand 到 bdp-bot Kafka（`strategy_service.engine.order_stream.kafka.publish`）
+- 若不在 bdp-bot 集群里跑，fallback 到 `atomic_strategy_lib.execution.orders.market_order()`（原来 v1 用的路径）
 
 ## 运行
 
-```bash
-cd demo_strategy/btc_multi_factor_trend
-python3 run.py                                       # balanced mode，dry-run
-python3 run.py --mode defensive                      # 换 mode
-python3 run.py --symbols BTCUSDT ETHUSDT             # 换标的
-python3 run.py --execute --live --mode balanced      # 真实下单
+### 独立模式（本地 / dev）
 
-cd demo_strategy/square_buzz_screener
-python3 run.py                                       # 扫广场 + 市场验证
-python3 run.py --locales en                          # 只扫英文
-python3 run.py --no-deep                             # 跳过深度抓取（更快）
-python3 run.py --execute --live --min-verdict STRONG_CANDIDATE
+```bash
+cd btc_multi_factor_trend_01_strategy
+bash run.sh paper-fg          # 前台跑 daemon
+bash run.sh backtest          # 一次性回测
 ```
 
-两个策略都会写 JSON 到 `~/.openclaw/workspace/<strategy_name>/pipeline_result.json`。
+### 集成到 bdp-ai-trading-bot
+
+```bash
+# 注册这个策略目录
+bdp-bot register /path/to/demo_strategy/btc_multi_factor_trend_01_strategy --mode paper
+
+# 启动
+bdp-bot start btc_multi_factor_trend_01 --mode paper
+
+# 查状态
+bdp-bot status btc_multi_factor_trend_01
+```
+
+## 两个案例的对比
+
+| 维度 | btc_multi_factor_trend | square_buzz_screener |
+|---|---|---|
+| **template 类型** | `calculate_signal` (single-symbol) | `calculate_selection` (cross-sectional) |
+| **输入** | `StrategyContext(market, account, config)` | `SelectionContext(universe, bars_by_symbol, config)` |
+| **输出** | `StrategyDecision(side, strength, reason)` | `SelectionDecision(weights, reason, metadata)` |
+| **universe 决定权** | 固定 BTCUSDT（config）| 动态：Square scrape → 由 `universe_source.py` 提供给 daemon |
+| **framework 侧执行** | OrderCommandV1 | PortfolioTargetCommandV1 |
+| **6 vs 9 因子** | 6 tier | 9 tier（+ attention 2 tier + volume）|
+
+两条策略共享 **`_shared/blocks/*`**（信号、打分、决策 helper），共享 **`_shared/bot/*`**（daemon 骨架、state writer、数据 adapter）—— 差异只在 template.py（真正的算法）和 config.yaml（参数）。
 
 ## 依赖
 
 - Python 3.10+
-- `atomic_strategy_lib`（在 `crypto_trading/atomic_compat/atomic_strategy_lib/`）—— 所有 block 都从这里 import
-- 无需 pip install，`run.py` 会自动把 atomic_strategy_lib 挂到 `sys.path`
-
-## 快速对比：两个策略的 7 模块差异
-
-| 模块 | btc_multi_factor_trend | square_buzz_screener |
-|---|---|---|
-| ① universe | 固定 `BTCUSDT` (可扩) | 从 Binance Square 抓热点 token |
-| ② data | 4h/1h/15m/1d K 线 + funding + OI | ticker + K 线 + OI + funding + Square 热度元数据 |
-| ③ signals | EMA/RSI/MACD/ATR/funding/OI/共振 (6 组) | 上述 + 广场重复度 / EN/CN 交集 / 深度信号 (共 9 组) |
-| ④ scoring | 6-tier hierarchical，阈值来自 config.scoring.tiers | 9-tier hierarchical，attention factor 单独加权 |
-| ⑤ decision | 3 mode（defensive/balanced/aggressive）决定 leverage/stop | verdict-gate + 双向（LONG/SHORT/WATCH）|
-| ⑥ execution | spot 或 futures，`STOP_LOSS_LIMIT` / `STOP_MARKET` | 同左，`--min-verdict` 门槛更严 |
-| ⑦ report | 排序 leaderboard + tier 明细 | Social hotspot brief + trading signal summary |
-
-两侧模块名一致，读者可以直接对比"同一模块在两个策略里有何差异"。
+- `pandas` / `numpy`（signals helper）
+- `PyYAML`（读 config.yaml）
+- 可选：`atomic_strategy_lib`（数据 fallback + 本地执行）
+- 集成到 bdp-ai-trading-bot 时：`strategy_service.market` / `strategy_service.engine.order_stream`

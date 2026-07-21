@@ -1,0 +1,8 @@
+# Which metrics to compute (all cheap, so default: all).
+compute:
+  - total_return
+  - max_drawdown
+  - sharpe
+  - win_rate
+  - avg_win_loss
+  - n_trades

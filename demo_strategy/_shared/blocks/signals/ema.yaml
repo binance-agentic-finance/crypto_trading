@@ -1,0 +1,7 @@
+# block-level defaults for EmaBlock
+# periods evaluated at each call; the block reports each period's EMA and
+# alignment against the closing price.
+periods:
+  fast: 20
+  mid:  60
+  slow: 200

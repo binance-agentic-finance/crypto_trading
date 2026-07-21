@@ -1,0 +1,2 @@
+# Halt trading for the rest of the UTC day if cumulative losses exceed max_pct of start-of-day equity.
+max_pct: 10.0

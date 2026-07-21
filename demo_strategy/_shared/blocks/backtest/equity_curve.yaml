@@ -1,0 +1,2 @@
+initial_usdt: 10000
+save_path:    null       # null = default `state/equity_curve_<ts>.csv`

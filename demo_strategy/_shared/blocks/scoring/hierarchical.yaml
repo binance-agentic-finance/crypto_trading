@@ -1,0 +1,3 @@
+# Simple additive combinator. Kept in a yaml so future extensions
+# (weighted, max, majority) can be swapped by config alone.
+mode: additive

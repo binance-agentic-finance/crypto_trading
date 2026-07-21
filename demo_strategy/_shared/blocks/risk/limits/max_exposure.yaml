@@ -1,0 +1,2 @@
+# Cap: any single symbol's notional as % of account balance.
+max_position_pct: 30.0

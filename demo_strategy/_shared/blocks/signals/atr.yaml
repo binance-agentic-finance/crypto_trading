@@ -1,0 +1,5 @@
+period:                 14
+# dual-speed ATR ratio check (fast_atr / slow_atr > expand_threshold → expanding)
+fast_atr:               7
+slow_atr:               21
+expand_ratio_threshold: 1.05

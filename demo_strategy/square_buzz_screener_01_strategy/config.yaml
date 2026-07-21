@@ -1,0 +1,113 @@
+# ═════════════════════════════════════════════════════════════════════
+#  bdp-ai-trading-bot registration contract
+# ═════════════════════════════════════════════════════════════════════
+name:          square_buzz_screener_01
+sid:           S_DEMO_SQUARE_BUZZ
+runtime:       paper
+template_id:   demo_square_buzz_screener
+
+# ═════════════════════════════════════════════════════════════════════
+#  ① 数据段 · Square scraper universe + K-line data
+# ═════════════════════════════════════════════════════════════════════
+data:
+  symbol:     "*"                    # sentinel: universe is dynamic
+  interval:   1h
+  bars_limit: 200
+  source:     auto
+
+  universe:
+    kind: attention                  # fixed | scanner | attention
+    attention:
+      locales:            ["en", "zh-CN"]
+      sections:           ["most_searched", "rapid_riser"]
+      hashtag_deep_fetch: true
+      max_candidates:     15
+
+# ═════════════════════════════════════════════════════════════════════
+#  ② 指标段 · 2 attention + 5 technical blocks
+# ═════════════════════════════════════════════════════════════════════
+indicators:
+  enabled:
+    - attention_frequency
+    - attention_deep
+    - ema
+    - rsi
+    - macd
+    - atr
+    - volume_surge
+
+  params:
+    attention_frequency:
+      tiers: { en_cn_overlap: 3, section_overlap: 2, single_source: 1, isolated: 0 }
+    attention_deep:
+      thresholds:  { strong: 3, mixed: 1 }
+      tier_scores: { strong: 2, mixed: 1, none: -1 }
+    ema:  { periods: { fast: 20, mid: 60, slow: 200 } }
+    rsi:  { period: 14, overbought: 70, oversold: 30 }
+    macd: { fast: 12, slow: 26, signal: 9 }
+    atr:  { period: 14 }
+    volume_surge: { multiplier: 2.0, lookback: 24 }
+
+  tier_scores:
+    ema_trend:     { all_aligned: 3, two_aligned: 2, one_aligned: 1, none: -2 }
+    rsi_zone:      { favorable: 2, neutral: 1, extreme: -1 }
+    macd_momentum: { strong: 2, positive: 1, negative: -1, divergent: -2 }
+    volatility:    { expanding: 1, contracting: 0, extreme: -1 }
+    volume:        { surge: 2, elevated: 1, flat: 0 }
+
+  scoring:
+    combinator: additive
+    verdict_thresholds:
+      STRONG_CANDIDATE: 10
+      CANDIDATE:         6
+      WATCHLIST:         2
+    # AVOID rule (Square-specific) — see verdict_gate/avoid_verdict.py
+    avoid_when: { attention_ge: 3, technical_lt: 0 }
+
+# ═════════════════════════════════════════════════════════════════════
+#  ③ 方向 / 仓位段 · basket weights derived from scores; no per-symbol voting
+# ═════════════════════════════════════════════════════════════════════
+sizing:
+  basket:
+    max_size:      5                 # top-N survivors
+    weight_scheme: score_pro_rata    # each symbol weight = score / Σ scores
+
+# ═════════════════════════════════════════════════════════════════════
+#  ④ 风险控制段
+# ═════════════════════════════════════════════════════════════════════
+risk:
+  stop_loss:
+    algo:     fixed_pct
+    stop_pct: 5.0
+
+  take_profit:
+    algo: none                       # rebalance-driven, no explicit TP
+
+  limits:
+    daily_loss:   { max_pct: 8.0 }
+    max_positions: { max_open: 5 }
+    max_exposure: { max_position_pct: 25.0 }
+    cooldown:     { cooldown_sec: 3600 }
+
+  gates:
+    funding_window:     { window_min: 10 }
+    liquidation_check:  { margin_buffer_pct: 25.0 }
+    blacklist:          { symbols: [] }
+
+# ═════════════════════════════════════════════════════════════════════
+#  ⑤ 回测段
+# ═════════════════════════════════════════════════════════════════════
+backtest:
+  loader:       { start_date: null, end_date: null, warmup_bars: 100 }
+  fee_model:    { fee_bps: 4.0, slip_bps: 2.0 }
+  equity_curve: { initial_usdt: 10000 }
+  metrics:
+    compute: [total_return, max_drawdown, sharpe, win_rate, n_trades]
+
+# ═════════════════════════════════════════════════════════════════════
+#  ⑥ 执行段
+# ═════════════════════════════════════════════════════════════════════
+execution:
+  mode:          futures
+  profile:       default
+  notional_usdt: 1000                # total basket notional

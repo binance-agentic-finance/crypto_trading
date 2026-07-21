@@ -1,0 +1,10 @@
+# risk layer defaults + enabled sub-blocks.
+# NB: enabled uses "sublayer/name" path so registry knows where to look.
+enabled:
+  - stop_loss/fixed_pct
+  - take_profit/graduated
+  - limits/daily_loss
+  - limits/max_positions
+  - gates/funding_window
+
+blocks: {}

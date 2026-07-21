@@ -1,0 +1,7 @@
+# Total-score → verdict label. Ordered thresholds; strongest wins.
+thresholds:
+  STRONG_CANDIDATE: 8
+  CANDIDATE:        4
+  WATCHLIST:        1
+# label used when nothing meets the lowest threshold
+skip_label: SKIP

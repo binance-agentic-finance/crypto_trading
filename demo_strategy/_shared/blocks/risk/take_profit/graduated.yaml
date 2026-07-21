@@ -1,0 +1,5 @@
+# Multi-stage graduated take-profit. Each stage: at +profit_pct, close close_pct of remaining.
+stages:
+  - { profit_pct: 5,  close_pct: 5 }
+  - { profit_pct: 10, close_pct: 10 }
+  - { profit_pct: 20, close_pct: 15 }

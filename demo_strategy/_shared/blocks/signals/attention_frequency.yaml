@@ -1,0 +1,7 @@
+# AttentionFrequencyBlock — score presence across Square locales/sections.
+# Input: dict per-symbol attention meta (from universe_source.py).
+tiers:
+  en_cn_overlap:   3
+  section_overlap: 2
+  single_source:   1
+  isolated:        0
