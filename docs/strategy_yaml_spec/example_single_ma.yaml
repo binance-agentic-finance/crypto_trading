@@ -1,0 +1,55 @@
+# =============================================================================
+# 範例 1 —— 單因子 MA 交叉(最小可跑範例)
+# =============================================================================
+# 目的:證明 YAML → standard_bot(block path)最短路徑能端到端跑、且會產生交易。
+# 執行:
+#   驗證:  python -m cyqnt_trd.standard_bot.yaml_pipeline validate example_single_ma.yaml
+#   回測:  python -m cyqnt_trd.standard_bot.yaml_pipeline run example_single_ma.yaml \
+#             --input-json <klines.json>        # 離線用;正式用下面的 data.source
+# =============================================================================
+
+spec_version: "1.0"
+target: standard_bot
+
+strategy:
+  id: btc_ema_cross_1h
+  description: "BTC 1h EMA10/EMA30 交叉,多空對稱,pct 停損停利。"
+
+run:
+  mode: backtest                      # backtest | paper | live
+
+data:                                 # 数据源
+  symbol: BTCUSDT
+  market_type: futures
+  primary:
+    interval: "1h"
+    poll_interval: 3570               # 执行的周期(paper daemon 每次輪詢秒數)
+  source:                             # 正式資料來源(離線測試可用 CLI --input-json 覆蓋)
+    type: binance_rest                # binance_rest | historical_parquet | input_json
+
+signals:                              # 信号计算
+  indicators:
+    ema_fast: { block: indicators.ema, input: close, params: { period: 10 } }
+    ema_slow: { block: indicators.ema, input: close, params: { period: 30 } }
+  entry:                              # 方向:同時給 long/short = 多空;只給 long = long-only
+    long:
+      cond: conditions.ma_cross_above
+      args: [ema_fast, ema_slow]
+    short:
+      cond: conditions.ma_cross_below
+      args: [ema_fast, ema_slow]
+
+sizing:                               # 仓位决策
+  size: 0.95                          # 每筆投入權益比例 (0,1]
+
+risk:                                 # 风控
+  exit:
+    type: pct_stop_tp
+    stop_pct: 0.02
+    tp_pct: 0.04
+    max_bars: 96
+  fees: { commission_bps: 4.0, slippage_bps: 2.0 }
+
+backtest:                             # run.mode=backtest 用
+  initial_capital: 10000
+  execution_model: next_bar_open

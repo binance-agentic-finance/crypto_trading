@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>自然語言 → YAML 策略 → 回測 Demo</title>
+<style>
+  :root{--bg:#0f1420;--panel:#161d2e;--panel2:#1c2740;--ink:#e6ebf5;--muted:#9aa7c2;
+    --line:#2a3552;--accent:#5aa9ff;--green:#39d98a;--amber:#ffcc66;--red:#ff6b6b;--chip:#233150}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang TC","Microsoft JhengHei",sans-serif;
+    line-height:1.6;font-size:14.5px}
+  .wrap{max-width:1080px;margin:0 auto;padding:26px 20px 80px}
+  h1{font-size:23px;margin:0 0 4px}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:20px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin:14px 0}
+  .card h2{font-size:15px;margin:0 0 12px;color:#cfe0ff;display:flex;align-items:center;gap:8px}
+  .num{background:var(--accent);color:#04122b;border-radius:6px;width:20px;height:20px;display:inline-flex;
+    align-items:center;justify-content:center;font-size:12px;font-weight:700}
+  label{display:block;font-size:12px;color:var(--muted);margin:8px 0 4px}
+  input,textarea,select{width:100%;background:#0b1120;border:1px solid var(--line);border-radius:8px;
+    color:var(--ink);padding:9px 11px;font-size:13px;font-family:inherit}
+  textarea{resize:vertical}
+  .mono{font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace;font-size:12.5px}
+  .row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+  button{background:var(--accent);color:#04122b;border:0;border-radius:8px;padding:10px 18px;
+    font-size:14px;font-weight:700;cursor:pointer;margin-top:12px}
+  button.sec{background:var(--panel2);color:var(--ink);border:1px solid var(--line)}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  .hint{color:var(--muted);font-size:11.5px;margin-top:4px}
+  details{margin-top:8px}
+  summary{cursor:pointer;color:var(--accent);font-size:13px}
+  pre{background:#0b1120;border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow:auto;
+    font-size:12px;color:#c8d6f2;max-height:340px}
+  .badge{display:inline-block;border-radius:6px;padding:1px 9px;font-size:11.5px;font-weight:600}
+  .b-ok{background:rgba(57,217,138,.15);color:var(--green);border:1px solid rgba(57,217,138,.4)}
+  .b-bad{background:rgba(255,107,107,.15);color:var(--red);border:1px solid rgba(255,107,107,.4)}
+  .b-warn{background:rgba(255,204,102,.14);color:var(--amber);border:1px solid rgba(255,204,102,.4)}
+  .metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:6px 0 14px}
+  .metric{background:#101a30;border:1px solid var(--line);border-radius:10px;padding:11px 13px}
+  .metric .k{font-size:11px;color:var(--muted)}
+  .metric .v{font-size:19px;font-weight:700;margin-top:2px}
+  .pos{color:var(--green)}.neg{color:var(--red)}
+  .legend{display:flex;gap:16px;font-size:12px;margin:6px 0 2px}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .dot{width:11px;height:3px;border-radius:2px;display:inline-block}
+  .err{color:var(--red);font-size:12.5px;white-space:pre-wrap}
+  canvas{width:100%;height:340px;background:#0b1120;border:1px solid var(--line);border-radius:10px;margin-top:6px}
+  .flowmsg{color:var(--muted);font-size:12px;margin-top:8px;min-height:16px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>自然語言 → YAML 策略 → 回測</h1>
+  <div class="sub">單純用你的語言模型(LiteLLM / OpenAI 相容)把一句話轉成策略 YAML,直接跑回測,對照 BTC buy&amp;hold 基準。非 agent。</div>
+
+  <!-- 1. LLM 設定 -->
+  <div class="card">
+    <h2><span class="num">1</span> LLM 設定(LiteLLM / OpenAI 相容)</h2>
+    <div class="row">
+      <div><label>API Base URL</label><input id="apiBase" placeholder="http://localhost:4000/v1" class="mono"></div>
+      <div><label>API Key</label><input id="apiKey" type="password" placeholder="sk-..." class="mono"></div>
+      <div><label>Model</label><input id="model" placeholder="gpt-4o / claude-sonnet-4 ..." class="mono"></div>
+    </div>
+    <div class="hint">會組成 <span class="mono">{Base}/chat/completions</span>;key 只送到本機後端,不外流。設定存在瀏覽器 localStorage。</div>
+  </div>
+
+  <!-- 2. 自然語言 -->
+  <div class="card">
+    <h2><span class="num">2</span> 用自然語言描述你的策略</h2>
+    <textarea id="nl" rows="3" placeholder="例:BTC 1h,EMA12 上穿 EMA26 做多、下穿做空,RSI 過熱(>75)時不追多,停損 2% 停利 4%,最多持有 4 天。"></textarea>
+    <button id="btnConvert" onclick="convert()">轉換成 YAML →</button>
+    <span id="convBadge"></span>
+    <div class="flowmsg" id="convMsg"></div>
+    <details><summary>看轉換用的 schema(LLM 依這份規格輸出)</summary><pre id="schemaBox" class="mono">載入中…</pre></details>
+  </div>
+
+  <!-- 3. YAML -->
+  <div class="card">
+    <h2><span class="num">3</span> 產生的 YAML(可手動修改)</h2>
+    <textarea id="yaml" rows="16" class="mono" placeholder="按上面「轉換成 YAML」後會出現在這裡,你也可以直接貼/改。"></textarea>
+    <button id="btnRun" onclick="backtest()">執行回測 ▶</button>
+    <span id="runBadge"></span>
+    <div class="flowmsg" id="runMsg"></div>
+  </div>
+
+  <!-- 4. 結果 -->
+  <div class="card" id="resultCard" style="display:none">
+    <h2><span class="num">4</span> 回測結果 <span id="resMeta" class="hint" style="margin-left:6px"></span></h2>
+    <div class="metrics" id="metrics"></div>
+    <div class="legend">
+      <span><span class="dot" style="background:var(--accent)"></span> 策略權益</span>
+      <span><span class="dot" style="background:var(--amber)"></span> BTC buy &amp; hold(基準)</span>
+      <span><span class="dot" style="background:var(--muted)"></span> 初始資金</span>
+    </div>
+    <canvas id="chart"></canvas>
+    <details id="tradesWrap" style="margin-top:10px"><summary>最近幾筆交易</summary><pre id="trades" class="mono"></pre></details>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+// --- persist LLM 設定 ---
+["apiBase","apiKey","model"].forEach(k=>{
+  $(k).value = localStorage.getItem("demo_"+k) || "";
+  $(k).addEventListener("input", ()=>localStorage.setItem("demo_"+k, $(k).value));
+});
+
+// --- schema ---
+fetch("/api/schema").then(r=>r.json()).then(d=>{$("schemaBox").textContent = d.schema||"(無)";})
+  .catch(()=>{$("schemaBox").textContent="(載入 schema 失敗)";});
+
+function setBadge(el, ok, text){el.innerHTML = ` <span class="badge ${ok?'b-ok':'b-bad'}">${text}</span>`;}
+
+async function convert(){
+  const nl = $("nl").value.trim();
+  if(!nl){ $("convMsg").innerHTML='<span class="err">請先輸入描述</span>'; return; }
+  $("btnConvert").disabled=true; $("convBadge").innerHTML=""; $("convMsg").textContent="呼叫 LLM 轉換中…";
+  try{
+    const r = await fetch("/api/convert",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({nl, api_base:$("apiBase").value.trim(), api_key:$("apiKey").value.trim(), model:$("model").value.trim()})});
+    const d = await r.json();
+    if(!d.ok){ $("convMsg").innerHTML='<span class="err">'+(d.error||"轉換失敗")+'</span>'; return; }
+    $("yaml").value = d.yaml;
+    if(d.valid){ setBadge($("convBadge"),true,"YAML 驗證通過"); $("convMsg").textContent = d.warnings&&d.warnings.length?("warning: "+d.warnings.join("; ")):""; }
+    else{ setBadge($("convBadge"),false,"YAML 有問題"); $("convMsg").innerHTML='<span class="err">'+(d.errors||[]).join("\n")+'</span>'; }
+  }catch(e){ $("convMsg").innerHTML='<span class="err">'+e+'</span>'; }
+  finally{ $("btnConvert").disabled=false; }
+}
+
+async function backtest(){
+  const y = $("yaml").value.trim();
+  if(!y){ $("runMsg").innerHTML='<span class="err">沒有 YAML 可跑</span>'; return; }
+  $("btnRun").disabled=true; $("runBadge").innerHTML=""; $("runMsg").textContent="抓行情 + 回測中…";
+  try{
+    const r = await fetch("/api/backtest",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({yaml:y})});
+    const d = await r.json();
+    if(!d.ok){
+      setBadge($("runBadge"),false,"回測失敗");
+      $("runMsg").innerHTML='<span class="err">'+(d.error||"")+(d.errors?("\n- "+d.errors.join("\n- ")):"")+'</span>';
+      return;
+    }
+    setBadge($("runBadge"),true,"完成"); $("runMsg").textContent="";
+    renderResult(d);
+  }catch(e){ $("runMsg").innerHTML='<span class="err">'+e+'</span>'; }
+  finally{ $("btnRun").disabled=false; }
+}
+
+function pct(x){return (x*100).toFixed(2)+"%";}
+function usd(x){return (x>=0?"+":"")+"$"+x.toFixed(2);}
+function cls(x){return x>=0?"pos":"neg";}
+
+function renderResult(d){
+  $("resultCard").style.display="block";
+  const period = d.period ? ` · ${d.period.start} → ${d.period.end} (UTC)` : "";
+  $("resMeta").textContent = `${d.symbol} ${d.interval} · ${d.market_type} · ${d.bars} 根${period} · 來源 ${d.data_source}`;
+  const m=d.metrics, b=d.baseline;
+  const cards=[
+    ["策略總報酬", pct(m.total_return), cls(m.total_return)],
+    ["策略 PnL", usd(m.total_pnl), cls(m.total_pnl)],
+    ["BTC 基準報酬", pct(b.total_return), cls(b.total_return)],
+    ["超額(策略−BTC)", pct(m.total_return-b.total_return), cls(m.total_return-b.total_return)],
+    ["Sharpe", m.sharpe_ratio.toFixed(2), cls(m.sharpe_ratio)],
+    ["最大回撤", pct(m.max_drawdown), "neg"],
+    ["勝率", pct(m.win_rate), ""],
+    ["交易次數", String(m.trade_count), ""],
+  ];
+  $("metrics").innerHTML = cards.map(c=>`<div class="metric"><div class="k">${c[0]}</div><div class="v ${c[2]}">${c[1]}</div></div>`).join("");
+  $("trades").textContent = (d.trades_sample&&d.trades_sample.length)?JSON.stringify(d.trades_sample,null,2):"(無交易紀錄)";
+  drawChart(d.chart);
+}
+
+function drawChart(c){
+  const cv=$("chart"), dpr=window.devicePixelRatio||1;
+  const W=cv.clientWidth, H=cv.clientHeight;
+  cv.width=W*dpr; cv.height=H*dpr;
+  const ctx=cv.getContext("2d"); ctx.scale(dpr,dpr); ctx.clearRect(0,0,W,H);
+  const s=c.strategy, base=c.baseline, ts=c.timestamps, cap=c.initial_capital;
+  const n=Math.min(s.length,base.length); if(n<2) return;
+  const all=s.slice(0,n).concat(base.slice(0,n)).concat([cap]);
+  let lo=Math.min(...all), hi=Math.max(...all); if(lo===hi){hi=lo+1;}
+  const pad={l:64,r:14,t:14,b:26};
+  const px=i=>pad.l+(W-pad.l-pad.r)*(i/(n-1));
+  const py=v=>pad.t+(H-pad.t-pad.b)*(1-(v-lo)/(hi-lo));
+  // grid + y labels
+  ctx.strokeStyle="#22304e"; ctx.fillStyle="#7d8bab"; ctx.font="11px monospace"; ctx.lineWidth=1;
+  for(let g=0;g<=4;g++){ const v=lo+(hi-lo)*g/4, y=py(v);
+    ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(W-pad.r,y);ctx.stroke();
+    ctx.fillText("$"+Math.round(v).toLocaleString(),6,y+3); }
+  // x labels (first / last date)
+  const fmt=t=>{const dt=new Date(t);return (dt.getMonth()+1)+"/"+dt.getDate();};
+  ctx.fillText(fmt(ts[0]),pad.l,H-8); ctx.fillText(fmt(ts[n-1]),W-pad.r-30,H-8);
+  // initial capital dashed
+  ctx.strokeStyle="#5b678a"; ctx.setLineDash([4,4]); ctx.beginPath();
+  ctx.moveTo(pad.l,py(cap));ctx.lineTo(W-pad.r,py(cap));ctx.stroke(); ctx.setLineDash([]);
+  const line=(arr,color)=>{ctx.strokeStyle=color;ctx.lineWidth=1.8;ctx.beginPath();
+    for(let i=0;i<n;i++){const x=px(i),y=py(arr[i]); i?ctx.lineTo(x,y):ctx.moveTo(x,y);} ctx.stroke();};
+  line(base,"#ffcc66");   // BTC baseline
+  line(s,"#5aa9ff");      // strategy
+}
+</script>
+</body>
+</html>

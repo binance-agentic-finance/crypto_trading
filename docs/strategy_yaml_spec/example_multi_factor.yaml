@@ -1,0 +1,79 @@
+# =============================================================================
+# 範例 2 —— 多因子 + 巢狀組合(完整能力展示,且實際會跑出交易)
+# =============================================================================
+# 展示:
+#   * 巢狀組合:any_of( all_of(趨勢腿...), 突破腿 ) — 任意深度
+#   * 多因子:EMA 交叉 + ADX 趨勢強度 + RSI 過熱過濾 + 突破
+#   * tuple 輸出指標:adx 回傳 (adx, +di, -di),用 output: 0 取 adx
+#   * 宣告式出場:atr_stop_tp(ATR 動態停損停利)
+#   * paper trade;切 live 時用 risk.live_guards
+# 執行:
+#   驗證:  python -m cyqnt_trd.standard_bot.yaml_pipeline validate example_multi_factor.yaml
+#   回測:  python -m cyqnt_trd.standard_bot.yaml_pipeline run example_multi_factor.yaml \
+#             --input-json <klines.json>
+#   (paper) 把 run.mode 改成 paper;(live) 改成 live 並填 risk.live_guards
+# =============================================================================
+
+spec_version: "1.0"
+target: standard_bot
+
+strategy:
+  id: btc_multi_factor_nested_1h
+  description: "BTC 1h 多因子:趨勢腿(EMA金叉+ADX+RSI不過熱)或 突破腿(30根新高),ATR 出場。"
+
+run:
+  mode: backtest                      # 改 paper / live 即切換模式(見檔尾)
+  # duration_end_at: "2026-08-01T00:00:00Z"   # live 必填:session 時長上限
+
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary:
+    interval: "1h"
+    poll_interval: 3570
+  source:
+    type: binance_rest
+  # htf:                              # (可選)高周期上下文;會掛上 _htf_<tf>_sma_<period> 欄位
+  #   - { interval: "4h", sma_period: 200 }   # 條件可用 args: [df, "_htf_4h_sma_200"]
+
+signals:
+  indicators:
+    ema_fast: { block: indicators.ema, input: close, params: { period: 12 } }
+    ema_slow: { block: indicators.ema, input: close, params: { period: 26 } }
+    rsi14:    { block: indicators.rsi, input: close, params: { period: 14 } }
+    adx14:    { block: indicators.adx, input: df, params: { period: 14 }, output: 0 }
+
+  entry:
+    long:                             # 巢狀:趨勢腿 OR 突破腿
+      any_of:
+        - all_of:
+            - { cond: conditions.ma_cross_above, args: [ema_fast, ema_slow] }
+            - { cond: conditions.adx_trending,   args: [adx14], params: { threshold: 18.0 } }
+            - not: { cond: conditions.rsi_overbought, args: [rsi14], params: { threshold: 78.0 } }
+        - { cond: conditions.breakout_high, args: [df], params: { lookback: 30 } }
+    short:
+      any_of:
+        - all_of:
+            - { cond: conditions.ma_cross_below, args: [ema_fast, ema_slow] }
+            - { cond: conditions.adx_trending,   args: [adx14], params: { threshold: 18.0 } }
+            - not: { cond: conditions.rsi_oversold, args: [rsi14], params: { threshold: 22.0 } }
+        - { cond: conditions.breakout_low, args: [df], params: { lookback: 30 } }
+
+sizing:
+  size: 0.5
+
+risk:
+  exit:
+    type: atr_stop_tp
+    atr_period: 14
+    stop_mult: 2.0
+    tp_mult: 4.0
+    max_bars: 120
+  fees: { commission_bps: 4.0, slippage_bps: 2.0 }
+  live_guards:                        # run.mode=live 時必填
+    max_notional: 200
+    notional_fraction: 0.95
+
+backtest:
+  initial_capital: 10000
+  execution_model: next_bar_open
