@@ -75,9 +75,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--quantity-step", type=float, default=0.0)
     parser.add_argument("--min-quantity", type=float, default=0.0)
     parser.add_argument("--fixed-fee-per-contract", type=float, default=0.0)
-    parser.add_argument("--execution-model", choices=["close_fill", "next_bar_open"], default="close_fill",
-                        help="Fill model: 'close_fill' (legacy, fill at signal bar close) or "
-                             "'next_bar_open' (realistic, fill at next bar open)")
+    parser.add_argument("--execution-model", choices=["close_fill", "next_bar_open"], default="next_bar_open",
+                        help="Fill model: 'next_bar_open' (default, realistic — fill at next bar open, "
+                             "no look-ahead) or 'close_fill' (legacy, fill at signal bar close)")
     parser.add_argument("--tail-bars", type=int, default=120)
     parser.add_argument("--output-json", default=None)
     parser.add_argument("--download-derivatives-missing", action="store_true")

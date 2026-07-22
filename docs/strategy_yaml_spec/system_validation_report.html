@@ -1,0 +1,3300 @@
+<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>YAML 策略系統驗證 — 逐案報告</title><style>
+:root{--bg:#0f1420;--panel:#161d2e;--panel2:#1c2740;--ink:#e6ebf5;--muted:#9aa7c2;--line:#2a3552;
+--accent:#5aa9ff;--green:#39d98a;--amber:#ffcc66;--red:#ff6b6b;--gold:#ffd479}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);
+font-family:-apple-system,BlinkMacSystemFont,"PingFang TC","Microsoft JhengHei",sans-serif;line-height:1.6;font-size:14.5px}
+.wrap{max-width:1080px;margin:0 auto;padding:26px 20px 80px}
+h1{font-size:23px;margin:0 0 4px}.sub{color:var(--muted);font-size:13px;margin-bottom:18px}
+h2{font-size:16px;margin:26px 0 10px;padding-left:10px;border-left:4px solid var(--accent)}
+.cnt{color:var(--muted);font-size:12.5px;font-weight:400;margin-left:6px}
+.kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin:12px 0 6px}
+.kpi{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:11px 13px}
+.kpi .k{font-size:11px;color:var(--muted)}.kpi .v{font-size:20px;font-weight:700;margin-top:2px}
+.note{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 15px;margin:10px 0;font-size:13px;color:var(--muted)}
+.case{background:var(--panel);border:1px solid var(--line);border-radius:9px;margin:7px 0;overflow:hidden}
+.case>summary{cursor:pointer;padding:10px 13px;list-style:none;display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.case>summary::-webkit-details-marker{display:none}
+.case>summary:before{content:"▸";color:var(--accent);font-size:12px}
+.case[open]>summary:before{content:"▾"}
+.cid{font-family:"SF Mono",ui-monospace,monospace;font-size:12.5px;color:#cfe0ff}
+.hm{color:var(--muted);font-size:12.5px;margin-left:auto}
+.badge{border-radius:6px;padding:1px 8px;font-size:11px;font-weight:600}
+.b-ok{background:rgba(57,217,138,.15);color:var(--green);border:1px solid rgba(57,217,138,.4)}
+.b-bad{background:rgba(255,107,107,.15);color:var(--red);border:1px solid rgba(255,107,107,.4)}
+.b-win{background:rgba(255,212,121,.15);color:var(--gold);border:1px solid rgba(255,212,121,.45)}
+.detail{border-top:1px solid var(--line);padding:12px 14px;background:#121a2b}
+.seg{margin:9px 0}.lbl{font-size:12px;color:var(--accent);font-weight:600;margin-bottom:4px}
+.nl{background:#0b1120;border:1px solid var(--line);border-radius:7px;padding:9px 12px;font-size:13.5px}
+pre{background:#0b1120;border:1px solid var(--line);border-radius:7px;padding:11px 13px;overflow:auto;
+font-size:12px;color:#c8d6f2;margin:0;font-family:"SF Mono",ui-monospace,monospace}
+.mrow{display:flex;flex-wrap:wrap;gap:14px;font-size:12.8px;margin:2px 0 6px}
+.blk{font-size:11.5px;color:var(--muted)}.blk code{background:#0b1120;border:1px solid var(--line);border-radius:4px;padding:0 5px;margin:1px;color:#9fc6ff;font-size:11px}
+.pos{color:var(--green)}.neg{color:var(--red)}.err{color:var(--red);font-size:12px}
+</style></head><body><div class="wrap">
+<h1>YAML 策略系統驗證 — 逐案報告(輸入 / 轉換 / 結果)</h1>
+<div class="sub">自然語言(由 Claude subagent 扮演 LLM 轉換)→ YAML → validate + 向量化回測(BTCUSDT 1h,對照 BTC buy&amp;hold)。目的:驗證「所有 block 排列組合都打得通」,非尋找 alpha。</div>
+<div class="kpis">
+  <div class="kpi"><div class="k">策略總數</div><div class="v">50</div></div>
+  <div class="kpi"><div class="k">validate 通過</div><div class="v pos">50</div></div>
+  <div class="kpi"><div class="k">回測跑通</div><div class="v pos">50</div></div>
+  <div class="kpi"><div class="k">通過率</div><div class="v">100.00%</div></div>
+  <div class="kpi"><div class="k">block 覆蓋</div><div class="v">96.00%</div></div>
+</div>
+<div class="note">BTC 基準(同期 buy&amp;hold)報酬 <b>6.73%</b>。block 覆蓋 96.00% (atr 透過 atr_stop_tp/atr_trailing_stop 出場涵蓋,非具名指標)。勝過 BTC 的策略:sizing-direction-bollinger-long-s10。<br>
+點任一案子展開,看 ① 你的自然語言輸入 → ② 轉出的 YAML → ③ 回測結果。</div>
+<h2>參考範例 <span class="cnt">2/2 通過</span></h2><details class="case">
+  <summary><span class="cid">btc_ema_cross_1h</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="neg">報酬 -5.99%</span> · <span class="neg">PnL $-599</span> · Sharpe -2.49 · 18 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">BTC 1h,EMA10 上穿 EMA30 做多、下穿做空,停損2%停利4%,最多持有4天。</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre># =============================================================================
+# 範例 1 —— 單因子 MA 交叉(最小可跑範例)
+# =============================================================================
+# 目的:證明 YAML → standard_bot(block path)最短路徑能端到端跑、且會產生交易。
+# 執行:
+#   驗證:  python -m cyqnt_trd.standard_bot.yaml_pipeline validate example_single_ma.yaml
+#   回測:  python -m cyqnt_trd.standard_bot.yaml_pipeline run example_single_ma.yaml \
+#             --input-json &lt;klines.json&gt;        # 離線用;正式用下面的 data.source
+# =============================================================================
+
+spec_version: &quot;1.0&quot;
+target: standard_bot
+
+strategy:
+  id: btc_ema_cross_1h
+  description: &quot;BTC 1h EMA10/EMA30 交叉,多空對稱,pct 停損停利。&quot;
+
+run:
+  mode: backtest                      # backtest | paper | live
+
+data:                                 # 数据源
+  symbol: BTCUSDT
+  market_type: futures
+  primary:
+    interval: &quot;1h&quot;
+    poll_interval: 3570               # 执行的周期(paper daemon 每次輪詢秒數)
+  source:                             # 正式資料來源(離線測試可用 CLI --input-json 覆蓋)
+    type: binance_rest                # binance_rest | historical_parquet | input_json
+
+signals:                              # 信号计算
+  indicators:
+    ema_fast: { block: indicators.ema, input: close, params: { period: 10 } }
+    ema_slow: { block: indicators.ema, input: close, params: { period: 30 } }
+  entry:                              # 方向:同時給 long/short = 多空;只給 long = long-only
+    long:
+      cond: conditions.ma_cross_above
+      args: [ema_fast, ema_slow]
+    short:
+      cond: conditions.ma_cross_below
+      args: [ema_fast, ema_slow]
+
+sizing:                               # 仓位决策
+  size: 0.95                          # 每筆投入權益比例 (0,1]
+
+risk:                                 # 风控
+  exit:
+    type: pct_stop_tp
+    stop_pct: 0.02
+    tp_pct: 0.04
+    max_bars: 96
+  fees: { commission_bps: 4.0, slippage_bps: 2.0 }
+
+backtest:                             # run.mode=backtest 用
+  initial_capital: 10000
+  execution_model: next_bar_open
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="neg">-5.99%</b></span><span>PnL <b class="neg">$-599.45</b></span><span>Sharpe <b>-2.488</b></span><span>最大回撤 <b class="neg">-8.28%</b></span><span>勝率 <b>27.80%</b></span><span>交易 <b>18</b></span><span>vs BTC(6.73%) <b class="neg">-12.72%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.ma_cross_above</code> <code>conditions.ma_cross_below</code> <code>indicators.ema</code></div></div>
+  </div>
+</details><details class="case">
+  <summary><span class="cid">btc_multi_factor_nested_1h</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="neg">報酬 -2.06%</span> · <span class="neg">PnL $-206</span> · Sharpe -1.26 · 32 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">BTC 1h 多因子:趨勢腿(EMA金叉+ADX&gt;18+RSI不過熱)或 突破前30根新高做多;空方對稱;ATR 停損停利。</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre># =============================================================================
+# 範例 2 —— 多因子 + 巢狀組合(完整能力展示,且實際會跑出交易)
+# =============================================================================
+# 展示:
+#   * 巢狀組合:any_of( all_of(趨勢腿...), 突破腿 ) — 任意深度
+#   * 多因子:EMA 交叉 + ADX 趨勢強度 + RSI 過熱過濾 + 突破
+#   * tuple 輸出指標:adx 回傳 (adx, +di, -di),用 output: 0 取 adx
+#   * 宣告式出場:atr_stop_tp(ATR 動態停損停利)
+#   * paper trade;切 live 時用 risk.live_guards
+# 執行:
+#   驗證:  python -m cyqnt_trd.standard_bot.yaml_pipeline validate example_multi_factor.yaml
+#   回測:  python -m cyqnt_trd.standard_bot.yaml_pipeline run example_multi_factor.yaml \
+#             --input-json &lt;klines.json&gt;
+#   (paper) 把 run.mode 改成 paper;(live) 改成 live 並填 risk.live_guards
+# =============================================================================
+
+spec_version: &quot;1.0&quot;
+target: standard_bot
+
+strategy:
+  id: btc_multi_factor_nested_1h
+  description: &quot;BTC 1h 多因子:趨勢腿(EMA金叉+ADX+RSI不過熱)或 突破腿(30根新高),ATR 出場。&quot;
+
+run:
+  mode: backtest                      # 改 paper / live 即切換模式(見檔尾)
+  # duration_end_at: &quot;2026-08-01T00:00:00Z&quot;   # live 必填:session 時長上限
+
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary:
+    interval: &quot;1h&quot;
+    poll_interval: 3570
+  source:
+    type: binance_rest
+  # htf:                              # (可選)高周期上下文;會掛上 _htf_&lt;tf&gt;_sma_&lt;period&gt; 欄位
+  #   - { interval: &quot;4h&quot;, sma_period: 200 }   # 條件可用 args: [df, &quot;_htf_4h_sma_200&quot;]
+
+signals:
+  indicators:
+    ema_fast: { block: indicators.ema, input: close, params: { period: 12 } }
+    ema_slow: { block: indicators.ema, input: close, params: { period: 26 } }
+    rsi14:    { block: indicators.rsi, input: close, params: { period: 14 } }
+    adx14:    { block: indicators.adx, input: df, params: { period: 14 }, output: 0 }
+
+  entry:
+    long:                             # 巢狀:趨勢腿 OR 突破腿
+      any_of:
+        - all_of:
+            - { cond: conditions.ma_cross_above, args: [ema_fast, ema_slow] }
+            - { cond: conditions.adx_trending,   args: [adx14], params: { threshold: 18.0 } }
+            - not: { cond: conditions.rsi_overbought, args: [rsi14], params: { threshold: 78.0 } }
+        - { cond: conditions.breakout_high, args: [df], params: { lookback: 30 } }
+    short:
+      any_of:
+        - all_of:
+            - { cond: conditions.ma_cross_below, args: [ema_fast, ema_slow] }
+            - { cond: conditions.adx_trending,   args: [adx14], params: { threshold: 18.0 } }
+            - not: { cond: conditions.rsi_oversold, args: [rsi14], params: { threshold: 22.0 } }
+        - { cond: conditions.breakout_low, args: [df], params: { lookback: 30 } }
+
+sizing:
+  size: 0.5
+
+risk:
+  exit:
+    type: atr_stop_tp
+    atr_period: 14
+    stop_mult: 2.0
+    tp_mult: 4.0
+    max_bars: 120
+  fees: { commission_bps: 4.0, slippage_bps: 2.0 }
+  live_guards:                        # run.mode=live 時必填
+    max_notional: 200
+    notional_fraction: 0.95
+
+backtest:
+  initial_capital: 10000
+  execution_model: next_bar_open
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="neg">-2.06%</b></span><span>PnL <b class="neg">$-205.76</b></span><span>Sharpe <b>-1.256</b></span><span>最大回撤 <b class="neg">-7.36%</b></span><span>勝率 <b>31.20%</b></span><span>交易 <b>32</b></span><span>vs BTC(6.73%) <b class="neg">-8.79%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.adx_trending</code> <code>conditions.breakout_high</code> <code>conditions.breakout_low</code> <code>conditions.ma_cross_above</code> <code>conditions.ma_cross_below</code> <code>conditions.rsi_overbought</code> <code>conditions.rsi_oversold</code> <code>indicators.adx</code> <code>indicators.ema</code> <code>indicators.rsi</code></div></div>
+  </div>
+</details><h2>動能 <span class="cnt">6/6 通過</span></h2><details class="case">
+  <summary><span class="cid">mom-rsi-macd-confirm-01</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="neg">報酬 -3.29%</span> · <span class="neg">PnL $-329</span> · Sharpe -4.17 · 35 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">RSI回檔區間搭配MACD金叉死叉雙重確認的多空動能策略</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &quot;1.0&quot;
+target: standard_bot
+strategy:
+  id: mom-rsi-macd-confirm-01
+  description: &quot;RSI回檔區間搭配MACD金叉死叉雙重確認的多空動能策略&quot;
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary: { interval: &quot;1h&quot;, poll_interval: 3570 }
+  source: { type: binance_rest }
+signals:
+  indicators:
+    rsi14: { block: &quot;indicators.rsi&quot;, input: close, params: { period: 14 } }
+    macd_line: { block: &quot;indicators.macd&quot;, input: close, params: { fast: 12, slow: 26, signal: 9 }, output: 0 }
+    macd_signal: { block: &quot;indicators.macd&quot;, input: close, params: { fast: 12, slow: 26, signal: 9 }, output: 1 }
+  entry:
+    long:
+      all_of:
+        - cond: &quot;conditions.macd_golden_cross&quot;
+          args: [macd_line, macd_signal]
+        - cond: &quot;conditions.rsi_in_range&quot;
+          args: [rsi14]
+          params: { low: 40, high: 70 }
+    short:
+      all_of:
+        - cond: &quot;conditions.macd_death_cross&quot;
+          args: [macd_line, macd_signal]
+        - cond: &quot;conditions.rsi_in_range&quot;
+          args: [rsi14]
+          params: { low: 30, high: 60 }
+sizing: { size: 0.3 }
+risk:
+  exit:
+    type: atr_stop_tp
+    atr_period: 14
+    stop_mult: 2.0
+    tp_mult: 3.0
+    max_bars: 48
+  fees: { commission_bps: 4.0, slippage_bps: 2.0 }
+backtest: { initial_capital: 10000, execution_model: next_bar_open }
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="neg">-3.29%</b></span><span>PnL <b class="neg">$-328.91</b></span><span>Sharpe <b>-4.171</b></span><span>最大回撤 <b class="neg">-4.07%</b></span><span>勝率 <b>31.40%</b></span><span>交易 <b>35</b></span><span>vs BTC(6.73%) <b class="neg">-10.02%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.macd_death_cross</code> <code>conditions.macd_golden_cross</code> <code>conditions.rsi_in_range</code> <code>indicators.macd</code> <code>indicators.rsi</code></div></div>
+  </div>
+</details><details class="case">
+  <summary><span class="cid">mom-macd-cross-rsi-filter-02</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="neg">報酬 -1.15%</span> · <span class="neg">PnL $-115</span> · Sharpe -1.59 · 9 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">MACD黃金交叉死亡交叉為主訊號,RSI超買超賣區作為動能濾網</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &quot;1.0&quot;
+target: standard_bot
+strategy:
+  id: mom-macd-cross-rsi-filter-02
+  description: &quot;MACD黃金交叉死亡交叉為主訊號,RSI超買超賣區作為動能濾網&quot;
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary: { interval: &quot;1h&quot;, poll_interval: 3570 }
+  source: { type: binance_rest }
+signals:
+  indicators:
+    rsi21: { block: &quot;indicators.rsi&quot;, input: close, params: { period: 21 } }
+    macd_line2: { block: &quot;indicators.macd&quot;, input: close, params: { fast: 8, slow: 17, signal: 9 }, output: 0 }
+    macd_signal2: { block: &quot;indicators.macd&quot;, input: close, params: { fast: 8, slow: 17, signal: 9 }, output: 1 }
+  entry:
+    long:
+      all_of:
+        - cond: &quot;conditions.macd_golden_cross&quot;
+          args: [macd_line2, macd_signal2]
+        - cond: &quot;conditions.rsi_oversold&quot;
+          args: [rsi21]
+          params: { threshold: 40 }
+    short:
+      all_of:
+        - cond: &quot;conditions.macd_death_cross&quot;
+          args: [macd_line2, macd_signal2]
+        - cond: &quot;conditions.rsi_overbought&quot;
+          args: [rsi21]
+          params: { threshold: 60 }
+sizing: { size: 0.3 }
+risk:
+  exit:
+    type: pct_stop_tp
+    stop_pct: 0.02
+    tp_pct: 0.04
+    max_bars: 60
+  fees: { commission_bps: 4.0, slippage_bps: 2.0 }
+backtest: { initial_capital: 10000, execution_model: next_bar_open }
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="neg">-1.15%</b></span><span>PnL <b class="neg">$-115.02</b></span><span>Sharpe <b>-1.588</b></span><span>最大回撤 <b class="neg">-2.59%</b></span><span>勝率 <b>33.30%</b></span><span>交易 <b>9</b></span><span>vs BTC(6.73%) <b class="neg">-7.88%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.macd_death_cross</code> <code>conditions.macd_golden_cross</code> <code>conditions.rsi_overbought</code> <code>conditions.rsi_oversold</code> <code>indicators.macd</code> <code>indicators.rsi</code></div></div>
+  </div>
+</details><details class="case">
+  <summary><span class="cid">mom-rsi-extreme-macd-trend-03</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="pos">報酬 0.00%</span> · <span class="pos">PnL $0</span> · Sharpe 0.00 · 0 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">RSI極端超買超賣反轉搭配MACD交叉與ADX趨勢強度三重確認</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &quot;1.0&quot;
+target: standard_bot
+strategy:
+  id: mom-rsi-extreme-macd-trend-03
+  description: &quot;RSI極端超買超賣反轉搭配MACD交叉與ADX趨勢強度三重確認&quot;
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary: { interval: &quot;1h&quot;, poll_interval: 3570 }
+  source: { type: binance_rest }
+signals:
+  indicators:
+    rsi9: { block: &quot;indicators.rsi&quot;, input: close, params: { period: 9 } }
+    macd_line3: { block: &quot;indicators.macd&quot;, input: close, params: { fast: 12, slow: 26, signal: 9 }, output: 0 }
+    macd_signal3: { block: &quot;indicators.macd&quot;, input: close, params: { fast: 12, slow: 26, signal: 9 }, output: 1 }
+    adx14: { block: &quot;indicators.adx&quot;, input: df, params: { period: 14 }, output: 0 }
+  entry:
+    long:
+      all_of:
+        - cond: &quot;conditions.rsi_oversold&quot;
+          args: [rsi9]
+          params: { threshold: 25 }
+        - cond: &quot;conditions.macd_golden_cross&quot;
+          args: [macd_line3, macd_signal3]
+        - cond: &quot;conditions.adx_trending&quot;
+          args: [adx14]
+          params: { threshold: 20 }
+    short:
+      all_of:
+        - cond: &quot;conditions.rsi_overbought&quot;
+          args: [rsi9]
+          params: { threshold: 75 }
+        - cond: &quot;conditions.macd_death_cross&quot;
+          args: [macd_line3, macd_signal3]
+        - cond: &quot;conditions.adx_trending&quot;
+          args: [adx14]
+          params: { threshold: 20 }
+sizing: { size: 0.25 }
+risk:
+  exit:
+    type: atr_trailing_stop
+    atr_period: 14
+    trail_mult: 2.5
+    max_bars: 72
+  fees: { commission_bps: 4.0, slippage_bps: 2.0 }
+backtest: { initial_capital: 10000, execution_model: next_bar_open }
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="pos">0.00%</b></span><span>PnL <b class="pos">$0.00</b></span><span>Sharpe <b>0.000</b></span><span>最大回撤 <b class="neg">0.00%</b></span><span>勝率 <b>0.00%</b></span><span>交易 <b>0</b></span><span>vs BTC(6.73%) <b class="neg">-6.73%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.adx_trending</code> <code>conditions.macd_death_cross</code> <code>conditions.macd_golden_cross</code> <code>conditions.rsi_overbought</code> <code>conditions.rsi_oversold</code> <code>indicators.adx</code> <code>indicators.macd</code> <code>indicators.rsi</code></div></div>
+  </div>
+</details><details class="case">
+  <summary><span class="cid">mom-macd-signal-crossover-rsi-mid-04</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="pos">報酬 0.64%</span> · <span class="pos">PnL $64</span> · Sharpe 1.03 · 59 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">MACD線與signal線交叉(以ma_cross條件表達)搭配RSI中性區間過濾的多空策略</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &quot;1.0&quot;
+target: standard_bot
+strategy:
+  id: mom-macd-signal-crossover-rsi-mid-04
+  description: &quot;MACD線與signal線交叉(以ma_cross條件表達)搭配RSI中性區間過濾的多空策略&quot;
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary: { interval: &quot;1h&quot;, poll_interval: 3570 }
+  source: { type: binance_rest }
+signals:
+  indicators:
+    rsi_r: { block: &quot;indicators.rsi&quot;, input: close, params: { period: 14 } }
+    macd_line4: { block: &quot;indicators.macd&quot;, input: close, params: { fast: 10, slow: 21, signal: 7 }, output: 0 }
+    macd_signal4: { block: &quot;indicators.macd&quot;, input: close, params: { fast: 10, slow: 21, signal: 7 }, output: 1 }
+  entry:
+    long:
+      all_of:
+        - cond: &quot;conditions.ma_cross_above&quot;
+          args: [macd_line4, macd_signal4]
+        - cond: &quot;conditions.rsi_in_range&quot;
+          args: [rsi_r]
+          params: { low: 35, high: 65 }
+    short:
+      all_of:
+        - cond: &quot;conditions.ma_cross_below&quot;
+          args: [macd_line4, macd_signal4]
+        - cond: &quot;conditions.rsi_in_range&quot;
+          args: [rsi_r]
+          params: { low: 35, high: 65 }
+sizing: { size: 0.3 }
+risk:
+  exit:
+    type: ma_cross_exit
+    period: 20
+    ma_type: ema
+    max_bars: 80
+  fees: { commission_bps: 4.0, slippage_bps: 2.0 }
+backtest: { initial_capital: 10000, execution_model: next_bar_open }
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="pos">0.64%</b></span><span>PnL <b class="pos">$63.51</b></span><span>Sharpe <b>1.030</b></span><span>最大回撤 <b class="neg">-1.10%</b></span><span>勝率 <b>54.20%</b></span><span>交易 <b>59</b></span><span>vs BTC(6.73%) <b class="neg">-6.09%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.ma_cross_above</code> <code>conditions.ma_cross_below</code> <code>conditions.rsi_in_range</code> <code>indicators.macd</code> <code>indicators.rsi</code></div></div>
+  </div>
+</details><details class="case">
+  <summary><span class="cid">mom-macd-cross-not-rsi-extreme-05</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="neg">報酬 -3.78%</span> · <span class="neg">PnL $-378</span> · Sharpe -3.50 · 33 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">MACD交叉進場,並用not排除RSI已達超買超賣極端區的追高殺低情境</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &quot;1.0&quot;
+target: standard_bot
+strategy:
+  id: mom-macd-cross-not-rsi-extreme-05
+  description: &quot;MACD交叉進場,並用not排除RSI已達超買超賣極端區的追高殺低情境&quot;
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary: { interval: &quot;1h&quot;, poll_interval: 3570 }
+  source: { type: binance_rest }
+signals:
+  indicators:
+    rsi_f: { block: &quot;indicators.rsi&quot;, input: close, params: { period: 14 } }
+    macd_line5: { block: &quot;indicators.macd&quot;, input: close, params: { fast: 12, slow: 26, signal: 9 }, output: 0 }
+    macd_signal5: { block: &quot;indicators.macd&quot;, input: close, params: { fast: 12, slow: 26, signal: 9 }, output: 1 }
+  entry:
+    long:
+      all_of:
+        - cond: &quot;conditions.macd_golden_cross&quot;
+          args: [macd_line5, macd_signal5]
+        - not:
+            cond: &quot;conditions.rsi_overbought&quot;
+            args: [rsi_f]
+            params: { threshold: 70 }
+    short:
+      all_of:
+        - cond: &quot;conditions.macd_death_cross&quot;
+          args: [macd_line5, macd_signal5]
+        - not:
+            cond: &quot;conditions.rsi_oversold&quot;
+            args: [rsi_f]
+            params: { threshold: 30 }
+sizing: { size: 0.3 }
+risk:
+  exit:
+    type: time_only
+    max_bars: 36
+  fees: { commission_bps: 4.0, slippage_bps: 2.0 }
+backtest: { initial_capital: 10000, execution_model: next_bar_open }
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="neg">-3.78%</b></span><span>PnL <b class="neg">$-377.73</b></span><span>Sharpe <b>-3.503</b></span><span>最大回撤 <b class="neg">-5.54%</b></span><span>勝率 <b>21.20%</b></span><span>交易 <b>33</b></span><span>vs BTC(6.73%) <b class="neg">-10.51%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.macd_death_cross</code> <code>conditions.macd_golden_cross</code> <code>conditions.rsi_overbought</code> <code>conditions.rsi_oversold</code> <code>indicators.macd</code> <code>indicators.rsi</code></div></div>
+  </div>
+</details><details class="case">
+  <summary><span class="cid">mom-anyof-rsi-macd-loose-06</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="neg">報酬 -3.30%</span> · <span class="neg">PnL $-330</span> · Sharpe -3.56 · 67 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">MACD交叉或RSI極端值任一觸發即進場的寬鬆動能訊號策略,搭配反向訊號出場</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &quot;1.0&quot;
+target: standard_bot
+strategy:
+  id: mom-anyof-rsi-macd-loose-06
+  description: &quot;MACD交叉或RSI極端值任一觸發即進場的寬鬆動能訊號策略,搭配反向訊號出場&quot;
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary: { interval: &quot;1h&quot;, poll_interval: 3570 }
+  source: { type: binance_rest }
+signals:
+  indicators:
+    rsi_l: { block: &quot;indicators.rsi&quot;, input: close, params: { period: 10 } }
+    macd_line6: { block: &quot;indicators.macd&quot;, input: close, params: { fast: 12, slow: 26, signal: 9 }, output: 0 }
+    macd_signal6: { block: &quot;indicators.macd&quot;, input: close, params: { fast: 12, slow: 26, signal: 9 }, output: 1 }
+  entry:
+    long:
+      any_of:
+        - cond: &quot;conditions.macd_golden_cross&quot;
+          args: [macd_line6, macd_signal6]
+        - cond: &quot;conditions.rsi_oversold&quot;
+          args: [rsi_l]
+          params: { threshold: 20 }
+    short:
+      any_of:
+        - cond: &quot;conditions.macd_death_cross&quot;
+          args: [macd_line6, macd_signal6]
+        - cond: &quot;conditions.rsi_overbought&quot;
+          args: [rsi_l]
+          params: { threshold: 80 }
+sizing: { size: 0.2 }
+risk:
+  exit:
+    type: opposite_signal
+    max_bars: 100
+  fees: { commission_bps: 4.0, slippage_bps: 2.0 }
+backtest: { initial_capital: 10000, execution_model: next_bar_open }
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="neg">-3.30%</b></span><span>PnL <b class="neg">$-329.95</b></span><span>Sharpe <b>-3.565</b></span><span>最大回撤 <b class="neg">-5.35%</b></span><span>勝率 <b>32.80%</b></span><span>交易 <b>67</b></span><span>vs BTC(6.73%) <b class="neg">-10.03%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.macd_death_cross</code> <code>conditions.macd_golden_cross</code> <code>conditions.rsi_overbought</code> <code>conditions.rsi_oversold</code> <code>indicators.macd</code> <code>indicators.rsi</code></div></div>
+  </div>
+</details><h2>趨勢 <span class="cnt">6/6 通過</span></h2><details class="case">
+  <summary><span class="cid">trend-fam-ema-cross-12-26</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="neg">報酬 -2.23%</span> · <span class="neg">PnL $-223</span> · Sharpe -1.97 · 26 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">EMA12與EMA26黃金交叉做多、死亡交叉做空的順勢策略</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &quot;1.0&quot;
+target: standard_bot
+strategy:
+  id: trend-fam-ema-cross-12-26
+  description: &quot;EMA12與EMA26黃金交叉/死亡交叉順勢進出場&quot;
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary:
+    interval: &quot;1h&quot;
+    poll_interval: 3570
+  source:
+    type: binance_rest
+signals:
+  indicators:
+    ema_fast:
+      block: &quot;indicators.ema&quot;
+      input: close
+      params:
+        period: 12
+    ema_slow:
+      block: &quot;indicators.ema&quot;
+      input: close
+      params:
+        period: 26
+  entry:
+    long:
+      cond: &quot;conditions.ma_cross_above&quot;
+      args: [ema_fast, ema_slow]
+    short:
+      cond: &quot;conditions.ma_cross_below&quot;
+      args: [ema_fast, ema_slow]
+sizing:
+  size: 0.5
+risk:
+  exit:
+    type: atr_trailing_stop
+    atr_period: 14
+    trail_mult: 2.5
+    max_bars: 200
+  fees:
+    commission_bps: 4.0
+    slippage_bps: 2.0
+backtest:
+  initial_capital: 10000
+  execution_model: next_bar_open
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="neg">-2.23%</b></span><span>PnL <b class="neg">$-223.18</b></span><span>Sharpe <b>-1.972</b></span><span>最大回撤 <b class="neg">-4.56%</b></span><span>勝率 <b>38.50%</b></span><span>交易 <b>26</b></span><span>vs BTC(6.73%) <b class="neg">-8.96%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.ma_cross_above</code> <code>conditions.ma_cross_below</code> <code>indicators.ema</code></div></div>
+  </div>
+</details><details class="case">
+  <summary><span class="cid">trend-fam-sma-cross-20-50</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="pos">報酬 1.01%</span> · <span class="pos">PnL $101</span> · Sharpe 1.23 · 17 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">SMA20與SMA50交叉判斷趨勢轉折的均線交叉策略</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &quot;1.0&quot;
+target: standard_bot
+strategy:
+  id: trend-fam-sma-cross-20-50
+  description: &quot;SMA20與SMA50交叉判斷趨勢轉折進出場&quot;
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary:
+    interval: &quot;1h&quot;
+    poll_interval: 3570
+  source:
+    type: binance_rest
+signals:
+  indicators:
+    sma_fast:
+      block: &quot;indicators.sma&quot;
+      input: close
+      params:
+        period: 20
+    sma_slow:
+      block: &quot;indicators.sma&quot;
+      input: close
+      params:
+        period: 50
+  entry:
+    long:
+      cond: &quot;conditions.ma_cross_above&quot;
+      args: [sma_fast, sma_slow]
+    short:
+      cond: &quot;conditions.ma_cross_below&quot;
+      args: [sma_fast, sma_slow]
+sizing:
+  size: 0.5
+risk:
+  exit:
+    type: ma_cross_exit
+    period: 20
+    ma_type: sma
+    max_bars: 200
+  fees:
+    commission_bps: 4.0
+    slippage_bps: 2.0
+backtest:
+  initial_capital: 10000
+  execution_model: next_bar_open
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="pos">1.01%</b></span><span>PnL <b class="pos">$100.82</b></span><span>Sharpe <b>1.228</b></span><span>最大回撤 <b class="neg">-1.56%</b></span><span>勝率 <b>47.10%</b></span><span>交易 <b>17</b></span><span>vs BTC(6.73%) <b class="neg">-5.72%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.ma_cross_above</code> <code>conditions.ma_cross_below</code> <code>indicators.sma</code></div></div>
+  </div>
+</details><details class="case">
+  <summary><span class="cid">trend-fam-price-above-ema50</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="neg">報酬 -4.40%</span> · <span class="neg">PnL $-440</span> · Sharpe -2.63 · 34 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">收盤價連續站上或跌破EMA50判斷多空方向的策略</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &quot;1.0&quot;
+target: standard_bot
+strategy:
+  id: trend-fam-price-above-ema50
+  description: &quot;收盤價站上/跌破EMA50判斷趨勢方向&quot;
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary:
+    interval: &quot;1h&quot;
+    poll_interval: 3570
+  source:
+    type: binance_rest
+signals:
+  indicators:
+    ema50:
+      block: &quot;indicators.ema&quot;
+      input: close
+      params:
+        period: 50
+  entry:
+    long:
+      cond: &quot;conditions.price_above_ma&quot;
+      args: [df, ema50]
+      params:
+        bars: 3
+    short:
+      cond: &quot;conditions.price_below_ma&quot;
+      args: [df, ema50]
+      params:
+        bars: 3
+sizing:
+  size: 0.4
+risk:
+  exit:
+    type: pct_stop_tp
+    stop_pct: 0.02
+    tp_pct: 0.04
+    max_bars: 150
+  fees:
+    commission_bps: 4.0
+    slippage_bps: 2.0
+backtest:
+  initial_capital: 10000
+  execution_model: next_bar_open
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="neg">-4.40%</b></span><span>PnL <b class="neg">$-440.14</b></span><span>Sharpe <b>-2.635</b></span><span>最大回撤 <b class="neg">-5.44%</b></span><span>勝率 <b>38.20%</b></span><span>交易 <b>34</b></span><span>vs BTC(6.73%) <b class="neg">-11.13%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.price_above_ma</code> <code>conditions.price_below_ma</code> <code>indicators.ema</code></div></div>
+  </div>
+</details><details class="case">
+  <summary><span class="cid">trend-fam-ema-cross-sma200-filter</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="pos">報酬 1.23%</span> · <span class="pos">PnL $123</span> · Sharpe 1.21 · 12 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">EMA9/EMA21交叉並以SMA200作為大趨勢方向過濾的策略</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &quot;1.0&quot;
+target: standard_bot
+strategy:
+  id: trend-fam-ema-cross-sma200-filter
+  description: &quot;EMA9/EMA21交叉搭配SMA200大趨勢過濾器&quot;
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary:
+    interval: &quot;1h&quot;
+    poll_interval: 3570
+  source:
+    type: binance_rest
+signals:
+  indicators:
+    ema9:
+      block: &quot;indicators.ema&quot;
+      input: close
+      params:
+        period: 9
+    ema21:
+      block: &quot;indicators.ema&quot;
+      input: close
+      params:
+        period: 21
+    sma200:
+      block: &quot;indicators.sma&quot;
+      input: close
+      params:
+        period: 200
+  entry:
+    long:
+      all_of:
+        - cond: &quot;conditions.ma_cross_above&quot;
+          args: [ema9, ema21]
+        - cond: &quot;conditions.price_above_ma&quot;
+          args: [df, sma200]
+          params:
+            bars: 1
+    short:
+      all_of:
+        - cond: &quot;conditions.ma_cross_below&quot;
+          args: [ema9, ema21]
+        - cond: &quot;conditions.price_below_ma&quot;
+          args: [df, sma200]
+          params:
+            bars: 1
+sizing:
+  size: 0.5
+risk:
+  exit:
+    type: atr_stop_tp
+    atr_period: 14
+    stop_mult: 2.0
+    tp_mult: 3.0
+    max_bars: 200
+  fees:
+    commission_bps: 4.0
+    slippage_bps: 2.0
+backtest:
+  initial_capital: 10000
+  execution_model: next_bar_open
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="pos">1.23%</b></span><span>PnL <b class="pos">$122.61</b></span><span>Sharpe <b>1.214</b></span><span>最大回撤 <b class="neg">-2.08%</b></span><span>勝率 <b>50.00%</b></span><span>交易 <b>12</b></span><span>vs BTC(6.73%) <b class="neg">-5.50%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.ma_cross_above</code> <code>conditions.ma_cross_below</code> <code>conditions.price_above_ma</code> <code>conditions.price_below_ma</code> <code>indicators.ema</code> <code>indicators.sma</code></div></div>
+  </div>
+</details><details class="case">
+  <summary><span class="cid">trend-fam-dual-cross-any</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="neg">報酬 -4.04%</span> · <span class="neg">PnL $-404</span> · Sharpe -2.52 · 23 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">SMA組或EMA組任一組交叉觸發即進場的雙軌趨勢策略</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &quot;1.0&quot;
+target: standard_bot
+strategy:
+  id: trend-fam-dual-cross-any
+  description: &quot;SMA或EMA任一組交叉觸發即進場的雙軌趨勢策略&quot;
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary:
+    interval: &quot;1h&quot;
+    poll_interval: 3570
+  source:
+    type: binance_rest
+signals:
+  indicators:
+    sma10:
+      block: &quot;indicators.sma&quot;
+      input: close
+      params:
+        period: 10
+    sma30:
+      block: &quot;indicators.sma&quot;
+      input: close
+      params:
+        period: 30
+    ema30:
+      block: &quot;indicators.ema&quot;
+      input: close
+      params:
+        period: 30
+    ema60:
+      block: &quot;indicators.ema&quot;
+      input: close
+      params:
+        period: 60
+  entry:
+    long:
+      any_of:
+        - cond: &quot;conditions.ma_cross_above&quot;
+          args: [sma10, sma30]
+        - cond: &quot;conditions.ma_cross_above&quot;
+          args: [ema30, ema60]
+    short:
+      any_of:
+        - cond: &quot;conditions.ma_cross_below&quot;
+          args: [sma10, sma30]
+        - cond: &quot;conditions.ma_cross_below&quot;
+          args: [ema30, ema60]
+sizing:
+  size: 0.5
+risk:
+  exit:
+    type: time_only
+    max_bars: 100
+  fees:
+    commission_bps: 4.0
+    slippage_bps: 2.0
+backtest:
+  initial_capital: 10000
+  execution_model: next_bar_open
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="neg">-4.04%</b></span><span>PnL <b class="neg">$-403.86</b></span><span>Sharpe <b>-2.520</b></span><span>最大回撤 <b class="neg">-5.21%</b></span><span>勝率 <b>39.10%</b></span><span>交易 <b>23</b></span><span>vs BTC(6.73%) <b class="neg">-10.77%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.ma_cross_above</code> <code>conditions.ma_cross_below</code> <code>indicators.ema</code> <code>indicators.sma</code></div></div>
+  </div>
+</details><details class="case">
+  <summary><span class="cid">trend-fam-price-ma-dual-filter</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="neg">報酬 -1.91%</span> · <span class="neg">PnL $-191</span> · Sharpe -0.86 · 22 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">價格同時站上短均線EMA20與中均線SMA50才進場的雙重濾網策略</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &quot;1.0&quot;
+target: standard_bot
+strategy:
+  id: trend-fam-price-ma-dual-filter
+  description: &quot;價格同時站上短均線EMA20與中均線SMA50才進場的雙重濾網策略&quot;
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary:
+    interval: &quot;1h&quot;
+    poll_interval: 3570
+  source:
+    type: binance_rest
+signals:
+  indicators:
+    ema20:
+      block: &quot;indicators.ema&quot;
+      input: close
+      params:
+        period: 20
+    sma50:
+      block: &quot;indicators.sma&quot;
+      input: close
+      params:
+        period: 50
+  entry:
+    long:
+      all_of:
+        - cond: &quot;conditions.price_above_ma&quot;
+          args: [df, ema20]
+          params:
+            bars: 1
+        - cond: &quot;conditions.price_above_ma&quot;
+          args: [df, sma50]
+          params:
+            bars: 5
+    short:
+      all_of:
+        - cond: &quot;conditions.price_below_ma&quot;
+          args: [df, ema20]
+          params:
+            bars: 1
+        - cond: &quot;conditions.price_below_ma&quot;
+          args: [df, sma50]
+          params:
+            bars: 5
+sizing:
+  size: 0.5
+risk:
+  exit:
+    type: opposite_signal
+    max_bars: 180
+  fees:
+    commission_bps: 4.0
+    slippage_bps: 2.0
+backtest:
+  initial_capital: 10000
+  execution_model: next_bar_open
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="neg">-1.91%</b></span><span>PnL <b class="neg">$-190.94</b></span><span>Sharpe <b>-0.860</b></span><span>最大回撤 <b class="neg">-7.01%</b></span><span>勝率 <b>40.90%</b></span><span>交易 <b>22</b></span><span>vs BTC(6.73%) <b class="neg">-8.64%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.price_above_ma</code> <code>conditions.price_below_ma</code> <code>indicators.ema</code> <code>indicators.sma</code></div></div>
+  </div>
+</details><h2>突破 <span class="cnt">6/6 通過</span></h2><details class="case">
+  <summary><span class="cid">breakout-donchian20-sma50-confirm</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="pos">報酬 0.00%</span> · <span class="pos">PnL $0</span> · Sharpe 0.00 · 0 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">唐奇安20週期通道突破,並以50期SMA做多空趨勢方向確認</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &quot;1.0&quot;
+target: standard_bot
+strategy:
+  id: breakout-donchian20-sma50-confirm
+  description: &quot;唐奇安20週期通道突破,並以50期SMA做趨勢方向確認&quot;
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary:
+    interval: &quot;1h&quot;
+    poll_interval: 3570
+  source:
+    type: binance_rest
+signals:
+  indicators:
+    don_upper:
+      block: &quot;indicators.donchian&quot;
+      input: df
+      params: { period: 20 }
+      output: 0
+    don_lower:
+      block: &quot;indicators.donchian&quot;
+      input: df
+      params: { period: 20 }
+      output: 1
+    sma50:
+      block: &quot;indicators.sma&quot;
+      input: close
+      params: { period: 50 }
+  entry:
+    long:
+      all_of:
+        - cond: &quot;conditions.price_above_ma&quot;
+          args: [df, don_upper]
+          params: { bars: 1 }
+        - cond: &quot;conditions.price_above_ma&quot;
+          args: [df, sma50]
+          params: { bars: 1 }
+    short:
+      all_of:
+        - cond: &quot;conditions.price_below_ma&quot;
+          args: [df, don_lower]
+          params: { bars: 1 }
+        - cond: &quot;conditions.price_below_ma&quot;
+          args: [df, sma50]
+          params: { bars: 1 }
+sizing:
+  size: 0.3
+risk:
+  exit:
+    type: pct_stop_tp
+    stop_pct: 0.02
+    tp_pct: 0.04
+    max_bars: 100
+  fees:
+    commission_bps: 4.0
+    slippage_bps: 2.0
+backtest:
+  initial_capital: 10000
+  execution_model: next_bar_open
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="pos">0.00%</b></span><span>PnL <b class="pos">$0.00</b></span><span>Sharpe <b>0.000</b></span><span>最大回撤 <b class="neg">0.00%</b></span><span>勝率 <b>0.00%</b></span><span>交易 <b>0</b></span><span>vs BTC(6.73%) <b class="neg">-6.73%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.price_above_ma</code> <code>conditions.price_below_ma</code> <code>indicators.donchian</code> <code>indicators.sma</code></div></div>
+  </div>
+</details><details class="case">
+  <summary><span class="cid">breakout-priceaction-hl24-adx</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="neg">報酬 -2.23%</span> · <span class="neg">PnL $-223</span> · Sharpe -2.95 · 29 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">純價格行為24根K棒創新高/新低突破,搭配ADX趨勢強度過濾假突破</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &quot;1.0&quot;
+target: standard_bot
+strategy:
+  id: breakout-priceaction-hl24-adx
+  description: &quot;24根K棒創新高/新低的價格行為突破,以ADX趨勢強度過濾雜訊&quot;
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary:
+    interval: &quot;1h&quot;
+    poll_interval: 3570
+  source:
+    type: binance_rest
+signals:
+  indicators:
+    adx14:
+      block: &quot;indicators.adx&quot;
+      input: df
+      params: { period: 14 }
+      output: 0
+  entry:
+    long:
+      all_of:
+        - cond: &quot;conditions.breakout_high&quot;
+          args: [df]
+          params: { lookback: 24 }
+        - cond: &quot;conditions.adx_trending&quot;
+          args: [adx14]
+          params: { threshold: 20 }
+    short:
+      all_of:
+        - cond: &quot;conditions.breakout_low&quot;
+          args: [df]
+          params: { lookback: 24 }
+        - cond: &quot;conditions.adx_trending&quot;
+          args: [adx14]
+          params: { threshold: 20 }
+sizing:
+  size: 0.3
+risk:
+  exit:
+    type: atr_stop_tp
+    atr_period: 14
+    stop_mult: 1.5
+    tp_mult: 3.0
+    max_bars: 80
+  fees:
+    commission_bps: 4.0
+    slippage_bps: 2.0
+backtest:
+  initial_capital: 10000
+  execution_model: next_bar_open
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="neg">-2.23%</b></span><span>PnL <b class="neg">$-222.94</b></span><span>Sharpe <b>-2.949</b></span><span>最大回撤 <b class="neg">-3.63%</b></span><span>勝率 <b>27.60%</b></span><span>交易 <b>29</b></span><span>vs BTC(6.73%) <b class="neg">-8.96%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.adx_trending</code> <code>conditions.breakout_high</code> <code>conditions.breakout_low</code> <code>indicators.adx</code></div></div>
+  </div>
+</details><details class="case">
+  <summary><span class="cid">breakout-bollinger20-2std</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="neg">報酬 -2.17%</span> · <span class="neg">PnL $-217</span> · Sharpe -3.23 · 30 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">布林通道20週期2倍標準差,收盤價突破上下軌做順勢突破交易</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &quot;1.0&quot;
+target: standard_bot
+strategy:
+  id: breakout-bollinger20-2std
+  description: &quot;布林通道20週期2倍標準差,收盤突破上軌做多、跌破下軌做空&quot;
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary:
+    interval: &quot;1h&quot;
+    poll_interval: 3570
+  source:
+    type: binance_rest
+signals:
+  indicators:
+    bb_upper:
+      block: &quot;indicators.bollinger&quot;
+      input: close
+      params: { period: 20, std_mult: 2.0 }
+      output: 0
+    bb_lower:
+      block: &quot;indicators.bollinger&quot;
+      input: close
+      params: { period: 20, std_mult: 2.0 }
+      output: 2
+  entry:
+    long:
+      cond: &quot;conditions.price_above_ma&quot;
+      args: [df, bb_upper]
+      params: { bars: 1 }
+    short:
+      cond: &quot;conditions.price_below_ma&quot;
+      args: [df, bb_lower]
+      params: { bars: 1 }
+sizing:
+  size: 0.25
+risk:
+  exit:
+    type: atr_trailing_stop
+    atr_period: 14
+    trail_mult: 2.5
+    max_bars: 120
+  fees:
+    commission_bps: 4.0
+    slippage_bps: 2.0
+backtest:
+  initial_capital: 10000
+  execution_model: next_bar_open
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="neg">-2.17%</b></span><span>PnL <b class="neg">$-217.19</b></span><span>Sharpe <b>-3.229</b></span><span>最大回撤 <b class="neg">-3.23%</b></span><span>勝率 <b>33.30%</b></span><span>交易 <b>30</b></span><span>vs BTC(6.73%) <b class="neg">-8.90%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.price_above_ma</code> <code>conditions.price_below_ma</code> <code>indicators.bollinger</code></div></div>
+  </div>
+</details><details class="case">
+  <summary><span class="cid">breakout-donchian55-turtle-adx-trail</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="pos">報酬 0.00%</span> · <span class="pos">PnL $0</span> · Sharpe 0.00 · 0 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">海龜式55週期唐奇安通道突破,以ADX確認趨勢強度並用ATR移動停損出場</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &quot;1.0&quot;
+target: standard_bot
+strategy:
+  id: breakout-donchian55-turtle-adx-trail
+  description: &quot;55週期唐奇安通道突破(海龜式),ADX趨勢強度確認,ATR移動停損出場&quot;
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary:
+    interval: &quot;1h&quot;
+    poll_interval: 3570
+  source:
+    type: binance_rest
+signals:
+  indicators:
+    don55_upper:
+      block: &quot;indicators.donchian&quot;
+      input: df
+      params: { period: 55 }
+      output: 0
+    don55_lower:
+      block: &quot;indicators.donchian&quot;
+      input: df
+      params: { period: 55 }
+      output: 1
+    adx14:
+      block: &quot;indicators.adx&quot;
+      input: df
+      params: { period: 14 }
+      output: 0
+  entry:
+    long:
+      all_of:
+        - cond: &quot;conditions.price_above_ma&quot;
+          args: [df, don55_upper]
+          params: { bars: 1 }
+        - cond: &quot;conditions.adx_trending&quot;
+          args: [adx14]
+          params: { threshold: 25 }
+    short:
+      all_of:
+        - cond: &quot;conditions.price_below_ma&quot;
+          args: [df, don55_lower]
+          params: { bars: 1 }
+        - cond: &quot;conditions.adx_trending&quot;
+          args: [adx14]
+          params: { threshold: 25 }
+sizing:
+  size: 0.3
+risk:
+  exit:
+    type: atr_trailing_stop
+    atr_period: 14
+    trail_mult: 3.0
+    max_bars: 200
+  fees:
+    commission_bps: 4.0
+    slippage_bps: 2.0
+backtest:
+  initial_capital: 10000
+  execution_model: next_bar_open
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="pos">0.00%</b></span><span>PnL <b class="pos">$0.00</b></span><span>Sharpe <b>0.000</b></span><span>最大回撤 <b class="neg">0.00%</b></span><span>勝率 <b>0.00%</b></span><span>交易 <b>0</b></span><span>vs BTC(6.73%) <b class="neg">-6.73%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.adx_trending</code> <code>conditions.price_above_ma</code> <code>conditions.price_below_ma</code> <code>indicators.adx</code> <code>indicators.donchian</code></div></div>
+  </div>
+</details><details class="case">
+  <summary><span class="cid">breakout-hh30-hl10-confirm</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="pos">報酬 0.00%</span> · <span class="pos">PnL $0</span> · Sharpe 0.00 · 0 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">30根K棒創新高突破且10根K棒內出現更高低點結構確認多方動能,空方鏡像操作</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &quot;1.0&quot;
+target: standard_bot
+strategy:
+  id: breakout-hh30-hl10-confirm
+  description: &quot;30根K棒新高/新低突破,並以10根K棒的更高低點/更低高點結構做動能確認&quot;
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary:
+    interval: &quot;1h&quot;
+    poll_interval: 3570
+  source:
+    type: binance_rest
+signals:
+  indicators: {}
+  entry:
+    long:
+      all_of:
+        - cond: &quot;conditions.breakout_high&quot;
+          args: [df]
+          params: { lookback: 30 }
+        - cond: &quot;conditions.higher_low&quot;
+          args: [df]
+          params: { lookback: 10 }
+    short:
+      all_of:
+        - cond: &quot;conditions.breakout_low&quot;
+          args: [df]
+          params: { lookback: 30 }
+        - cond: &quot;conditions.lower_high&quot;
+          args: [df]
+          params: { lookback: 10 }
+sizing:
+  size: 0.25
+risk:
+  exit:
+    type: atr_stop_tp
+    atr_period: 14
+    stop_mult: 2.0
+    tp_mult: 4.0
+    max_bars: 96
+  fees:
+    commission_bps: 4.0
+    slippage_bps: 2.0
+backtest:
+  initial_capital: 10000
+  execution_model: next_bar_open
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="pos">0.00%</b></span><span>PnL <b class="pos">$0.00</b></span><span>Sharpe <b>0.000</b></span><span>最大回撤 <b class="neg">0.00%</b></span><span>勝率 <b>0.00%</b></span><span>交易 <b>0</b></span><span>vs BTC(6.73%) <b class="neg">-6.73%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.breakout_high</code> <code>conditions.breakout_low</code> <code>conditions.higher_low</code> <code>conditions.lower_high</code></div></div>
+  </div>
+</details><details class="case">
+  <summary><span class="cid">breakout-bb-donchian-any-combo</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="neg">報酬 -3.38%</span> · <span class="neg">PnL $-338</span> · Sharpe -3.02 · 16 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">布林通道或唐奇安通道任一突破成立即進場,並以RSI區間過濾追高殺低風險</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &quot;1.0&quot;
+target: standard_bot
+strategy:
+  id: breakout-bb-donchian-any-combo
+  description: &quot;布林通道或唐奇安通道任一突破成立即進場,搭配RSI區間過濾極端追價&quot;
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary:
+    interval: &quot;1h&quot;
+    poll_interval: 3570
+  source:
+    type: binance_rest
+signals:
+  indicators:
+    bb_upper:
+      block: &quot;indicators.bollinger&quot;
+      input: close
+      params: { period: 20, std_mult: 2.5 }
+      output: 0
+    bb_lower:
+      block: &quot;indicators.bollinger&quot;
+      input: close
+      params: { period: 20, std_mult: 2.5 }
+      output: 2
+    don_upper:
+      block: &quot;indicators.donchian&quot;
+      input: df
+      params: { period: 20 }
+      output: 0
+    don_lower:
+      block: &quot;indicators.donchian&quot;
+      input: df
+      params: { period: 20 }
+      output: 1
+    rsi14:
+      block: &quot;indicators.rsi&quot;
+      input: close
+      params: { period: 14 }
+  entry:
+    long:
+      all_of:
+        - any_of:
+            - cond: &quot;conditions.price_above_ma&quot;
+              args: [df, bb_upper]
+              params: { bars: 1 }
+            - cond: &quot;conditions.price_above_ma&quot;
+              args: [df, don_upper]
+              params: { bars: 1 }
+        - cond: &quot;conditions.rsi_in_range&quot;
+          args: [rsi14]
+          params: { low: 40, high: 85 }
+    short:
+      all_of:
+        - any_of:
+            - cond: &quot;conditions.price_below_ma&quot;
+              args: [df, bb_lower]
+              params: { bars: 1 }
+            - cond: &quot;conditions.price_below_ma&quot;
+              args: [df, don_lower]
+              params: { bars: 1 }
+        - cond: &quot;conditions.rsi_in_range&quot;
+          args: [rsi14]
+          params: { low: 15, high: 60 }
+sizing:
+  size: 0.25
+risk:
+  exit:
+    type: opposite_signal
+    max_bars: 100
+  fees:
+    commission_bps: 4.0
+    slippage_bps: 2.0
+backtest:
+  initial_capital: 10000
+  execution_model: next_bar_open
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="neg">-3.38%</b></span><span>PnL <b class="neg">$-338.45</b></span><span>Sharpe <b>-3.024</b></span><span>最大回撤 <b class="neg">-4.04%</b></span><span>勝率 <b>25.00%</b></span><span>交易 <b>16</b></span><span>vs BTC(6.73%) <b class="neg">-10.11%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.price_above_ma</code> <code>conditions.price_below_ma</code> <code>conditions.rsi_in_range</code> <code>indicators.bollinger</code> <code>indicators.donchian</code> <code>indicators.rsi</code></div></div>
+  </div>
+</details><h2>波動/出場 <span class="cnt">6/6 通過</span></h2><details class="case">
+  <summary><span class="cid">vol-exits-ema-atr-tp-1</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="pos">報酬 1.08%</span> · <span class="pos">PnL $108</span> · Sharpe 1.58 · 23 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">EMA12/26黃金交叉做多、死亡交叉做空,ATR停損停利雙邊出場</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &#x27;1.0&#x27;
+target: standard_bot
+strategy:
+  id: vol-exits-ema-atr-tp-1
+  description: EMA12/26交叉進場,ATR停損停利出場
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary:
+    interval: 1h
+    poll_interval: 3570
+  source:
+    type: binance_rest
+signals:
+  indicators:
+    ema_fast:
+      block: indicators.ema
+      input: close
+      params:
+        period: 12
+    ema_slow:
+      block: indicators.ema
+      input: close
+      params:
+        period: 26
+  entry:
+    long:
+      cond: conditions.ma_cross_above
+      args:
+      - ema_fast
+      - ema_slow
+    short:
+      cond: conditions.ma_cross_below
+      args:
+      - ema_fast
+      - ema_slow
+sizing:
+  size: 0.3
+risk:
+  exit:
+    type: atr_stop_tp
+    atr_period: 14
+    stop_mult: 1.5
+    tp_mult: 3.0
+    max_bars: 100
+  fees:
+    commission_bps: 4.0
+    slippage_bps: 2.0
+backtest:
+  initial_capital: 10000
+  execution_model: next_bar_open
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="pos">1.08%</b></span><span>PnL <b class="pos">$108.25</b></span><span>Sharpe <b>1.583</b></span><span>最大回撤 <b class="neg">-1.64%</b></span><span>勝率 <b>43.50%</b></span><span>交易 <b>23</b></span><span>vs BTC(6.73%) <b class="neg">-5.65%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.ma_cross_above</code> <code>conditions.ma_cross_below</code> <code>indicators.ema</code></div></div>
+  </div>
+</details><details class="case">
+  <summary><span class="cid">vol-exits-ema-atr-trail-1</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="neg">報酬 -2.40%</span> · <span class="neg">PnL $-240</span> · Sharpe -3.87 · 32 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">EMA9/21快慢均線交叉進場,ATR移動停損讓利出場</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &#x27;1.0&#x27;
+target: standard_bot
+strategy:
+  id: vol-exits-ema-atr-trail-1
+  description: EMA9/21交叉進場,ATR移動停損出場
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary:
+    interval: 1h
+    poll_interval: 3570
+  source:
+    type: binance_rest
+signals:
+  indicators:
+    ema_fast:
+      block: indicators.ema
+      input: close
+      params:
+        period: 9
+    ema_slow:
+      block: indicators.ema
+      input: close
+      params:
+        period: 21
+  entry:
+    long:
+      cond: conditions.ma_cross_above
+      args:
+      - ema_fast
+      - ema_slow
+    short:
+      cond: conditions.ma_cross_below
+      args:
+      - ema_fast
+      - ema_slow
+sizing:
+  size: 0.25
+risk:
+  exit:
+    type: atr_trailing_stop
+    atr_period: 14
+    trail_mult: 2.5
+    max_bars: 150
+  fees:
+    commission_bps: 4.0
+    slippage_bps: 2.0
+backtest:
+  initial_capital: 10000
+  execution_model: next_bar_open
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="neg">-2.40%</b></span><span>PnL <b class="neg">$-239.89</b></span><span>Sharpe <b>-3.871</b></span><span>最大回撤 <b class="neg">-3.68%</b></span><span>勝率 <b>34.40%</b></span><span>交易 <b>32</b></span><span>vs BTC(6.73%) <b class="neg">-9.13%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.ma_cross_above</code> <code>conditions.ma_cross_below</code> <code>indicators.ema</code></div></div>
+  </div>
+</details><details class="case">
+  <summary><span class="cid">vol-exits-rsi-time-1</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="neg">報酬 -0.21%</span> · <span class="neg">PnL $-21</span> · Sharpe -0.33 · 18 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">RSI14超賣做多、超買做空,固定持有K棒數後出場</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &#x27;1.0&#x27;
+target: standard_bot
+strategy:
+  id: vol-exits-rsi-time-1
+  description: RSI14超賣超買進場,固定時間出場
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary:
+    interval: 1h
+    poll_interval: 3570
+  source:
+    type: binance_rest
+signals:
+  indicators:
+    rsi14:
+      block: indicators.rsi
+      input: close
+      params:
+        period: 14
+  entry:
+    long:
+      cond: conditions.rsi_oversold
+      args:
+      - rsi14
+      params:
+        threshold: 30
+    short:
+      cond: conditions.rsi_overbought
+      args:
+      - rsi14
+      params:
+        threshold: 70
+sizing:
+  size: 0.2
+risk:
+  exit:
+    type: time_only
+    max_bars: 24
+  fees:
+    commission_bps: 4.0
+    slippage_bps: 2.0
+backtest:
+  initial_capital: 10000
+  execution_model: next_bar_open
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="neg">-0.21%</b></span><span>PnL <b class="neg">$-21.47</b></span><span>Sharpe <b>-0.331</b></span><span>最大回撤 <b class="neg">-1.23%</b></span><span>勝率 <b>38.90%</b></span><span>交易 <b>18</b></span><span>vs BTC(6.73%) <b class="neg">-6.94%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.rsi_overbought</code> <code>conditions.rsi_oversold</code> <code>indicators.rsi</code></div></div>
+  </div>
+</details><details class="case">
+  <summary><span class="cid">vol-exits-ema-atr-tp-2</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="neg">報酬 -1.74%</span> · <span class="neg">PnL $-174</span> · Sharpe -2.52 · 8 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">EMA20/50黃金交叉只做多,寬幅ATR停損停利出場</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &#x27;1.0&#x27;
+target: standard_bot
+strategy:
+  id: vol-exits-ema-atr-tp-2
+  description: EMA20/50交叉只做多,寬幅ATR停損停利出場
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary:
+    interval: 1h
+    poll_interval: 3570
+  source:
+    type: binance_rest
+signals:
+  indicators:
+    ema_fast:
+      block: indicators.ema
+      input: close
+      params:
+        period: 20
+    ema_slow:
+      block: indicators.ema
+      input: close
+      params:
+        period: 50
+  entry:
+    long:
+      cond: conditions.ma_cross_above
+      args:
+      - ema_fast
+      - ema_slow
+sizing:
+  size: 0.4
+risk:
+  exit:
+    type: atr_stop_tp
+    atr_period: 20
+    stop_mult: 2.0
+    tp_mult: 4.0
+    max_bars: 200
+  fees:
+    commission_bps: 4.0
+    slippage_bps: 2.0
+backtest:
+  initial_capital: 10000
+  execution_model: next_bar_open
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="neg">-1.74%</b></span><span>PnL <b class="neg">$-173.78</b></span><span>Sharpe <b>-2.524</b></span><span>最大回撤 <b class="neg">-2.39%</b></span><span>勝率 <b>25.00%</b></span><span>交易 <b>8</b></span><span>vs BTC(6.73%) <b class="neg">-8.47%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.ma_cross_above</code> <code>indicators.ema</code></div></div>
+  </div>
+</details><details class="case">
+  <summary><span class="cid">vol-exits-rsi-trend-atr-trail-1</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="pos">報酬 0.00%</span> · <span class="pos">PnL $0</span> · Sharpe 0.00 · 0 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">RSI10搭配EMA50趨勢過濾進出場,ATR移動停損出場</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &#x27;1.0&#x27;
+target: standard_bot
+strategy:
+  id: vol-exits-rsi-trend-atr-trail-1
+  description: RSI搭配EMA趨勢過濾進場,ATR移動停損出場
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary:
+    interval: 1h
+    poll_interval: 3570
+  source:
+    type: binance_rest
+signals:
+  indicators:
+    rsi10:
+      block: indicators.rsi
+      input: close
+      params:
+        period: 10
+    ema_trend:
+      block: indicators.ema
+      input: close
+      params:
+        period: 50
+  entry:
+    long:
+      all_of:
+      - cond: conditions.rsi_oversold
+        args:
+        - rsi10
+        params:
+          threshold: 35
+      - cond: conditions.price_above_ma
+        args:
+        - df
+        - ema_trend
+        params:
+          bars: 1
+    short:
+      all_of:
+      - cond: conditions.rsi_overbought
+        args:
+        - rsi10
+        params:
+          threshold: 65
+      - cond: conditions.price_below_ma
+        args:
+        - df
+        - ema_trend
+        params:
+          bars: 1
+sizing:
+  size: 0.25
+risk:
+  exit:
+    type: atr_trailing_stop
+    atr_period: 10
+    trail_mult: 1.8
+    max_bars: 80
+  fees:
+    commission_bps: 4.0
+    slippage_bps: 2.0
+backtest:
+  initial_capital: 10000
+  execution_model: next_bar_open
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="pos">0.00%</b></span><span>PnL <b class="pos">$0.00</b></span><span>Sharpe <b>0.000</b></span><span>最大回撤 <b class="neg">0.00%</b></span><span>勝率 <b>0.00%</b></span><span>交易 <b>0</b></span><span>vs BTC(6.73%) <b class="neg">-6.73%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.price_above_ma</code> <code>conditions.price_below_ma</code> <code>conditions.rsi_overbought</code> <code>conditions.rsi_oversold</code> <code>indicators.ema</code> <code>indicators.rsi</code></div></div>
+  </div>
+</details><details class="case">
+  <summary><span class="cid">vol-exits-ema-time-scalp-1</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="neg">報酬 -2.65%</span> · <span class="neg">PnL $-265</span> · Sharpe -6.37 · 36 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">EMA5/15快速交叉短線進場,短固定K棒數快進快出</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &#x27;1.0&#x27;
+target: standard_bot
+strategy:
+  id: vol-exits-ema-time-scalp-1
+  description: EMA5/15快速交叉短線進場,短時間出場
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary:
+    interval: 1h
+    poll_interval: 3570
+  source:
+    type: binance_rest
+signals:
+  indicators:
+    ema_fast:
+      block: indicators.ema
+      input: close
+      params:
+        period: 5
+    ema_slow:
+      block: indicators.ema
+      input: close
+      params:
+        period: 15
+  entry:
+    long:
+      cond: conditions.ma_cross_above
+      args:
+      - ema_fast
+      - ema_slow
+    short:
+      cond: conditions.ma_cross_below
+      args:
+      - ema_fast
+      - ema_slow
+sizing:
+  size: 0.15
+risk:
+  exit:
+    type: time_only
+    max_bars: 12
+  fees:
+    commission_bps: 4.0
+    slippage_bps: 2.0
+backtest:
+  initial_capital: 10000
+  execution_model: next_bar_open
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="neg">-2.65%</b></span><span>PnL <b class="neg">$-265.33</b></span><span>Sharpe <b>-6.370</b></span><span>最大回撤 <b class="neg">-3.08%</b></span><span>勝率 <b>25.00%</b></span><span>交易 <b>36</b></span><span>vs BTC(6.73%) <b class="neg">-9.38%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.ma_cross_above</code> <code>conditions.ma_cross_below</code> <code>indicators.ema</code></div></div>
+  </div>
+</details><h2>ADX 分流 <span class="cnt">6/6 通過</span></h2><details class="case">
+  <summary><span class="cid">adx-regime-ema-rsi-fade-01</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="neg">報酬 -0.35%</span> · <span class="neg">PnL $-35</span> · Sharpe -0.49 · 13 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">ADX判斷趨勢或盤整:趨勢時用EMA9/21黃金死亡交叉順勢,盤整時用RSI超買超賣反向進場</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &quot;1.0&quot;
+target: standard_bot
+strategy:
+  id: adx-regime-ema-rsi-fade-01
+  description: &quot;ADX判斷趨勢或盤整,趨勢時EMA9/21交叉順勢,盤整時RSI超買超賣反向&quot;
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary:
+    interval: &quot;1h&quot;
+    poll_interval: 3570
+  source:
+    type: binance_rest
+signals:
+  indicators:
+    adx14:
+      block: &quot;indicators.adx&quot;
+      input: df
+      params: { period: 14 }
+      output: 0
+    ema9:
+      block: &quot;indicators.ema&quot;
+      input: close
+      params: { period: 9 }
+    ema21:
+      block: &quot;indicators.ema&quot;
+      input: close
+      params: { period: 21 }
+    rsi14:
+      block: &quot;indicators.rsi&quot;
+      input: close
+      params: { period: 14 }
+  entry:
+    long:
+      any_of:
+        - all_of:
+            - cond: &quot;conditions.adx_trending&quot;
+              args: [adx14]
+              params: { threshold: 25 }
+            - cond: &quot;conditions.ma_cross_above&quot;
+              args: [ema9, ema21]
+            - cond: &quot;conditions.rsi_in_range&quot;
+              args: [rsi14]
+              params: { low: 40, high: 90 }
+        - all_of:
+            - cond: &quot;conditions.adx_ranging&quot;
+              args: [adx14]
+              params: { threshold: 20 }
+            - cond: &quot;conditions.rsi_oversold&quot;
+              args: [rsi14]
+              params: { threshold: 30 }
+    short:
+      any_of:
+        - all_of:
+            - cond: &quot;conditions.adx_trending&quot;
+              args: [adx14]
+              params: { threshold: 25 }
+            - cond: &quot;conditions.ma_cross_below&quot;
+              args: [ema9, ema21]
+            - cond: &quot;conditions.rsi_in_range&quot;
+              args: [rsi14]
+              params: { low: 10, high: 60 }
+        - all_of:
+            - cond: &quot;conditions.adx_ranging&quot;
+              args: [adx14]
+              params: { threshold: 20 }
+            - cond: &quot;conditions.rsi_overbought&quot;
+              args: [rsi14]
+              params: { threshold: 70 }
+sizing: { size: 0.5 }
+risk:
+  exit:
+    type: atr_stop_tp
+    atr_period: 14
+    stop_mult: 1.5
+    tp_mult: 3.0
+    max_bars: 48
+  fees: { commission_bps: 4.0, slippage_bps: 2.0 }
+backtest: { initial_capital: 10000, execution_model: next_bar_open }
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="neg">-0.35%</b></span><span>PnL <b class="neg">$-34.62</b></span><span>Sharpe <b>-0.493</b></span><span>最大回撤 <b class="neg">-1.87%</b></span><span>勝率 <b>38.50%</b></span><span>交易 <b>13</b></span><span>vs BTC(6.73%) <b class="neg">-7.08%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.adx_ranging</code> <code>conditions.adx_trending</code> <code>conditions.ma_cross_above</code> <code>conditions.ma_cross_below</code> <code>conditions.rsi_in_range</code> <code>conditions.rsi_overbought</code> <code>conditions.rsi_oversold</code> <code>indicators.adx</code> <code>indicators.ema</code> <code>indicators.rsi</code></div></div>
+  </div>
+</details><details class="case">
+  <summary><span class="cid">adx-regime-macd-bollinger-02</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="pos">報酬 1.14%</span> · <span class="pos">PnL $114</span> · Sharpe 0.94 · 27 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">ADX趨勢時用MACD金叉死叉順勢,盤整時用布林通道上下軌反向做均值回歸</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &quot;1.0&quot;
+target: standard_bot
+strategy:
+  id: adx-regime-macd-bollinger-02
+  description: &quot;ADX趨勢時MACD金叉死叉順勢,盤整時布林上下軌反向均值回歸&quot;
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary:
+    interval: &quot;1h&quot;
+    poll_interval: 3570
+  source:
+    type: binance_rest
+signals:
+  indicators:
+    adx14:
+      block: &quot;indicators.adx&quot;
+      input: df
+      params: { period: 14 }
+      output: 0
+    macd_line:
+      block: &quot;indicators.macd&quot;
+      input: close
+      params: { fast: 12, slow: 26, signal: 9 }
+      output: 0
+    macd_signal:
+      block: &quot;indicators.macd&quot;
+      input: close
+      params: { fast: 12, slow: 26, signal: 9 }
+      output: 1
+    boll_upper:
+      block: &quot;indicators.bollinger&quot;
+      input: close
+      params: { period: 20, std_mult: 2.0 }
+      output: 0
+    boll_lower:
+      block: &quot;indicators.bollinger&quot;
+      input: close
+      params: { period: 20, std_mult: 2.0 }
+      output: 2
+  entry:
+    long:
+      any_of:
+        - all_of:
+            - cond: &quot;conditions.adx_trending&quot;
+              args: [adx14]
+              params: { threshold: 28 }
+            - cond: &quot;conditions.macd_golden_cross&quot;
+              args: [macd_line, macd_signal]
+        - all_of:
+            - cond: &quot;conditions.adx_ranging&quot;
+              args: [adx14]
+              params: { threshold: 18 }
+            - cond: &quot;conditions.price_below_ma&quot;
+              args: [df, boll_lower]
+              params: { bars: 1 }
+    short:
+      any_of:
+        - all_of:
+            - cond: &quot;conditions.adx_trending&quot;
+              args: [adx14]
+              params: { threshold: 28 }
+            - cond: &quot;conditions.macd_death_cross&quot;
+              args: [macd_line, macd_signal]
+        - all_of:
+            - cond: &quot;conditions.adx_ranging&quot;
+              args: [adx14]
+              params: { threshold: 18 }
+            - cond: &quot;conditions.price_above_ma&quot;
+              args: [df, boll_upper]
+              params: { bars: 1 }
+sizing: { size: 0.4 }
+risk:
+  exit:
+    type: pct_stop_tp
+    stop_pct: 0.015
+    tp_pct: 0.03
+    max_bars: 60
+  fees: { commission_bps: 4.0, slippage_bps: 2.0 }
+backtest: { initial_capital: 10000, execution_model: next_bar_open }
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="pos">1.14%</b></span><span>PnL <b class="pos">$114.07</b></span><span>Sharpe <b>0.940</b></span><span>最大回撤 <b class="neg">-2.32%</b></span><span>勝率 <b>40.70%</b></span><span>交易 <b>27</b></span><span>vs BTC(6.73%) <b class="neg">-5.59%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.adx_ranging</code> <code>conditions.adx_trending</code> <code>conditions.macd_death_cross</code> <code>conditions.macd_golden_cross</code> <code>conditions.price_above_ma</code> <code>conditions.price_below_ma</code> <code>indicators.adx</code> <code>indicators.bollinger</code> <code>indicators.macd</code></div></div>
+  </div>
+</details><details class="case">
+  <summary><span class="cid">adx-regime-donchian-fade-03</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="neg">報酬 -0.24%</span> · <span class="neg">PnL $-24</span> · Sharpe -0.77 · 3 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">ADX趨勢時用20根通道突破順勢,盤整時價格觸及唐奇安上下緣反向做假突破</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &quot;1.0&quot;
+target: standard_bot
+strategy:
+  id: adx-regime-donchian-fade-03
+  description: &quot;ADX趨勢時通道突破順勢,盤整時觸及唐奇安上下緣反向假突破&quot;
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary:
+    interval: &quot;1h&quot;
+    poll_interval: 3570
+  source:
+    type: binance_rest
+signals:
+  indicators:
+    adx20:
+      block: &quot;indicators.adx&quot;
+      input: df
+      params: { period: 20 }
+      output: 0
+    donch_upper:
+      block: &quot;indicators.donchian&quot;
+      input: df
+      params: { period: 20 }
+      output: 0
+    donch_lower:
+      block: &quot;indicators.donchian&quot;
+      input: df
+      params: { period: 20 }
+      output: 1
+  entry:
+    long:
+      any_of:
+        - all_of:
+            - cond: &quot;conditions.adx_trending&quot;
+              args: [adx20]
+              params: { threshold: 30 }
+            - cond: &quot;conditions.breakout_high&quot;
+              args: [df]
+              params: { lookback: 20 }
+        - all_of:
+            - cond: &quot;conditions.adx_ranging&quot;
+              args: [adx20]
+              params: { threshold: 15 }
+            - cond: &quot;conditions.price_below_ma&quot;
+              args: [df, donch_lower]
+              params: { bars: 1 }
+    short:
+      any_of:
+        - all_of:
+            - cond: &quot;conditions.adx_trending&quot;
+              args: [adx20]
+              params: { threshold: 30 }
+            - cond: &quot;conditions.breakout_low&quot;
+              args: [df]
+              params: { lookback: 20 }
+        - all_of:
+            - cond: &quot;conditions.adx_ranging&quot;
+              args: [adx20]
+              params: { threshold: 15 }
+            - cond: &quot;conditions.price_above_ma&quot;
+              args: [df, donch_upper]
+              params: { bars: 1 }
+sizing: { size: 0.5 }
+risk:
+  exit:
+    type: atr_trailing_stop
+    atr_period: 14
+    trail_mult: 2.0
+    max_bars: 72
+  fees: { commission_bps: 4.0, slippage_bps: 2.0 }
+backtest: { initial_capital: 10000, execution_model: next_bar_open }
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="neg">-0.24%</b></span><span>PnL <b class="neg">$-24.30</b></span><span>Sharpe <b>-0.772</b></span><span>最大回撤 <b class="neg">-1.23%</b></span><span>勝率 <b>33.30%</b></span><span>交易 <b>3</b></span><span>vs BTC(6.73%) <b class="neg">-6.97%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.adx_ranging</code> <code>conditions.adx_trending</code> <code>conditions.breakout_high</code> <code>conditions.breakout_low</code> <code>conditions.price_above_ma</code> <code>conditions.price_below_ma</code> <code>indicators.adx</code> <code>indicators.donchian</code></div></div>
+  </div>
+</details><details class="case">
+  <summary><span class="cid">adx-regime-di-cross-swing-04</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="neg">報酬 -2.65%</span> · <span class="neg">PnL $-265</span> · Sharpe -2.96 · 59 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">ADX趨勢時用+DI/-DI交叉判斷方向順勢,盤整時用高低點結構反向做擺盪</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &quot;1.0&quot;
+target: standard_bot
+strategy:
+  id: adx-regime-di-cross-swing-04
+  description: &quot;ADX趨勢時+DI/-DI交叉順勢,盤整時新高新低結構反向做擺盪&quot;
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary:
+    interval: &quot;1h&quot;
+    poll_interval: 3570
+  source:
+    type: binance_rest
+signals:
+  indicators:
+    adx14b:
+      block: &quot;indicators.adx&quot;
+      input: df
+      params: { period: 14 }
+      output: 0
+    plus_di:
+      block: &quot;indicators.adx&quot;
+      input: df
+      params: { period: 14 }
+      output: 1
+    minus_di:
+      block: &quot;indicators.adx&quot;
+      input: df
+      params: { period: 14 }
+      output: 2
+  entry:
+    long:
+      any_of:
+        - all_of:
+            - cond: &quot;conditions.adx_trending&quot;
+              args: [adx14b]
+              params: { threshold: 25 }
+            - cond: &quot;conditions.ma_cross_above&quot;
+              args: [plus_di, minus_di]
+        - all_of:
+            - cond: &quot;conditions.adx_ranging&quot;
+              args: [adx14b]
+              params: { threshold: 20 }
+            - cond: &quot;conditions.lower_low&quot;
+              args: [df]
+              params: { lookback: 10 }
+    short:
+      any_of:
+        - all_of:
+            - cond: &quot;conditions.adx_trending&quot;
+              args: [adx14b]
+              params: { threshold: 25 }
+            - cond: &quot;conditions.ma_cross_above&quot;
+              args: [minus_di, plus_di]
+        - all_of:
+            - cond: &quot;conditions.adx_ranging&quot;
+              args: [adx14b]
+              params: { threshold: 20 }
+            - cond: &quot;conditions.higher_high&quot;
+              args: [df]
+              params: { lookback: 10 }
+sizing: { size: 0.5 }
+risk:
+  exit:
+    type: ma_cross_exit
+    period: 20
+    ma_type: ema
+    max_bars: 80
+  fees: { commission_bps: 4.0, slippage_bps: 2.0 }
+backtest: { initial_capital: 10000, execution_model: next_bar_open }
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="neg">-2.65%</b></span><span>PnL <b class="neg">$-265.25</b></span><span>Sharpe <b>-2.962</b></span><span>最大回撤 <b class="neg">-3.56%</b></span><span>勝率 <b>27.10%</b></span><span>交易 <b>59</b></span><span>vs BTC(6.73%) <b class="neg">-9.38%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.adx_ranging</code> <code>conditions.adx_trending</code> <code>conditions.higher_high</code> <code>conditions.lower_low</code> <code>conditions.ma_cross_above</code> <code>indicators.adx</code></div></div>
+  </div>
+</details><details class="case">
+  <summary><span class="cid">adx-regime-sma-cross-rsi-swing-05</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="neg">報酬 -1.63%</span> · <span class="neg">PnL $-163</span> · Sharpe -1.63 · 9 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">ADX趨勢時用SMA20/50黃金死叉順勢,盤整時用RSI極值搭配高低點結構反向做底部/頭部反轉</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &quot;1.0&quot;
+target: standard_bot
+strategy:
+  id: adx-regime-sma-cross-rsi-swing-05
+  description: &quot;ADX趨勢時SMA20/50交叉順勢,盤整時RSI極值搭配高低點結構反向反轉&quot;
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary:
+    interval: &quot;1h&quot;
+    poll_interval: 3570
+  source:
+    type: binance_rest
+signals:
+  indicators:
+    adx10:
+      block: &quot;indicators.adx&quot;
+      input: df
+      params: { period: 10 }
+      output: 0
+    sma20:
+      block: &quot;indicators.sma&quot;
+      input: close
+      params: { period: 20 }
+    sma50:
+      block: &quot;indicators.sma&quot;
+      input: close
+      params: { period: 50 }
+    rsi9:
+      block: &quot;indicators.rsi&quot;
+      input: close
+      params: { period: 9 }
+  entry:
+    long:
+      any_of:
+        - all_of:
+            - cond: &quot;conditions.adx_trending&quot;
+              args: [adx10]
+              params: { threshold: 22 }
+            - cond: &quot;conditions.ma_cross_above&quot;
+              args: [sma20, sma50]
+        - all_of:
+            - cond: &quot;conditions.adx_ranging&quot;
+              args: [adx10]
+              params: { threshold: 16 }
+            - cond: &quot;conditions.rsi_oversold&quot;
+              args: [rsi9]
+              params: { threshold: 25 }
+            - cond: &quot;conditions.higher_low&quot;
+              args: [df]
+              params: { lookback: 10 }
+    short:
+      any_of:
+        - all_of:
+            - cond: &quot;conditions.adx_trending&quot;
+              args: [adx10]
+              params: { threshold: 22 }
+            - cond: &quot;conditions.ma_cross_below&quot;
+              args: [sma20, sma50]
+        - all_of:
+            - cond: &quot;conditions.adx_ranging&quot;
+              args: [adx10]
+              params: { threshold: 16 }
+            - cond: &quot;conditions.rsi_overbought&quot;
+              args: [rsi9]
+              params: { threshold: 75 }
+            - cond: &quot;conditions.lower_high&quot;
+              args: [df]
+              params: { lookback: 10 }
+sizing: { size: 0.4 }
+risk:
+  exit:
+    type: time_only
+    max_bars: 40
+  fees: { commission_bps: 4.0, slippage_bps: 2.0 }
+backtest: { initial_capital: 10000, execution_model: next_bar_open }
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="neg">-1.63%</b></span><span>PnL <b class="neg">$-162.52</b></span><span>Sharpe <b>-1.630</b></span><span>最大回撤 <b class="neg">-3.45%</b></span><span>勝率 <b>33.30%</b></span><span>交易 <b>9</b></span><span>vs BTC(6.73%) <b class="neg">-8.36%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.adx_ranging</code> <code>conditions.adx_trending</code> <code>conditions.higher_low</code> <code>conditions.lower_high</code> <code>conditions.ma_cross_above</code> <code>conditions.ma_cross_below</code> <code>conditions.rsi_overbought</code> <code>conditions.rsi_oversold</code> <code>indicators.adx</code> <code>indicators.rsi</code> <code>indicators.sma</code></div></div>
+  </div>
+</details><details class="case">
+  <summary><span class="cid">adx-regime-breakout-fade-momentum-06</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="neg">報酬 -5.59%</span> · <span class="neg">PnL $-559</span> · Sharpe -7.99 · 41 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">ADX趨勢時用價格對EMA位置搭配新高新低做動能延續,盤整時用突破新高新低反向做假突破</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &quot;1.0&quot;
+target: standard_bot
+strategy:
+  id: adx-regime-breakout-fade-momentum-06
+  description: &quot;ADX趨勢時價格對EMA位置搭配新高新低做動能延續,盤整時突破新高新低反向假突破&quot;
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary:
+    interval: &quot;1h&quot;
+    poll_interval: 3570
+  source:
+    type: binance_rest
+signals:
+  indicators:
+    adx14c:
+      block: &quot;indicators.adx&quot;
+      input: df
+      params: { period: 14 }
+      output: 0
+    ema20b:
+      block: &quot;indicators.ema&quot;
+      input: close
+      params: { period: 20 }
+  entry:
+    long:
+      any_of:
+        - all_of:
+            - cond: &quot;conditions.adx_trending&quot;
+              args: [adx14c]
+              params: { threshold: 26 }
+            - cond: &quot;conditions.price_above_ma&quot;
+              args: [df, ema20b]
+              params: { bars: 2 }
+            - cond: &quot;conditions.higher_high&quot;
+              args: [df]
+              params: { lookback: 14 }
+        - all_of:
+            - cond: &quot;conditions.adx_ranging&quot;
+              args: [adx14c]
+              params: { threshold: 17 }
+            - cond: &quot;conditions.breakout_low&quot;
+              args: [df]
+              params: { lookback: 14 }
+    short:
+      any_of:
+        - all_of:
+            - cond: &quot;conditions.adx_trending&quot;
+              args: [adx14c]
+              params: { threshold: 26 }
+            - cond: &quot;conditions.price_below_ma&quot;
+              args: [df, ema20b]
+              params: { bars: 2 }
+            - cond: &quot;conditions.lower_low&quot;
+              args: [df]
+              params: { lookback: 14 }
+        - all_of:
+            - cond: &quot;conditions.adx_ranging&quot;
+              args: [adx14c]
+              params: { threshold: 17 }
+            - cond: &quot;conditions.breakout_high&quot;
+              args: [df]
+              params: { lookback: 14 }
+sizing: { size: 0.35 }
+risk:
+  exit:
+    type: atr_stop_tp
+    atr_period: 14
+    stop_mult: 1.2
+    tp_mult: 2.4
+    max_bars: 50
+  fees: { commission_bps: 4.0, slippage_bps: 2.0 }
+backtest: { initial_capital: 10000, execution_model: next_bar_open }
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="neg">-5.59%</b></span><span>PnL <b class="neg">$-559.25</b></span><span>Sharpe <b>-7.986</b></span><span>最大回撤 <b class="neg">-6.21%</b></span><span>勝率 <b>19.50%</b></span><span>交易 <b>41</b></span><span>vs BTC(6.73%) <b class="neg">-12.32%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.adx_ranging</code> <code>conditions.adx_trending</code> <code>conditions.breakout_high</code> <code>conditions.breakout_low</code> <code>conditions.higher_high</code> <code>conditions.lower_low</code> <code>conditions.price_above_ma</code> <code>conditions.price_below_ma</code> <code>indicators.adx</code> <code>indicators.ema</code></div></div>
+  </div>
+</details><h2>價格結構 <span class="cnt">6/6 通過</span></h2><details class="case">
+  <summary><span class="cid">structure-hh-hl-confirm-basic</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="pos">報酬 0.00%</span> · <span class="pos">PnL $0</span> · Sharpe 0.00 · 0 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">多頭結構HH與HL同時成立做多,空頭結構LH與LL同時成立做空,不加RSI濾網</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &#x27;1.0&#x27;
+target: standard_bot
+strategy:
+  id: structure-hh-hl-confirm-basic
+  description: 多頭結構HH與HL同時成立做多,空頭結構LH與LL同時成立做空,不加RSI濾網
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary:
+    interval: 1h
+    poll_interval: 3570
+  source:
+    type: binance_rest
+signals:
+  indicators: {}
+  entry:
+    long:
+      all_of:
+      - cond: conditions.higher_high
+        args:
+        - df
+        params:
+          lookback: 20
+      - cond: conditions.higher_low
+        args:
+        - df
+        params:
+          lookback: 20
+    short:
+      all_of:
+      - cond: conditions.lower_high
+        args:
+        - df
+        params:
+          lookback: 20
+      - cond: conditions.lower_low
+        args:
+        - df
+        params:
+          lookback: 20
+sizing:
+  size: 0.3
+risk:
+  exit:
+    type: pct_stop_tp
+    stop_pct: 0.02
+    tp_pct: 0.04
+    max_bars: 48
+  fees:
+    commission_bps: 4.0
+    slippage_bps: 2.0
+backtest:
+  initial_capital: 10000
+  execution_model: next_bar_open
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="pos">0.00%</b></span><span>PnL <b class="pos">$0.00</b></span><span>Sharpe <b>0.000</b></span><span>最大回撤 <b class="neg">0.00%</b></span><span>勝率 <b>0.00%</b></span><span>交易 <b>0</b></span><span>vs BTC(6.73%) <b class="neg">-6.73%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.higher_high</code> <code>conditions.higher_low</code> <code>conditions.lower_high</code> <code>conditions.lower_low</code></div></div>
+  </div>
+</details><details class="case">
+  <summary><span class="cid">structure-hl-rsi-oversold-entry</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="pos">報酬 0.00%</span> · <span class="pos">PnL $0</span> · Sharpe 0.00 · 0 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">價格出現higher_low且RSI仍在超賣區回升時做多,lower_high且RSI在超買區回落時做空</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &#x27;1.0&#x27;
+target: standard_bot
+strategy:
+  id: structure-hl-rsi-oversold-entry
+  description: 價格出現higher_low且RSI仍在超賣區回升時做多,lower_high且RSI在超買區回落時做空
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary:
+    interval: 1h
+    poll_interval: 3570
+  source:
+    type: binance_rest
+signals:
+  indicators:
+    rsi14:
+      block: indicators.rsi
+      input: close
+      params:
+        period: 14
+  entry:
+    long:
+      all_of:
+      - cond: conditions.higher_low
+        args:
+        - df
+        params:
+          lookback: 14
+      - cond: conditions.rsi_oversold
+        args:
+        - rsi14
+        params:
+          threshold: 35
+    short:
+      all_of:
+      - cond: conditions.lower_high
+        args:
+        - df
+        params:
+          lookback: 14
+      - cond: conditions.rsi_overbought
+        args:
+        - rsi14
+        params:
+          threshold: 65
+sizing:
+  size: 0.3
+risk:
+  exit:
+    type: atr_stop_tp
+    atr_period: 14
+    stop_mult: 1.5
+    tp_mult: 3.0
+    max_bars: 60
+  fees:
+    commission_bps: 4.0
+    slippage_bps: 2.0
+backtest:
+  initial_capital: 10000
+  execution_model: next_bar_open
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="pos">0.00%</b></span><span>PnL <b class="pos">$0.00</b></span><span>Sharpe <b>0.000</b></span><span>最大回撤 <b class="neg">0.00%</b></span><span>勝率 <b>0.00%</b></span><span>交易 <b>0</b></span><span>vs BTC(6.73%) <b class="neg">-6.73%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.higher_low</code> <code>conditions.lower_high</code> <code>conditions.rsi_overbought</code> <code>conditions.rsi_oversold</code> <code>indicators.rsi</code></div></div>
+  </div>
+</details><details class="case">
+  <summary><span class="cid">structure-single-hh-ll-rsi-range</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="neg">報酬 -8.53%</span> · <span class="neg">PnL $-853</span> · Sharpe -9.26 · 83 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">單一higher_high結構點且RSI落在中性偏多區間做多,單一lower_low結構點且RSI落在中性偏空區間做空</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &#x27;1.0&#x27;
+target: standard_bot
+strategy:
+  id: structure-single-hh-ll-rsi-range
+  description: 單一higher_high結構點且RSI落在中性偏多區間做多,單一lower_low結構點且RSI落在中性偏空區間做空
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary:
+    interval: 1h
+    poll_interval: 3570
+  source:
+    type: binance_rest
+signals:
+  indicators:
+    rsi21:
+      block: indicators.rsi
+      input: close
+      params:
+        period: 21
+  entry:
+    long:
+      all_of:
+      - cond: conditions.higher_high
+        args:
+        - df
+        params:
+          lookback: 10
+      - cond: conditions.rsi_in_range
+        args:
+        - rsi21
+        params:
+          low: 40
+          high: 70
+    short:
+      all_of:
+      - cond: conditions.lower_low
+        args:
+        - df
+        params:
+          lookback: 10
+      - cond: conditions.rsi_in_range
+        args:
+        - rsi21
+        params:
+          low: 30
+          high: 60
+sizing:
+  size: 0.3
+risk:
+  exit:
+    type: atr_trailing_stop
+    atr_period: 14
+    trail_mult: 2.0
+    max_bars: 80
+  fees:
+    commission_bps: 4.0
+    slippage_bps: 2.0
+backtest:
+  initial_capital: 10000
+  execution_model: next_bar_open
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="neg">-8.53%</b></span><span>PnL <b class="neg">$-852.60</b></span><span>Sharpe <b>-9.258</b></span><span>最大回撤 <b class="neg">-9.03%</b></span><span>勝率 <b>28.90%</b></span><span>交易 <b>83</b></span><span>vs BTC(6.73%) <b class="neg">-15.26%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.higher_high</code> <code>conditions.lower_low</code> <code>conditions.rsi_in_range</code> <code>indicators.rsi</code></div></div>
+  </div>
+</details><details class="case">
+  <summary><span class="cid">structure-double-confirm-breakout</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="pos">報酬 0.00%</span> · <span class="pos">PnL $0</span> · Sharpe 0.00 · 0 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">HH+HL雙重確認再疊加突破新高做多,LH+LL雙重確認再疊加跌破新低做空</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &#x27;1.0&#x27;
+target: standard_bot
+strategy:
+  id: structure-double-confirm-breakout
+  description: HH+HL雙重確認再疊加突破新高做多,LH+LL雙重確認再疊加跌破新低做空
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary:
+    interval: 1h
+    poll_interval: 3570
+  source:
+    type: binance_rest
+signals:
+  indicators: {}
+  entry:
+    long:
+      all_of:
+      - cond: conditions.higher_high
+        args:
+        - df
+        params:
+          lookback: 30
+      - cond: conditions.higher_low
+        args:
+        - df
+        params:
+          lookback: 30
+      - cond: conditions.breakout_high
+        args:
+        - df
+        params:
+          lookback: 20
+    short:
+      all_of:
+      - cond: conditions.lower_high
+        args:
+        - df
+        params:
+          lookback: 30
+      - cond: conditions.lower_low
+        args:
+        - df
+        params:
+          lookback: 30
+      - cond: conditions.breakout_low
+        args:
+        - df
+        params:
+          lookback: 20
+sizing:
+  size: 0.3
+risk:
+  exit:
+    type: time_only
+    max_bars: 40
+  fees:
+    commission_bps: 4.0
+    slippage_bps: 2.0
+backtest:
+  initial_capital: 10000
+  execution_model: next_bar_open
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="pos">0.00%</b></span><span>PnL <b class="pos">$0.00</b></span><span>Sharpe <b>0.000</b></span><span>最大回撤 <b class="neg">0.00%</b></span><span>勝率 <b>0.00%</b></span><span>交易 <b>0</b></span><span>vs BTC(6.73%) <b class="neg">-6.73%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.breakout_high</code> <code>conditions.breakout_low</code> <code>conditions.higher_high</code> <code>conditions.higher_low</code> <code>conditions.lower_high</code> <code>conditions.lower_low</code></div></div>
+  </div>
+</details><details class="case">
+  <summary><span class="cid">structure-any-hh-hl-rsi-filter</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="pos">報酬 4.48%</span> · <span class="pos">PnL $448</span> · Sharpe 4.70 · 59 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">只要HH或HL任一結構成立且RSI偏多即做多,只要LH或LL任一結構成立且RSI偏空即做空</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &#x27;1.0&#x27;
+target: standard_bot
+strategy:
+  id: structure-any-hh-hl-rsi-filter
+  description: 只要HH或HL任一結構成立且RSI偏多即做多,只要LH或LL任一結構成立且RSI偏空即做空
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary:
+    interval: 1h
+    poll_interval: 3570
+  source:
+    type: binance_rest
+signals:
+  indicators:
+    rsi14b:
+      block: indicators.rsi
+      input: close
+      params:
+        period: 14
+  entry:
+    long:
+      all_of:
+      - any_of:
+        - cond: conditions.higher_high
+          args:
+          - df
+          params:
+            lookback: 15
+        - cond: conditions.higher_low
+          args:
+          - df
+          params:
+            lookback: 15
+      - cond: conditions.rsi_in_range
+        args:
+        - rsi14b
+        params:
+          low: 45
+          high: 75
+    short:
+      all_of:
+      - any_of:
+        - cond: conditions.lower_high
+          args:
+          - df
+          params:
+            lookback: 15
+        - cond: conditions.lower_low
+          args:
+          - df
+          params:
+            lookback: 15
+      - cond: conditions.rsi_in_range
+        args:
+        - rsi14b
+        params:
+          low: 25
+          high: 55
+sizing:
+  size: 0.3
+risk:
+  exit:
+    type: ma_cross_exit
+    period: 20
+    ma_type: ema
+    max_bars: 100
+  fees:
+    commission_bps: 4.0
+    slippage_bps: 2.0
+backtest:
+  initial_capital: 10000
+  execution_model: next_bar_open
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="pos">4.48%</b></span><span>PnL <b class="pos">$448.34</b></span><span>Sharpe <b>4.699</b></span><span>最大回撤 <b class="neg">-1.20%</b></span><span>勝率 <b>45.80%</b></span><span>交易 <b>59</b></span><span>vs BTC(6.73%) <b class="neg">-2.25%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.higher_high</code> <code>conditions.higher_low</code> <code>conditions.lower_high</code> <code>conditions.lower_low</code> <code>conditions.rsi_in_range</code> <code>indicators.rsi</code></div></div>
+  </div>
+</details><details class="case">
+  <summary><span class="cid">structure-hh-not-ll-reversal-guard</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="neg">報酬 -3.23%</span> · <span class="neg">PnL $-323</span> · Sharpe -2.37 · 27 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">出現higher_high且同時排除lower_low假訊號做多,出現lower_low且同時排除higher_high假訊號做空</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &#x27;1.0&#x27;
+target: standard_bot
+strategy:
+  id: structure-hh-not-ll-reversal-guard
+  description: 出現higher_high且同時排除lower_low假訊號做多,出現lower_low且同時排除higher_high假訊號做空
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary:
+    interval: 1h
+    poll_interval: 3570
+  source:
+    type: binance_rest
+signals:
+  indicators: {}
+  entry:
+    long:
+      all_of:
+      - cond: conditions.higher_high
+        args:
+        - df
+        params:
+          lookback: 25
+      - not:
+          cond: conditions.lower_low
+          args:
+          - df
+          params:
+            lookback: 25
+    short:
+      all_of:
+      - cond: conditions.lower_low
+        args:
+        - df
+        params:
+          lookback: 25
+      - not:
+          cond: conditions.higher_high
+          args:
+          - df
+          params:
+            lookback: 25
+sizing:
+  size: 0.3
+risk:
+  exit:
+    type: opposite_signal
+    max_bars: 60
+  fees:
+    commission_bps: 4.0
+    slippage_bps: 2.0
+backtest:
+  initial_capital: 10000
+  execution_model: next_bar_open
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="neg">-3.23%</b></span><span>PnL <b class="neg">$-323.03</b></span><span>Sharpe <b>-2.371</b></span><span>最大回撤 <b class="neg">-4.36%</b></span><span>勝率 <b>37.00%</b></span><span>交易 <b>27</b></span><span>vs BTC(6.73%) <b class="neg">-9.96%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.higher_high</code> <code>conditions.lower_low</code></div></div>
+  </div>
+</details><h2>深度巢狀 <span class="cnt">6/6 通過</span></h2><details class="case">
+  <summary><span class="cid">deep-nesting-01-ema-rsi-adx-breakout</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="neg">報酬 -0.85%</span> · <span class="neg">PnL $-85</span> · Sharpe -0.95 · 37 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">EMA交叉配合RSI濾網，或ADX趨勢配合突破新高/新低，兩條路徑並存的深巢狀多空策略</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &quot;1.0&quot;
+target: standard_bot
+strategy:
+  id: deep-nesting-01-ema-rsi-adx-breakout
+  description: &quot;EMA交叉配合RSI濾網，或ADX趨勢配合突破新高/新低，兩條路徑並存的深巢狀多空策略&quot;
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary:
+    interval: &quot;1h&quot;
+    poll_interval: 3570
+  source:
+    type: binance_rest
+signals:
+  indicators:
+    ema_fast: { block: &quot;indicators.ema&quot;, input: close, params: { period: 9 } }
+    ema_slow: { block: &quot;indicators.ema&quot;, input: close, params: { period: 21 } }
+    rsi14: { block: &quot;indicators.rsi&quot;, input: close, params: { period: 14 } }
+    adx14: { block: &quot;indicators.adx&quot;, input: df, params: { period: 14 }, output: 0 }
+  entry:
+    long:
+      any_of:
+        - all_of:
+            - cond: &quot;conditions.ma_cross_above&quot;
+              args: [ema_fast, ema_slow]
+            - not:
+                cond: &quot;conditions.rsi_overbought&quot;
+                args: [rsi14]
+                params: { threshold: 70 }
+        - all_of:
+            - cond: &quot;conditions.adx_trending&quot;
+              args: [adx14]
+              params: { threshold: 25 }
+            - cond: &quot;conditions.breakout_high&quot;
+              args: [df]
+              params: { lookback: 20 }
+    short:
+      any_of:
+        - all_of:
+            - cond: &quot;conditions.ma_cross_below&quot;
+              args: [ema_fast, ema_slow]
+            - not:
+                cond: &quot;conditions.rsi_oversold&quot;
+                args: [rsi14]
+                params: { threshold: 30 }
+        - all_of:
+            - cond: &quot;conditions.adx_trending&quot;
+              args: [adx14]
+              params: { threshold: 25 }
+            - cond: &quot;conditions.breakout_low&quot;
+              args: [df]
+              params: { lookback: 20 }
+sizing: { size: 0.3 }
+risk:
+  exit:
+    type: atr_stop_tp
+    atr_period: 14
+    stop_mult: 2.0
+    tp_mult: 3.0
+    max_bars: 100
+  fees: { commission_bps: 4.0, slippage_bps: 2.0 }
+backtest: { initial_capital: 10000, execution_model: next_bar_open }
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="neg">-0.85%</b></span><span>PnL <b class="neg">$-84.59</b></span><span>Sharpe <b>-0.952</b></span><span>最大回撤 <b class="neg">-3.37%</b></span><span>勝率 <b>35.10%</b></span><span>交易 <b>37</b></span><span>vs BTC(6.73%) <b class="neg">-7.58%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.adx_trending</code> <code>conditions.breakout_high</code> <code>conditions.breakout_low</code> <code>conditions.ma_cross_above</code> <code>conditions.ma_cross_below</code> <code>conditions.rsi_overbought</code> <code>conditions.rsi_oversold</code> <code>indicators.adx</code> <code>indicators.ema</code> <code>indicators.rsi</code></div></div>
+  </div>
+</details><details class="case">
+  <summary><span class="cid">deep-nesting-02-macd-boll-donchian</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="neg">報酬 -0.56%</span> · <span class="neg">PnL $-56</span> · Sharpe -0.68 · 17 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">MACD金叉死叉搭配布林中軌濾網，或唐奇安通道突破搭配新高新低的深巢狀多空策略</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &quot;1.0&quot;
+target: standard_bot
+strategy:
+  id: deep-nesting-02-macd-boll-donchian
+  description: &quot;MACD金叉死叉搭配布林中軌濾網，或唐奇安通道突破搭配新高新低的深巢狀多空策略&quot;
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary:
+    interval: &quot;1h&quot;
+    poll_interval: 3570
+  source:
+    type: binance_rest
+signals:
+  indicators:
+    macd_line: { block: &quot;indicators.macd&quot;, input: close, params: { fast: 12, slow: 26, signal: 9 }, output: 0 }
+    macd_signal: { block: &quot;indicators.macd&quot;, input: close, params: { fast: 12, slow: 26, signal: 9 }, output: 1 }
+    boll_mid: { block: &quot;indicators.bollinger&quot;, input: close, params: { period: 20, std_mult: 2.0 }, output: 1 }
+    don_upper: { block: &quot;indicators.donchian&quot;, input: df, params: { period: 20 }, output: 0 }
+    don_lower: { block: &quot;indicators.donchian&quot;, input: df, params: { period: 20 }, output: 1 }
+  entry:
+    long:
+      any_of:
+        - all_of:
+            - cond: &quot;conditions.macd_golden_cross&quot;
+              args: [macd_line, macd_signal]
+            - not:
+                cond: &quot;conditions.price_below_ma&quot;
+                args: [df, boll_mid]
+                params: { bars: 2 }
+        - all_of:
+            - cond: &quot;conditions.price_above_ma&quot;
+              args: [df, don_upper]
+              params: { bars: 1 }
+            - cond: &quot;conditions.higher_high&quot;
+              args: [df]
+              params: { lookback: 10 }
+    short:
+      any_of:
+        - all_of:
+            - cond: &quot;conditions.macd_death_cross&quot;
+              args: [macd_line, macd_signal]
+            - not:
+                cond: &quot;conditions.price_above_ma&quot;
+                args: [df, boll_mid]
+                params: { bars: 2 }
+        - all_of:
+            - cond: &quot;conditions.price_below_ma&quot;
+              args: [df, don_lower]
+              params: { bars: 1 }
+            - cond: &quot;conditions.lower_low&quot;
+              args: [df]
+              params: { lookback: 10 }
+sizing: { size: 0.25 }
+risk:
+  exit:
+    type: time_only
+    max_bars: 60
+  fees: { commission_bps: 4.0, slippage_bps: 2.0 }
+backtest: { initial_capital: 10000, execution_model: next_bar_open }
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="neg">-0.56%</b></span><span>PnL <b class="neg">$-56.07</b></span><span>Sharpe <b>-0.680</b></span><span>最大回撤 <b class="neg">-2.05%</b></span><span>勝率 <b>29.40%</b></span><span>交易 <b>17</b></span><span>vs BTC(6.73%) <b class="neg">-7.29%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.higher_high</code> <code>conditions.lower_low</code> <code>conditions.macd_death_cross</code> <code>conditions.macd_golden_cross</code> <code>conditions.price_above_ma</code> <code>conditions.price_below_ma</code> <code>indicators.bollinger</code> <code>indicators.donchian</code> <code>indicators.macd</code></div></div>
+  </div>
+</details><details class="case">
+  <summary><span class="cid">deep-nesting-03-rsi-range-priceabovema-hh</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="pos">報酬 5.25%</span> · <span class="pos">PnL $525</span> · Sharpe 4.37 · 167 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">RSI區間或超賣搭配未跌破均線，或連續創高創低的四層深巢狀多空策略</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &quot;1.0&quot;
+target: standard_bot
+strategy:
+  id: deep-nesting-03-rsi-range-priceabovema-hh
+  description: &quot;RSI區間或超賣搭配未跌破均線，或連續創高創低的四層深巢狀多空策略&quot;
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary:
+    interval: &quot;1h&quot;
+    poll_interval: 3570
+  source:
+    type: binance_rest
+signals:
+  indicators:
+    rsi14: { block: &quot;indicators.rsi&quot;, input: close, params: { period: 14 } }
+    sma50: { block: &quot;indicators.sma&quot;, input: close, params: { period: 50 } }
+  entry:
+    long:
+      any_of:
+        - all_of:
+            - any_of:
+                - cond: &quot;conditions.rsi_in_range&quot;
+                  args: [rsi14]
+                  params: { low: 40, high: 60 }
+                - cond: &quot;conditions.rsi_oversold&quot;
+                  args: [rsi14]
+                  params: { threshold: 35 }
+            - not:
+                cond: &quot;conditions.price_below_ma&quot;
+                args: [df, sma50]
+                params: { bars: 3 }
+        - all_of:
+            - cond: &quot;conditions.higher_high&quot;
+              args: [df]
+              params: { lookback: 15 }
+            - cond: &quot;conditions.higher_low&quot;
+              args: [df]
+              params: { lookback: 15 }
+    short:
+      any_of:
+        - all_of:
+            - any_of:
+                - cond: &quot;conditions.rsi_in_range&quot;
+                  args: [rsi14]
+                  params: { low: 40, high: 60 }
+                - cond: &quot;conditions.rsi_overbought&quot;
+                  args: [rsi14]
+                  params: { threshold: 65 }
+            - not:
+                cond: &quot;conditions.price_above_ma&quot;
+                args: [df, sma50]
+                params: { bars: 3 }
+        - all_of:
+            - cond: &quot;conditions.lower_high&quot;
+              args: [df]
+              params: { lookback: 15 }
+            - cond: &quot;conditions.lower_low&quot;
+              args: [df]
+              params: { lookback: 15 }
+sizing: { size: 0.3 }
+risk:
+  exit:
+    type: ma_cross_exit
+    period: 20
+    ma_type: &quot;ema&quot;
+    max_bars: 120
+  fees: { commission_bps: 4.0, slippage_bps: 2.0 }
+backtest: { initial_capital: 10000, execution_model: next_bar_open }
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="pos">5.25%</b></span><span>PnL <b class="pos">$525.09</b></span><span>Sharpe <b>4.365</b></span><span>最大回撤 <b class="neg">-1.51%</b></span><span>勝率 <b>43.70%</b></span><span>交易 <b>167</b></span><span>vs BTC(6.73%) <b class="neg">-1.48%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.higher_high</code> <code>conditions.higher_low</code> <code>conditions.lower_high</code> <code>conditions.lower_low</code> <code>conditions.price_above_ma</code> <code>conditions.price_below_ma</code> <code>conditions.rsi_in_range</code> <code>conditions.rsi_overbought</code> <code>conditions.rsi_oversold</code> <code>indicators.rsi</code> <code>indicators.sma</code></div></div>
+  </div>
+</details><details class="case">
+  <summary><span class="cid">deep-nesting-04-di-cross-adxranging-rsi</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="neg">報酬 -2.71%</span> · <span class="neg">PnL $-271</span> · Sharpe -5.66 · 36 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">+DI/-DI交叉排除盤整，或盤整中RSI極端值搭配突破新高新低的深巢狀多空策略</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &quot;1.0&quot;
+target: standard_bot
+strategy:
+  id: deep-nesting-04-di-cross-adxranging-rsi
+  description: &quot;+DI/-DI交叉排除盤整，或盤整中RSI極端值搭配突破新高新低的深巢狀多空策略&quot;
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary:
+    interval: &quot;1h&quot;
+    poll_interval: 3570
+  source:
+    type: binance_rest
+signals:
+  indicators:
+    adx14: { block: &quot;indicators.adx&quot;, input: df, params: { period: 14 }, output: 0 }
+    plus_di: { block: &quot;indicators.adx&quot;, input: df, params: { period: 14 }, output: 1 }
+    minus_di: { block: &quot;indicators.adx&quot;, input: df, params: { period: 14 }, output: 2 }
+    rsi14: { block: &quot;indicators.rsi&quot;, input: close, params: { period: 14 } }
+  entry:
+    long:
+      any_of:
+        - all_of:
+            - cond: &quot;conditions.ma_cross_above&quot;
+              args: [plus_di, minus_di]
+            - not:
+                cond: &quot;conditions.adx_ranging&quot;
+                args: [adx14]
+                params: { threshold: 20 }
+        - all_of:
+            - cond: &quot;conditions.adx_ranging&quot;
+              args: [adx14]
+              params: { threshold: 15 }
+            - cond: &quot;conditions.rsi_oversold&quot;
+              args: [rsi14]
+              params: { threshold: 30 }
+            - cond: &quot;conditions.breakout_low&quot;
+              args: [df]
+              params: { lookback: 20 }
+    short:
+      any_of:
+        - all_of:
+            - cond: &quot;conditions.ma_cross_below&quot;
+              args: [plus_di, minus_di]
+            - not:
+                cond: &quot;conditions.adx_ranging&quot;
+                args: [adx14]
+                params: { threshold: 20 }
+        - all_of:
+            - cond: &quot;conditions.adx_ranging&quot;
+              args: [adx14]
+              params: { threshold: 15 }
+            - cond: &quot;conditions.rsi_overbought&quot;
+              args: [rsi14]
+              params: { threshold: 70 }
+            - cond: &quot;conditions.breakout_high&quot;
+              args: [df]
+              params: { lookback: 20 }
+sizing: { size: 0.2 }
+risk:
+  exit:
+    type: atr_trailing_stop
+    atr_period: 14
+    trail_mult: 2.5
+    max_bars: 150
+  fees: { commission_bps: 4.0, slippage_bps: 2.0 }
+backtest: { initial_capital: 10000, execution_model: next_bar_open }
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="neg">-2.71%</b></span><span>PnL <b class="neg">$-271.21</b></span><span>Sharpe <b>-5.658</b></span><span>最大回撤 <b class="neg">-3.06%</b></span><span>勝率 <b>19.40%</b></span><span>交易 <b>36</b></span><span>vs BTC(6.73%) <b class="neg">-9.44%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.adx_ranging</code> <code>conditions.breakout_high</code> <code>conditions.breakout_low</code> <code>conditions.ma_cross_above</code> <code>conditions.ma_cross_below</code> <code>conditions.rsi_overbought</code> <code>conditions.rsi_oversold</code> <code>indicators.adx</code> <code>indicators.rsi</code></div></div>
+  </div>
+</details><details class="case">
+  <summary><span class="cid">deep-nesting-05-macd-boll-adx-fivelayer</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="neg">報酬 -6.30%</span> · <span class="neg">PnL $-630</span> · Sharpe -7.71 · 75 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">MACD金叉搭配RSI濾網與布林中軌，且ADX趨勢確認；或突破新高且排除RSI極端與跌破下軌的五層深巢狀策略</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &quot;1.0&quot;
+target: standard_bot
+strategy:
+  id: deep-nesting-05-macd-boll-adx-fivelayer
+  description: &quot;MACD金叉搭配RSI濾網與布林中軌，且ADX趨勢確認；或突破新高且排除RSI極端與跌破下軌的五層深巢狀策略&quot;
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary:
+    interval: &quot;1h&quot;
+    poll_interval: 3570
+  source:
+    type: binance_rest
+signals:
+  indicators:
+    macd_line: { block: &quot;indicators.macd&quot;, input: close, params: { fast: 12, slow: 26, signal: 9 }, output: 0 }
+    macd_signal: { block: &quot;indicators.macd&quot;, input: close, params: { fast: 12, slow: 26, signal: 9 }, output: 1 }
+    rsi14: { block: &quot;indicators.rsi&quot;, input: close, params: { period: 14 } }
+    boll_upper: { block: &quot;indicators.bollinger&quot;, input: close, params: { period: 20, std_mult: 2.0 }, output: 0 }
+    boll_mid: { block: &quot;indicators.bollinger&quot;, input: close, params: { period: 20, std_mult: 2.0 }, output: 1 }
+    boll_lower: { block: &quot;indicators.bollinger&quot;, input: close, params: { period: 20, std_mult: 2.0 }, output: 2 }
+    adx14: { block: &quot;indicators.adx&quot;, input: df, params: { period: 14 }, output: 0 }
+  entry:
+    long:
+      any_of:
+        - all_of:
+            - any_of:
+                - all_of:
+                    - cond: &quot;conditions.macd_golden_cross&quot;
+                      args: [macd_line, macd_signal]
+                    - not:
+                        cond: &quot;conditions.rsi_overbought&quot;
+                        args: [rsi14]
+                        params: { threshold: 75 }
+                - cond: &quot;conditions.price_above_ma&quot;
+                  args: [df, boll_mid]
+                  params: { bars: 2 }
+            - cond: &quot;conditions.adx_trending&quot;
+              args: [adx14]
+              params: { threshold: 20 }
+        - all_of:
+            - cond: &quot;conditions.breakout_high&quot;
+              args: [df]
+              params: { lookback: 25 }
+            - not:
+                any_of:
+                  - cond: &quot;conditions.rsi_overbought&quot;
+                    args: [rsi14]
+                    params: { threshold: 80 }
+                  - cond: &quot;conditions.price_below_ma&quot;
+                    args: [df, boll_lower]
+                    params: { bars: 1 }
+    short:
+      any_of:
+        - all_of:
+            - any_of:
+                - all_of:
+                    - cond: &quot;conditions.macd_death_cross&quot;
+                      args: [macd_line, macd_signal]
+                    - not:
+                        cond: &quot;conditions.rsi_oversold&quot;
+                        args: [rsi14]
+                        params: { threshold: 25 }
+                - cond: &quot;conditions.price_below_ma&quot;
+                  args: [df, boll_mid]
+                  params: { bars: 2 }
+            - cond: &quot;conditions.adx_trending&quot;
+              args: [adx14]
+              params: { threshold: 20 }
+        - all_of:
+            - cond: &quot;conditions.breakout_low&quot;
+              args: [df]
+              params: { lookback: 25 }
+            - not:
+                any_of:
+                  - cond: &quot;conditions.rsi_oversold&quot;
+                    args: [rsi14]
+                    params: { threshold: 20 }
+                  - cond: &quot;conditions.price_above_ma&quot;
+                    args: [df, boll_upper]
+                    params: { bars: 1 }
+sizing: { size: 0.2 }
+risk:
+  exit:
+    type: pct_stop_tp
+    stop_pct: 0.03
+    tp_pct: 0.06
+    max_bars: 110
+  fees: { commission_bps: 4.0, slippage_bps: 2.0 }
+backtest: { initial_capital: 10000, execution_model: next_bar_open }
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="neg">-6.30%</b></span><span>PnL <b class="neg">$-630.10</b></span><span>Sharpe <b>-7.708</b></span><span>最大回撤 <b class="neg">-7.46%</b></span><span>勝率 <b>28.00%</b></span><span>交易 <b>75</b></span><span>vs BTC(6.73%) <b class="neg">-13.03%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.adx_trending</code> <code>conditions.breakout_high</code> <code>conditions.breakout_low</code> <code>conditions.macd_death_cross</code> <code>conditions.macd_golden_cross</code> <code>conditions.price_above_ma</code> <code>conditions.price_below_ma</code> <code>conditions.rsi_overbought</code> <code>conditions.rsi_oversold</code> <code>indicators.adx</code> <code>indicators.bollinger</code> <code>indicators.macd</code> <code>indicators.rsi</code></div></div>
+  </div>
+</details><details class="case">
+  <summary><span class="cid">deep-nesting-06-ema-donchian-adx-combo</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="pos">報酬 0.17%</span> · <span class="pos">PnL $17</span> · Sharpe 0.23 · 3 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">EMA交叉配合價格站上長均線與RSI濾網，或站上唐奇安上緣搭配ADX趨勢/創新高的深巢狀多空策略</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &quot;1.0&quot;
+target: standard_bot
+strategy:
+  id: deep-nesting-06-ema-donchian-adx-combo
+  description: &quot;EMA交叉配合價格站上長均線與RSI濾網，或站上唐奇安上緣搭配ADX趨勢/創新高的深巢狀多空策略&quot;
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary:
+    interval: &quot;1h&quot;
+    poll_interval: 3570
+  source:
+    type: binance_rest
+signals:
+  indicators:
+    ema9: { block: &quot;indicators.ema&quot;, input: close, params: { period: 9 } }
+    ema21: { block: &quot;indicators.ema&quot;, input: close, params: { period: 21 } }
+    ema50: { block: &quot;indicators.ema&quot;, input: close, params: { period: 50 } }
+    rsi14: { block: &quot;indicators.rsi&quot;, input: close, params: { period: 14 } }
+    don_upper: { block: &quot;indicators.donchian&quot;, input: df, params: { period: 20 }, output: 0 }
+    don_lower: { block: &quot;indicators.donchian&quot;, input: df, params: { period: 20 }, output: 1 }
+    adx14: { block: &quot;indicators.adx&quot;, input: df, params: { period: 14 }, output: 0 }
+  entry:
+    long:
+      any_of:
+        - all_of:
+            - cond: &quot;conditions.ma_cross_above&quot;
+              args: [ema9, ema21]
+            - cond: &quot;conditions.price_above_ma&quot;
+              args: [df, ema50]
+              params: { bars: 3 }
+            - not:
+                cond: &quot;conditions.rsi_overbought&quot;
+                args: [rsi14]
+                params: { threshold: 72 }
+        - all_of:
+            - cond: &quot;conditions.price_above_ma&quot;
+              args: [df, don_upper]
+              params: { bars: 1 }
+            - any_of:
+                - cond: &quot;conditions.adx_trending&quot;
+                  args: [adx14]
+                  params: { threshold: 22 }
+                - cond: &quot;conditions.higher_high&quot;
+                  args: [df]
+                  params: { lookback: 12 }
+    short:
+      any_of:
+        - all_of:
+            - cond: &quot;conditions.ma_cross_below&quot;
+              args: [ema9, ema21]
+            - cond: &quot;conditions.price_below_ma&quot;
+              args: [df, ema50]
+              params: { bars: 3 }
+            - not:
+                cond: &quot;conditions.rsi_oversold&quot;
+                args: [rsi14]
+                params: { threshold: 28 }
+        - all_of:
+            - cond: &quot;conditions.price_below_ma&quot;
+              args: [df, don_lower]
+              params: { bars: 1 }
+            - any_of:
+                - cond: &quot;conditions.adx_trending&quot;
+                  args: [adx14]
+                  params: { threshold: 22 }
+                - cond: &quot;conditions.lower_low&quot;
+                  args: [df]
+                  params: { lookback: 12 }
+sizing: { size: 0.25 }
+risk:
+  exit:
+    type: opposite_signal
+    max_bars: 150
+  fees: { commission_bps: 4.0, slippage_bps: 2.0 }
+backtest: { initial_capital: 10000, execution_model: next_bar_open }
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="pos">0.17%</b></span><span>PnL <b class="pos">$17.20</b></span><span>Sharpe <b>0.231</b></span><span>最大回撤 <b class="neg">-2.27%</b></span><span>勝率 <b>66.70%</b></span><span>交易 <b>3</b></span><span>vs BTC(6.73%) <b class="neg">-6.56%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.adx_trending</code> <code>conditions.higher_high</code> <code>conditions.lower_low</code> <code>conditions.ma_cross_above</code> <code>conditions.ma_cross_below</code> <code>conditions.price_above_ma</code> <code>conditions.price_below_ma</code> <code>conditions.rsi_overbought</code> <code>conditions.rsi_oversold</code> <code>indicators.adx</code> <code>indicators.donchian</code> <code>indicators.ema</code> <code>indicators.rsi</code></div></div>
+  </div>
+</details><h2>倉位/方向 <span class="cnt">6/6 通過</span></h2><details class="case">
+  <summary><span class="cid">sizing-direction-ema-cross-long-s02</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="neg">報酬 -1.22%</span> · <span class="neg">PnL $-122</span> · Sharpe -2.42 · 12 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">EMA12/26黃金交叉只做多,倉位0.2,百分比停損停利出場</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &quot;1.0&quot;
+target: standard_bot
+strategy:
+  id: sizing-direction-ema-cross-long-s02
+  description: EMA12/26 黃金交叉只做多,倉位0.2,固定百分比停損停利出場
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary: { interval: &quot;1h&quot;, poll_interval: 3570 }
+  source: { type: binance_rest }
+signals:
+  indicators:
+    ema_fast: { block: &quot;indicators.ema&quot;, input: close, params: { period: 12 } }
+    ema_slow: { block: &quot;indicators.ema&quot;, input: close, params: { period: 26 } }
+  entry:
+    long:
+      cond: &quot;conditions.ma_cross_above&quot;
+      args: [ema_fast, ema_slow]
+sizing: { size: 0.2 }
+risk:
+  exit:
+    type: pct_stop_tp
+    stop_pct: 0.02
+    tp_pct: 0.04
+    max_bars: 48
+  fees: { commission_bps: 4.0, slippage_bps: 2.0 }
+backtest: { initial_capital: 10000, execution_model: next_bar_open }
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="neg">-1.22%</b></span><span>PnL <b class="neg">$-122.22</b></span><span>Sharpe <b>-2.417</b></span><span>最大回撤 <b class="neg">-2.19%</b></span><span>勝率 <b>33.30%</b></span><span>交易 <b>12</b></span><span>vs BTC(6.73%) <b class="neg">-7.95%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.ma_cross_above</code> <code>indicators.ema</code></div></div>
+  </div>
+</details><details class="case">
+  <summary><span class="cid">sizing-direction-rsi-longshort-s04</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="pos">報酬 1.64%</span> · <span class="pos">PnL $164</span> · Sharpe 3.07 · 57 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">RSI14超賣做多、超買放空,倉位0.4,均線交叉出場</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &quot;1.0&quot;
+target: standard_bot
+strategy:
+  id: sizing-direction-rsi-longshort-s04
+  description: RSI14超賣做多、超買放空,倉位0.4,以均線交叉出場
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary: { interval: &quot;1h&quot;, poll_interval: 3570 }
+  source: { type: binance_rest }
+signals:
+  indicators:
+    rsi14: { block: &quot;indicators.rsi&quot;, input: close, params: { period: 14 } }
+  entry:
+    long:
+      cond: &quot;conditions.rsi_oversold&quot;
+      args: [rsi14]
+      params: { threshold: 30 }
+    short:
+      cond: &quot;conditions.rsi_overbought&quot;
+      args: [rsi14]
+      params: { threshold: 70 }
+sizing: { size: 0.4 }
+risk:
+  exit:
+    type: ma_cross_exit
+    period: 20
+    ma_type: ema
+    max_bars: 96
+  fees: { commission_bps: 4.0, slippage_bps: 2.0 }
+backtest: { initial_capital: 10000, execution_model: next_bar_open }
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="pos">1.64%</b></span><span>PnL <b class="pos">$164.49</b></span><span>Sharpe <b>3.070</b></span><span>最大回撤 <b class="neg">-1.16%</b></span><span>勝率 <b>54.40%</b></span><span>交易 <b>57</b></span><span>vs BTC(6.73%) <b class="neg">-5.09%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.rsi_overbought</code> <code>conditions.rsi_oversold</code> <code>indicators.rsi</code></div></div>
+  </div>
+</details><details class="case">
+  <summary><span class="cid">sizing-direction-breakout-longshort-s05</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="neg">報酬 -2.49%</span> · <span class="neg">PnL $-249</span> · Sharpe -1.13 · 21 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">20根K棒通道突破多空策略,倉位0.5,反向訊號出場</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &quot;1.0&quot;
+target: standard_bot
+strategy:
+  id: sizing-direction-breakout-longshort-s05
+  description: 20根K棒創高做多、創低放空的通道突破多空策略,倉位0.5,反向訊號出場
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary: { interval: &quot;1h&quot;, poll_interval: 3570 }
+  source: { type: binance_rest }
+signals:
+  indicators: {}
+  entry:
+    long:
+      cond: &quot;conditions.breakout_high&quot;
+      args: [df]
+      params: { lookback: 20 }
+    short:
+      cond: &quot;conditions.breakout_low&quot;
+      args: [df]
+      params: { lookback: 20 }
+sizing: { size: 0.5 }
+risk:
+  exit:
+    type: opposite_signal
+    max_bars: 72
+  fees: { commission_bps: 4.0, slippage_bps: 2.0 }
+backtest: { initial_capital: 10000, execution_model: next_bar_open }
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="neg">-2.49%</b></span><span>PnL <b class="neg">$-249.44</b></span><span>Sharpe <b>-1.130</b></span><span>最大回撤 <b class="neg">-6.98%</b></span><span>勝率 <b>38.10%</b></span><span>交易 <b>21</b></span><span>vs BTC(6.73%) <b class="neg">-9.22%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.breakout_high</code> <code>conditions.breakout_low</code></div></div>
+  </div>
+</details><details class="case">
+  <summary><span class="cid">sizing-direction-macd-long-s06</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="neg">報酬 -0.05%</span> · <span class="neg">PnL $-5</span> · Sharpe -0.05 · 27 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">MACD金叉只做多,倉位0.6,SMA均線交叉出場</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &quot;1.0&quot;
+target: standard_bot
+strategy:
+  id: sizing-direction-macd-long-s06
+  description: MACD金叉只做多,倉位0.6,以SMA均線交叉出場
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary: { interval: &quot;1h&quot;, poll_interval: 3570 }
+  source: { type: binance_rest }
+signals:
+  indicators:
+    macd_line: { block: &quot;indicators.macd&quot;, input: close, params: { fast: 12, slow: 26, signal: 9 }, output: 0 }
+    macd_signal_line: { block: &quot;indicators.macd&quot;, input: close, params: { fast: 12, slow: 26, signal: 9 }, output: 1 }
+  entry:
+    long:
+      cond: &quot;conditions.macd_golden_cross&quot;
+      args: [macd_line, macd_signal_line]
+sizing: { size: 0.6 }
+risk:
+  exit:
+    type: ma_cross_exit
+    period: 50
+    ma_type: sma
+    max_bars: 120
+  fees: { commission_bps: 4.0, slippage_bps: 2.0 }
+backtest: { initial_capital: 10000, execution_model: next_bar_open }
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="neg">-0.05%</b></span><span>PnL <b class="neg">$-5.38</b></span><span>Sharpe <b>-0.047</b></span><span>最大回撤 <b class="neg">-3.75%</b></span><span>勝率 <b>29.60%</b></span><span>交易 <b>27</b></span><span>vs BTC(6.73%) <b class="neg">-6.78%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.macd_golden_cross</code> <code>indicators.macd</code></div></div>
+  </div>
+</details><details class="case">
+  <summary><span class="cid">sizing-direction-adx-breakout-longshort-s08</span> <span class="badge b-ok">✓ 通過</span> <span class="hm"><span class="neg">報酬 -7.20%</span> · <span class="neg">PnL $-720</span> · Sharpe -2.31 · 11 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">ADX確認趨勢+通道突破做多做空,倉位0.8,反向訊號出場</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &quot;1.0&quot;
+target: standard_bot
+strategy:
+  id: sizing-direction-adx-breakout-longshort-s08
+  description: ADX確認趨勢後隨突破方向做多做空,倉位0.8,反向訊號出場
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary: { interval: &quot;1h&quot;, poll_interval: 3570 }
+  source: { type: binance_rest }
+signals:
+  indicators:
+    adx14: { block: &quot;indicators.adx&quot;, input: df, params: { period: 14 }, output: 0 }
+  entry:
+    long:
+      all_of:
+        - cond: &quot;conditions.adx_trending&quot;
+          args: [adx14]
+          params: { threshold: 25 }
+        - cond: &quot;conditions.breakout_high&quot;
+          args: [df]
+          params: { lookback: 20 }
+    short:
+      all_of:
+        - cond: &quot;conditions.adx_trending&quot;
+          args: [adx14]
+          params: { threshold: 25 }
+        - cond: &quot;conditions.breakout_low&quot;
+          args: [df]
+          params: { lookback: 20 }
+sizing: { size: 0.8 }
+risk:
+  exit:
+    type: opposite_signal
+    max_bars: 72
+  fees: { commission_bps: 4.0, slippage_bps: 2.0 }
+backtest: { initial_capital: 10000, execution_model: next_bar_open }
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="neg">-7.20%</b></span><span>PnL <b class="neg">$-719.86</b></span><span>Sharpe <b>-2.311</b></span><span>最大回撤 <b class="neg">-9.70%</b></span><span>勝率 <b>27.30%</b></span><span>交易 <b>11</b></span><span>vs BTC(6.73%) <b class="neg">-13.93%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.adx_trending</code> <code>conditions.breakout_high</code> <code>conditions.breakout_low</code> <code>indicators.adx</code></div></div>
+  </div>
+</details><details class="case">
+  <summary><span class="cid">sizing-direction-bollinger-long-s10</span> <span class="badge b-ok">✓ 通過</span> <span class="badge b-win">勝過 BTC</span> <span class="hm"><span class="pos">報酬 8.15%</span> · <span class="pos">PnL $815</span> · Sharpe 3.91 · 13 筆</span></summary>
+  <div class="detail">
+    <div class="seg"><div class="lbl">① 輸入(自然語言)</div><div class="nl">收盤站上布林上軌只做多,倉位滿倉1.0,百分比停損停利出場</div></div>
+    <div class="seg"><div class="lbl">② 轉換(YAML)</div><pre>spec_version: &quot;1.0&quot;
+target: standard_bot
+strategy:
+  id: sizing-direction-bollinger-long-s10
+  description: 收盤價站上布林上軌只做多,倉位滿倉1.0,固定百分比停損停利出場
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary: { interval: &quot;1h&quot;, poll_interval: 3570 }
+  source: { type: binance_rest }
+signals:
+  indicators:
+    bb_upper: { block: &quot;indicators.bollinger&quot;, input: close, params: { period: 20, std_mult: 2.0 }, output: 0 }
+  entry:
+    long:
+      cond: &quot;conditions.price_above_ma&quot;
+      args: [df, bb_upper]
+      params: { bars: 1 }
+sizing: { size: 1.0 }
+risk:
+  exit:
+    type: pct_stop_tp
+    stop_pct: 0.015
+    tp_pct: 0.03
+    max_bars: 36
+  fees: { commission_bps: 4.0, slippage_bps: 2.0 }
+backtest: { initial_capital: 10000, execution_model: next_bar_open }
+</pre></div>
+    <div class="seg"><div class="lbl">③ 結果(回測 · BTCUSDT 1h · vs BTC buy&amp;hold)</div><div class="mrow"><span>總報酬 <b class="pos">8.15%</b></span><span>PnL <b class="pos">$815.28</b></span><span>Sharpe <b>3.912</b></span><span>最大回撤 <b class="neg">-4.76%</b></span><span>勝率 <b>69.20%</b></span><span>交易 <b>13</b></span><span>vs BTC(6.73%) <b class="pos">1.42%</b></span></div>
+      <div class="blk">用到的 blocks:<code>conditions.price_above_ma</code> <code>indicators.bollinger</code></div></div>
+  </div>
+</details>
+</div></body></html>

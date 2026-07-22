@@ -290,6 +290,47 @@ Reference strategies in `cyqnt_trd/strategies/`:
 
 ---
 
+## YAML Strategy Pipeline
+
+`cyqnt_trd.standard_bot.yaml_pipeline` lets a strategy be described as a
+declarative **YAML spec** (data source, indicators, nested entry rules, sizing,
+risk/exit) that composes `cyqnt_trd.blocks.*` primitives — no per-strategy
+Python needed. The same spec runs across backtest / paper / live.
+
+```bash
+# validate: static checks + a synthetic-data dry-run that catches unknown
+# blocks, wrong arg counts, and bad params BEFORE any real run
+python -m cyqnt_trd.standard_bot.yaml_pipeline validate strategy.yaml
+
+# run: backtest (default), or paper / live per run.mode
+python -m cyqnt_trd.standard_bot.yaml_pipeline run strategy.yaml \
+  [--input-json klines.json] [--engine vectorized|event] [--start]
+```
+
+A spec compiles to a `make_signals(df) -> (long, short)` block strategy via
+`cyqnt_trd.blocks.strategy.register(...)`, so it rides the same run path as
+hand-written block strategies. Entry rules nest arbitrarily
+(`all_of` / `any_of` / `not`); long-only is expressed by simply omitting
+`entry.short`. See `docs/strategy_yaml_spec/` for the schema, runnable
+examples, and a natural-language → YAML → backtest demo.
+
+## Backtest Engines
+
+Block (Python-engine) strategies can be backtested by two interchangeable engines,
+both **long + short** and sharing the same execution model (signal at bar close →
+fill next bar open, single position, side-aware stop/TP):
+
+| Engine | Invoked by | Notes |
+|---|---|---|
+| `SnapshotBacktestRunner` | `mvp_backtest --engine python` (event-driven, bar-by-bar) | mature reference; mirrors the paper/live execution model |
+| `run_vectorized_backtest` | `yaml_pipeline run` default (signals vectorized once + numpy exit loop) | 10–100× faster; used by the YAML pipeline and parameter sweeps |
+
+The two are cross-checked and agree closely on matched configs (long-only is
+byte-stable between them; long + short agrees on most exit types). Paper/live
+signals run through `PythonLivePaperSession`, which is also long + short.
+`--engine numba` (`NumbaBacktestRunner`) is a separate compiled path for the
+built-in kernels only, not arbitrary block strategies.
+
 ## Atomic Compatibility (`atomic_strategy_lib` shim)
 
 The package ships an `atomic_strategy_lib` shim that re-exports cyqnt_trd
