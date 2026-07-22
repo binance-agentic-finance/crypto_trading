@@ -1,0 +1,120 @@
+# =============================================================================
+# Strategy Spec v1 — 規格模板 / Schema(標的:cyqnt_trd/standard_bot,block path)
+# =============================================================================
+# 一份 YAML = 一個策略。它被 yaml_pipeline 編譯成 standard_bot 的 block strategy
+# (make_signals(df) → (long, short)),並用 --engine python 在 backtest / paper /
+# live 三條路上跑「完全相同」的訊號邏輯。
+#
+# 指令:
+#   驗證:  python -m cyqnt_trd.standard_bot.yaml_pipeline validate  strategy.yaml
+#   執行:  python -m cyqnt_trd.standard_bot.yaml_pipeline run       strategy.yaml
+#
+# 型別標記:<str> <int> <float> <bool> <dur>=1h/4h/1d  [..]=清單  {..}=物件  ?=可選
+# =============================================================================
+
+spec_version: "1.0"
+target: standard_bot                  # 固定
+
+strategy:
+  id: <str>                           # 策略唯一 ID(→ --strategy)
+  description: <str>?
+
+# --- 真實交易 / paper trade ----------------------------------------------------
+run:                                  # 真实交易 / paper trade
+  mode: <backtest|paper|live>
+  # backtest → mvp_backtest --engine python(一次性歷史回測)
+  # paper    → mvp_paper_daemon --engine python(長時間模擬交易,不下真實單)
+  # live     → paper daemon(訊號源) + mvp_live_executor(真實下單);見檔尾安全規則
+  duration_end_at: <str>?             # ISO8601;run.mode=live 必填(session 時長上限)
+
+# --- 數據源 + 每個數據源拉取週期 ------------------------------------------------
+data:                                 # 数据源 / 每个数据源拉取周期
+  symbol: <str>                       # e.g. BTCUSDT
+  market_type: <spot|futures>
+  primary:
+    interval: <dur>                   # 主決策週期,e.g. "1h"
+    poll_interval: <int>?             # 执行的周期:paper daemon 每次輪詢秒數(預設 3570)
+  source:                             # 正式資料來源;離線測試可用 CLI --input-json 覆蓋
+    type: <binance_rest|historical_parquet|input_json>
+    # binance_rest       →(無額外欄位)線上抓 K 線
+    # historical_parquet → dir/<...> + storage_timeframe? + download_missing? + start_ts?/end_ts?
+    # input_json         → path: <str>(單一 kline JSON,離線)
+    dir: <str>?
+    storage_timeframe: <dur>?
+    download_missing: <bool>?
+    start_ts: <int>?
+    end_ts: <int>?
+    path: <str>?
+  htf:                                # 每個高周期一條(每个数据源拉取周期);可選
+    - { interval: <dur>, sma_period: <int> }
+    # 會在 df 掛上欄位 _htf_<interval>_sma_<period>(lookahead-safe),
+    # 條件可用 args: [df, "_htf_4h_sma_200"] 引用。
+
+# --- 信號計算 + 方向 -----------------------------------------------------------
+signals:                              # 信号计算
+  indicators:                         # 命名的指標(factors);之後被條件引用
+    <name>:
+      block: <str>                    # "<module>.<fn>",module ∈
+                                      #   indicators|conditions|entry|patterns|
+                                      #   smc_structure|smc_liquidity|verdicts|scoring
+      input: <close|open|high|low|volume|df|<name>>?   # 第一個參數(預設 close;
+                                      #   若 block 第一參數是 df 會自動傳 df)
+      params: { <k>: <v> }?           # 其餘 kwargs
+      output: <int>?                  # 若 block 回傳 tuple(macd/adx/donchian/bollinger),取第幾個
+
+  entry:                              # 方向:給 long/short = 多空;只給 long = long-only
+    long: <node>?
+    short: <node>?
+    # <node> 可任意巢狀,五種形態:
+    #   { all_of: [<node>, ...] }                        # 全部成立
+    #   { any_of: [<node>, ...] }                        # 任一成立
+    #   { not: <node> }                                  # 反相
+    #   { exclude_when: { base: <node>, exclusions: [<node>, ...] } }
+    #   { cond: "conditions.xxx", args: [<ref>, ...], params: {..} }   # 葉節點
+    # <ref> = 指標名 / df 欄位名(close/high/...) / 字面 "df"
+
+# --- 倉位決策 ------------------------------------------------------------------
+sizing:                               # 仓位决策
+  size: <float>                       # 每筆投入權益比例,(0,1](預設 1.0)
+
+# --- 風控(出場 + 費用 + live 護欄)--------------------------------------------
+risk:                                 # 风控
+  exit:                               # 宣告式出場(→ strategy.register exit_cfg)
+    type: <time_only|pct_stop_tp|atr_stop_tp|atr_trailing_stop|ma_cross_exit|opposite_signal>
+    # time_only:          { max_bars }
+    # pct_stop_tp:        { stop_pct, tp_pct, max_bars? }
+    # atr_stop_tp:        { atr_period, stop_mult, tp_mult, max_bars? }
+    # atr_trailing_stop:  { atr_period, trail_mult, max_bars? }
+    # ma_cross_exit:      { period, ma_type, max_bars? }
+    # opposite_signal:    { max_bars? }(預設:靠反向訊號出場)
+  fees: { commission_bps: <float>?, slippage_bps: <float>? }   # backtest/paper
+  live_guards:                        # run.mode=live 時必填
+    max_notional: <float>             # 單筆名目硬上限(USDT)
+    notional_fraction: <float>?       # 下單佔可用餘額比例(預設 0.95)
+
+# --- 回測參數(run.mode=backtest 用)------------------------------------------
+backtest:
+  initial_capital: <float>?           # 預設 10000
+  execution_model: <close_fill|next_bar_open>?   # 預設 next_bar_open(較真實)
+
+# =============================================================================
+# 附錄:常用可組合 blocks(全部可在 signals 內排列組合;完整清單見 docs/block_registry.json)
+# =============================================================================
+# indicators(input=close 或自動 df):
+#   ema/sma/wma/rma(series,period)  rsi(series,period)  atr(df,period)
+#   macd(series,fast,slow,signal)→tuple  adx(df,period)→tuple(adx,+di,-di)
+#   bollinger(series,...)→tuple  donchian(df,period)→tuple  vwap/obv/mfi/cci(df,...)
+# conditions(回傳 bool Series):
+#   ma_cross_above(fast,slow) / ma_cross_below(fast,slow)
+#   rsi_in_range(rsi,low,high) / rsi_overbought(rsi,thr) / rsi_oversold(rsi,thr)
+#   adx_trending(adx,thr) / adx_ranging(adx,thr)
+#   breakout_high(df,lookback) / breakout_low(df,lookback)
+#   price_above_ma(df,ma,bars) / price_below_ma(df,ma,bars)
+#   macd_golden_cross(line,signal) / macd_death_cross(line,signal)
+#   higher_high/higher_low/lower_high/lower_low(df,lookback)
+#   liquidity_sweep_high/low(df,lookback)  volume_surge(df,ref_volume,mult)
+# entry(組合器,由 all_of/any_of/not/exclude_when 直接對應,通常不用手寫):
+#   all_of([..]) any_of([..]) exclude_when(base,[..])
+#
+# ★ 安全邊界:signals 只能呼叫上列白名單 module 內的函式(interpreter.ALLOWED_NAMESPACES);
+#   不能 import 任意程式碼。密鑰不入 YAML,由 config.py 從 .env 讀。
