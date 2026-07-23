@@ -27,6 +27,15 @@ from .ratios import fetch_long_short_ratio
 from .account import fetch_account_balance, fetch_positions
 from .scanner import full_market_scan, scan_with_filter
 
+# PUBLIC Binance Square news / social (vendored stdlib client)
+from .news import (
+    fetch_news,
+    fetch_sentiment,
+    fetch_ticker_rank,
+    fetch_topic_trending,
+    fetch_hot_post,
+)
+
 # AI/workflow data (binance-pro-cli)
 from .pro import pro_indicators_fetch, pro_trade_signal_query, pro_trade_signal_rank
 from .workflow import workflow_leaderboard, workflow_token, workflow_analysis
@@ -64,6 +73,12 @@ __all__ = [
     # scanner
     "full_market_scan",
     "scan_with_filter",
+    # news / social (PUBLIC Square)
+    "fetch_news",
+    "fetch_sentiment",
+    "fetch_ticker_rank",
+    "fetch_topic_trending",
+    "fetch_hot_post",
     # AI signals (binance-pro-cli)
     "pro_indicators_fetch",
     "pro_trade_signal_query",
