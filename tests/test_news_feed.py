@@ -400,6 +400,23 @@ def test_as_of_open_is_stricter(tmp_path):
     assert close_out["_news_sentiment_bull_ratio"].iloc[0] == pytest.approx(0.6)
 
 
+def test_as_of_open_without_open_time_raises(tmp_path):
+    """Regression: as_of='open' must RAISE when open_time is missing, not
+    silently fall back to close_time (which would leak within-bar future data).
+    """
+    root = tmp_path / "pit"
+    write_capture(root, 10_000, token="BTC", sentiment=(60, 40))
+    cfg = {"pit_root": str(root)}
+    # Frame has ONLY close_time (no open_time).
+    df = pd.DataFrame({"close_time": [11_000, 12_000],
+                       "open": 1.0, "high": 1.0, "low": 1.0, "close": 1.0, "volume": 1.0})
+    with pytest.raises(ValueError, match="open_time"):
+        attach_news_features(df, cfg, "BTCUSDT", as_of="open")
+    # as_of='close' on the same frame must still work (close_time present).
+    out = attach_news_features(df, cfg, "BTCUSDT", as_of="close")
+    assert out["_news_sentiment_bull_ratio"].iloc[0] == pytest.approx(0.6)
+
+
 # ===========================================================================
 # 6. ticker_rank_universe (selection) — lookahead-safe
 # ===========================================================================
