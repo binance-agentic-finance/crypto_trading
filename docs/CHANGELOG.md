@@ -6,6 +6,41 @@ PyPI 版本變動見 `pyproject.toml` 與 git tag。
 
 ---
 
+## 2026-07-23 — 新聞資料層：PUBLIC Binance Square 兩層接入（data_cli + lookahead-safe 特徵）
+
+### 摘要
+
+把 PUBLIC Binance Square 新聞／社群資料以「兩層」接進 cyqnt_trd，完全比照現有
+`_htf_*` 欄位注入機制，但**只做資料層**，尚未接進 spec/strategy。
+
+1. **資料層** `cyqnt_trd/data_cli/news.py`：`fetch_news / fetch_sentiment /
+   fetch_ticker_rank / fetch_topic_trending / fetch_hot_post` → 回傳快取 typed
+   DataFrame（形狀比照 `kline.py`）。envelope `code=='000000'` 且 `data==None`
+   視為 cache-miss，回「空的 typed DataFrame」而非拋例外。
+2. **Vendored PUBLIC client** `cyqnt_trd/data_cli/_vendor/binance_bigdata_client.py`：
+   純 stdlib（urllib）、`env='prod'`、`min_interval` 節流、帶 provenance 標頭；
+   **只含 7 個 PUBLIC Square 方法**，完全排除 `TradingInsightClient` 與所有
+   `*.eureka.qa.local` 內網方法。支援 `CYQNT_BIGDATA_API_PATH` 覆寫改 import 上游。
+   不引入任何新 runtime 依賴。
+3. **Lookahead-safe 特徵層** `cyqnt_trd/blocks/news_feed.py`：
+   `load_pit_index / build_pit_feature_frame / attach_news_features /
+   ticker_rank_universe`。對齊一律用**可用性時間**（`captured_at_ms` /
+   `capture_completed_at`），**絕不用內容時間**（`news.date` / `generatedAt`）；
+   `idx = np.searchsorted(avail_ts, base_ts, 'right') - 1`；news id first-seen
+   去重；warmup bar 比率類給 `NaN`、計數/旗標類給 `0.0`；欄位命名 `_news_*`。
+4. **選標的** `cyqnt_trd/blocks/universe.py`：`augment_with_news / top_mentioned /
+   top_bullish / filter_sentiment`（base ↔ `<BASE>USDT` join）。
+5. **測試** `cyqnt_trd/tests/test_news_feed.py`（19 條），含「擾動未來擷取、斷言過去
+   bar 不變」的 lookahead 洩漏測試，以及「gating 用可用性時間而非內容時間」的證明。
+
+### 頭號風險與防護
+
+lookahead 洩漏。防護：對齊只用可用性時間；`capture_completed_at` 預設（≥ 任一
+per-endpoint 到達時間，最保守）；first-seen 去重確保同一 news id 只計一次；單元測試
+直接擾動未來擷取並斷言過去 bar 輸出位元級不變。
+
+---
+
 ## 2026-06-04 — PyPI 0.1.11：Live Trade Recovery 強化 + OpenClaw / Docker 驗證 + MA Cross Workspace
 
 ### 摘要

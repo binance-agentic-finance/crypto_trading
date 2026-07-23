@@ -41,6 +41,17 @@ __all__ = [
     "top_losers",
     "exclude_symbols",
     "only_symbols",
+    "augment_with_news",
+    "top_mentioned",
+    "top_bullish",
+    "filter_sentiment",
+]
+
+# Columns added by :func:`augment_with_news`.
+_NEWS_COLS = [
+    "news_mention_rank", "news_mention_count", "news_unique_authors",
+    "news_bullish_count", "news_bearish_count", "news_neutral_count",
+    "news_bull_ratio",
 ]
 
 
@@ -137,6 +148,102 @@ def augment_with_funding(tickers: pd.DataFrame) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
+# News / social selection helpers
+# ---------------------------------------------------------------------------
+
+
+def _news_base_token(symbol: str) -> str:
+    # Reuse the exact base-token normalisation used by the feature layer so a
+    # universe join and an attached feature always agree on "BTCUSDT" -> "BTC".
+    from .news_feed import base_token
+    return base_token(symbol)
+
+
+def augment_with_news(
+    tickers: pd.DataFrame,
+    ticker_rank_df: Optional[pd.DataFrame] = None,
+    *,
+    window: str = "24h",
+    limit: int = 50,
+    env: str = "prod",
+) -> pd.DataFrame:
+    """Augment the universe with Square ticker-mention stats.
+
+    Joins ``getTickerRank`` output (keyed on the base token) onto the universe
+    (keyed on ``<BASE>USDT``-style symbols), adding the :data:`_NEWS_COLS`
+    columns. If *ticker_rank_df* is not supplied it is fetched live via
+    :func:`cyqnt_trd.data_cli.fetch_ticker_rank`. A cache-miss / empty rank
+    frame yields NaN columns rather than an error.
+    """
+    tickers = tickers.copy()
+    if "symbol" not in tickers.columns:
+        raise ValueError("DataFrame missing 'symbol' column")
+
+    if ticker_rank_df is None:
+        from ..data_cli.news import fetch_ticker_rank
+        ticker_rank_df = fetch_ticker_rank(window=window, limit=limit, env=env)
+
+    if ticker_rank_df is None or ticker_rank_df.empty:
+        for col in _NEWS_COLS:
+            tickers[col] = float("nan")
+        return tickers
+
+    rank = ticker_rank_df.copy()
+    rank["ticker"] = rank["ticker"].astype(str).str.upper()
+    bull = rank["bullish_count"].astype(float)
+    bear = rank["bearish_count"].astype(float)
+    denom = bull + bear
+    rank["news_bull_ratio"] = (bull / denom).where(denom > 0, other=float("nan"))
+    rank = rank.rename(columns={
+        "rank": "news_mention_rank",
+        "mention_count": "news_mention_count",
+        "unique_authors": "news_unique_authors",
+        "bullish_count": "news_bullish_count",
+        "bearish_count": "news_bearish_count",
+        "neutral_count": "news_neutral_count",
+    })
+    join = rank[["ticker", *_NEWS_COLS]].drop_duplicates("ticker", keep="first")
+
+    tickers["_base"] = tickers["symbol"].map(_news_base_token)
+    out = tickers.merge(join, left_on="_base", right_on="ticker", how="left")
+    out = out.drop(columns=[c for c in ("ticker", "_base") if c in out.columns])
+    return out
+
+
+def top_mentioned(tickers: pd.DataFrame, n: int = 10) -> pd.DataFrame:
+    """Top *n* symbols by Square mention count (needs :func:`augment_with_news`)."""
+    if "news_mention_count" not in tickers.columns:
+        raise ValueError("DataFrame missing 'news_mention_count' — call augment_with_news first")
+    ranked = tickers.dropna(subset=["news_mention_count"])
+    return ranked.nlargest(int(n), "news_mention_count").copy()
+
+
+def top_bullish(tickers: pd.DataFrame, n: int = 10, min_mentions: int = 0) -> pd.DataFrame:
+    """Top *n* symbols by bullish ratio (needs :func:`augment_with_news`).
+
+    Symbols with fewer than *min_mentions* Square mentions are excluded first so
+    a single bullish post can't rank a thinly-covered token to the top.
+    """
+    if "news_bull_ratio" not in tickers.columns:
+        raise ValueError("DataFrame missing 'news_bull_ratio' — call augment_with_news first")
+    ranked = tickers.dropna(subset=["news_bull_ratio"])
+    if min_mentions > 0 and "news_mention_count" in ranked.columns:
+        ranked = ranked[ranked["news_mention_count"].fillna(0) >= float(min_mentions)]
+    return ranked.nlargest(int(n), "news_bull_ratio").copy()
+
+
+def filter_sentiment(tickers: pd.DataFrame, min_bull_ratio: float = 0.5) -> pd.DataFrame:
+    """Keep symbols whose bullish ratio is >= *min_bull_ratio*.
+
+    Requires :func:`augment_with_news`. Symbols with no sentiment data (NaN
+    ratio) are dropped.
+    """
+    if "news_bull_ratio" not in tickers.columns:
+        raise ValueError("DataFrame missing 'news_bull_ratio' — call augment_with_news first")
+    return tickers[tickers["news_bull_ratio"] >= float(min_bull_ratio)].copy()
+
+
+# ---------------------------------------------------------------------------
 # Fluent filter builder
 # ---------------------------------------------------------------------------
 
@@ -183,6 +290,24 @@ class UniverseFilter:
 
     def only(self, symbols: Sequence[str]) -> "UniverseFilter":
         self.df = only_symbols(self.df, symbols)
+        return self
+
+    def with_news(
+        self, ticker_rank_df: Optional[pd.DataFrame] = None, **kwargs
+    ) -> "UniverseFilter":
+        self.df = augment_with_news(self.df, ticker_rank_df, **kwargs)
+        return self
+
+    def top_mentioned(self, n: int = 10) -> "UniverseFilter":
+        self.df = top_mentioned(self.df, n)
+        return self
+
+    def top_bullish(self, n: int = 10, min_mentions: int = 0) -> "UniverseFilter":
+        self.df = top_bullish(self.df, n, min_mentions)
+        return self
+
+    def filter_sentiment(self, min_bull_ratio: float = 0.5) -> "UniverseFilter":
+        self.df = filter_sentiment(self.df, min_bull_ratio)
         return self
 
     def filter_quote_suffix(self, suffix: str = "USDT") -> "UniverseFilter":
