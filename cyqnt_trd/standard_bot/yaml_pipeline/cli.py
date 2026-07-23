@@ -24,7 +24,7 @@ from typing import Any, Dict, List
 
 DAEMON_LOADER = "cyqnt_trd.standard_bot.yaml_pipeline._daemon_loader"
 
-from .interpreter import SpecError
+from .interpreter import SpecError, build_make_signals
 from .spec import load_spec, register_from_yaml, validate_spec
 
 
@@ -94,7 +94,46 @@ def cmd_validate(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 
-def _run_backtest(spec: Dict[str, Any], args: argparse.Namespace) -> int:
+def _run_backtest_vectorized(spec: Dict[str, Any], args: argparse.Namespace) -> int:
+    """Backtest via the vectorized engine (long+short, matches paper/live)."""
+    from pathlib import Path
+
+    from ._data import load_ohlcv
+    from ..simulation.vectorized_backtest import run_vectorized_backtest
+
+    df, src = load_ohlcv(spec, input_json=getattr(args, "input_json", None))
+    entry = (spec.get("signals") or {}).get("entry") or {}
+    exit_cfg = (spec.get("risk") or {}).get("exit")
+    fees = (spec.get("risk") or {}).get("fees") or {}
+    size = float((spec.get("sizing") or {}).get("size", 0.95))
+    interval = str((spec.get("data") or {}).get("primary", {}).get("interval", "1h"))
+    long_only = ((spec.get("data") or {}).get("market_type") == "spot") or (not entry.get("short"))
+    initial = float((spec.get("backtest") or {}).get("initial_capital", 10000.0))
+
+    make_signals = build_make_signals(spec)
+    res = run_vectorized_backtest(
+        df=df, signal_fn=make_signals, exit_cfg=exit_cfg, timeframe=interval,
+        size=size, fee_bps=float(fees.get("commission_bps", 4.0)),
+        slippage_bps=float(fees.get("slippage_bps", 2.0)),
+        initial_capital=initial, long_only=long_only)
+
+    print(f"[yaml_pipeline] backtest engine=vectorized "
+          f"({'long-only' if long_only else 'long+short'}) data={src} bars={len(df)}")
+    print(f"  total_return={res.total_return*100:.2f}%  pnl=${res.total_pnl:.2f}  "
+          f"final_equity=${res.final_equity:.2f}")
+    print(f"  sharpe={res.sharpe_ratio:.3f}  max_dd={res.max_drawdown*100:.2f}%  "
+          f"win_rate={res.win_rate*100:.1f}%  trades={res.trade_count}")
+    if getattr(args, "output_json", None):
+        import json
+        Path(args.output_json).write_text(json.dumps(
+            {"engine": "vectorized", "source": src, "bars": len(df),
+             "long_only": long_only, **res.to_dict()}, ensure_ascii=False, indent=2))
+        print(f"  wrote {args.output_json}")
+    return 0
+
+
+def _run_backtest_event(spec: Dict[str, Any], args: argparse.Namespace) -> int:
+    """Backtest via the event-driven SnapshotBacktestRunner (long-only reference)."""
     from ..entrypoints import mvp_backtest
 
     symbol, interval, market_type, commission_bps, slippage_bps = _common_run_fields(spec)
@@ -209,7 +248,9 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     mode = (spec.get("run") or {}).get("mode")
     if mode == "backtest":
-        return _run_backtest(spec, args)
+        if getattr(args, "engine", "vectorized") == "event":
+            return _run_backtest_event(spec, args)
+        return _run_backtest_vectorized(spec, args)
     if mode == "paper":
         return _run_paper(spec, args)
     if mode == "live":
@@ -239,6 +280,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--input-json", default=None,
                        help="override data source with a local kline JSON (offline backtest)")
     p_run.add_argument("--output-json", default=None, help="write backtest result JSON here")
+    p_run.add_argument("--engine", choices=["vectorized", "event"], default="vectorized",
+                       help="backtest engine: 'vectorized' (long+short, matches paper/live; default) "
+                            "or 'event' (SnapshotBacktestRunner, long-only reference)")
     p_run.add_argument("--start", action="store_true",
                        help="paper mode: actually spawn the daemon (needs a data feed)")
     p_run.set_defaults(func=cmd_run)

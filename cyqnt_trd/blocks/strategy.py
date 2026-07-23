@@ -243,13 +243,30 @@ class BlockStrategyPlugin:
         cursor = state.values.get("cursor") if state else None
         long_s, short_s = self._call_signal_fn(df)
 
+        # Pre-compute ATR series on the FULL df (before cursor filter) so that
+        # the rolling RMA inside ATR has enough history. Without this, the
+        # filtered emit_df (typically just 1 row at the cursor head) would
+        # yield NaN ATR, and the entry-bar absolute stop/TP prices baked into
+        # exit_spec would be NaN — silently disabling the ATR stop. See bug
+        # report: Issue #1.
+        atr_series_full = None
+        if self.exit_cfg and self.exit_cfg.get("type") in ("atr_stop_tp", "atr_trailing_stop"):
+            try:
+                from . import indicators as _ind  # type: ignore
+                atr_period = int(self.exit_cfg.get("atr_period", 14))
+                atr_series_full = _ind.atr(df, period=atr_period)
+            except Exception:
+                atr_series_full = None
+
         if cursor is not None:
             mask = df["close_time"] > cursor
             emit_df = df[mask]
             long_s = long_s[mask] if hasattr(long_s, "__getitem__") else long_s
             short_s = short_s[mask] if (short_s is not None and hasattr(short_s, "__getitem__")) else short_s
+            atr_series_emit = atr_series_full[mask] if atr_series_full is not None else None
         else:
             emit_df = df
+            atr_series_emit = atr_series_full
 
         envelopes = self._envelope_from_signals(
             df=emit_df,
@@ -258,6 +275,7 @@ class BlockStrategyPlugin:
             snapshot=snapshot,
             instrument_id=instrument_id,
             timeframe=timeframe,
+            atr_series=atr_series_emit,
         )
 
         new_cursor = int(df["close_time"].iloc[-1]) if "close_time" in df.columns else cursor
@@ -371,6 +389,7 @@ class BlockStrategyPlugin:
         snapshot,
         instrument_id: str,
         timeframe: str,
+        atr_series: Optional[pd.Series] = None,
     ) -> list:
         """Convert per-bar boolean signals into SignalEnvelope objects."""
         import time as _time
@@ -387,8 +406,11 @@ class BlockStrategyPlugin:
         # Pre-compute ATR series ONCE if exit_cfg is atr_stop_tp — used to
         # determine entry-bar absolute stop/TP prices. This avoids the runner
         # needing to know about ATR.
-        atr_series = None
-        if self.exit_cfg and self.exit_cfg.get("type") == "atr_stop_tp":
+        # If a caller (e.g. step()) already supplied an ATR series computed on
+        # the full pre-cursor-filter df, use it as-is. This prevents recomputing
+        # ATR on a 1-row emit_df which would yield NaN. See Issue #1.
+        if atr_series is None and self.exit_cfg and \
+                self.exit_cfg.get("type") in ("atr_stop_tp", "atr_trailing_stop"):
             try:
                 from . import indicators as _ind  # type: ignore
                 atr_period = int(self.exit_cfg.get("atr_period", 14))
@@ -516,6 +538,33 @@ class BlockStrategyPlugin:
                 out["stop_loss_price"] = entry_close + stop_mult * atr_value
                 out["take_profit_price"] = entry_close - tp_mult * atr_value
             out["atr_at_entry"] = atr_value
+            return out
+
+        if etype == "atr_trailing_stop":
+            # Native ATR trailing stop. The runner threads ``running_peak``
+            # through the spec on every bar (mutated in place):
+            #   long:  running_peak = max(peak, bar_high)
+            #          stop_price   = running_peak - trail_mult * atr_at_entry
+            #          trigger      = bar_low <= stop_price
+            #   short: running_peak = min(peak, bar_low)
+            #          stop_price   = running_peak + trail_mult * atr_at_entry
+            #          trigger      = bar_high >= stop_price
+            # ``atr_at_entry`` is fixed at entry; using a static ATR keeps the
+            # implementation simple and matches the H003 hypothesis. See
+            # CYQNT_TRD_BUG_REPORT.md Issue #3.
+            trail_mult = float(cfg.get("trail_mult", 3.0))
+            out["max_bars"] = int(cfg.get("max_bars", 9999))
+            out["trail_mult"] = trail_mult
+            out["atr_period"] = int(cfg.get("atr_period", 14))
+            if atr_value is None or entry_close is None:
+                # Cannot compute trail width; runner should fall back to
+                # max_bars only.
+                return out
+            out["atr_at_entry"] = atr_value
+            # Initialize running_peak to entry_close; runner will replace
+            # this with fill_price in _finalize_exit_prices, then update
+            # each bar.
+            out["running_peak"] = entry_close
             return out
 
         if etype == "ma_cross_exit":
