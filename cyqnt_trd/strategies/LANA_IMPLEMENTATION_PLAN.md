@@ -64,7 +64,7 @@ long = sys.signal(threshold=5.0) & is_trending
 
 **測試命令**：
 ```bash
-cd /Users/hankchung/Dev/crypto_trading-main
+cd <repo-root>
 python -m cyqnt_trd.standard_bot.entrypoints.mvp_backtest \
   --engine python \
   --strategy lana_momentum_v1 \

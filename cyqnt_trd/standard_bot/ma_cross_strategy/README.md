@@ -51,8 +51,8 @@ export PYTHONPATH="$PWD:/usr/local/lib/python3.11/dist-packages:${PYTHONPATH:-}"
 For local development from this repository:
 
 ```bash
-cd /Users/hankchung/Dev/crypto_trading-main/cyqnt_trd/standard_bot/ma_cross_strategy
-export PYTHONPATH="$PWD:/Users/hankchung/Dev/crypto_trading-main:${PYTHONPATH:-}"
+cd <repo-root>/cyqnt_trd/standard_bot/ma_cross_strategy
+export PYTHONPATH="$PWD:<repo-root>:${PYTHONPATH:-}"
 ```
 
 ## Backtest

@@ -12,12 +12,14 @@ Pipeline:
 The point: the LLM (you, in CodeMax) can call this on each top/bottom genome
 and see *why* it's failing rather than just `fitness=2.687`.
 
-Requires `/Users/hankchung/Dev/auto-optimize/src` on PYTHONPATH (or pass
-``auto_opt_path=...``).
+Requires the auto-optimize ``src`` directory to be importable. Point at it by
+setting the ``AUTO_OPT_SRC`` environment variable, or pass ``auto_opt_path=...``
+explicitly.
 """
 
 from __future__ import annotations
 
+import os
 import sys
 from dataclasses import asdict
 from pathlib import Path
@@ -31,19 +33,26 @@ from .genome import StrategyGenome
 
 # ── Auto-optimize path bootstrap ──────────────────────────────────────────
 
-_DEFAULT_AUTO_OPT = Path("/Users/hankchung/Dev/auto-optimize/src")
+_AUTO_OPT_ENV = os.environ.get("AUTO_OPT_SRC")
+_DEFAULT_AUTO_OPT = Path(_AUTO_OPT_ENV) if _AUTO_OPT_ENV else None
 
 
 def _ensure_auto_opt_on_path(path: Optional[str | Path] = None) -> None:
-    """Ensure auto_opt package is importable.
+    """Ensure the auto_opt package is importable.
 
-    If ``path`` is None, falls back to the default local install.
+    Resolution order: explicit ``path`` argument, then the ``AUTO_OPT_SRC``
+    environment variable. Raises if neither is set / valid.
     """
     target = Path(path) if path else _DEFAULT_AUTO_OPT
+    if target is None:
+        raise FileNotFoundError(
+            "auto-optimize source path is not configured. Set the AUTO_OPT_SRC "
+            "environment variable, or pass auto_opt_path= to its 'src' directory."
+        )
     if not target.exists():
         raise FileNotFoundError(
             f"auto-optimize source not found at {target}. "
-            "Pass auto_opt_path= or check /Users/hankchung/Dev/auto-optimize"
+            "Set AUTO_OPT_SRC or pass auto_opt_path= to a valid 'src' directory."
         )
     target_str = str(target)
     if target_str not in sys.path:

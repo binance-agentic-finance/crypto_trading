@@ -13,11 +13,17 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Dict, List
 
-sys.path.insert(0, '/Users/hankchung/Dev/auto-optimize/src')
+# Make the optional auto-optimize package importable when AUTO_OPT_SRC points at
+# a real directory. It is only needed for the diagnostic path, so skip silently
+# when unset / missing rather than hardcoding a personal path.
+_AUTO_OPT_SRC = os.environ.get("AUTO_OPT_SRC")
+if _AUTO_OPT_SRC and os.path.isdir(_AUTO_OPT_SRC):
+    sys.path.insert(0, _AUTO_OPT_SRC)
 
 from cyqnt_trd.evolve.bridge import backtest_genome
 from cyqnt_trd.evolve.data_loader import load_or_download, split_is_oos

@@ -45,7 +45,7 @@ def make_signals(df):
     supertrend_bullish = supertrend_dir == 1
     
     # 价格在 Donchian 通道中上部 (近似 SAR 支撑)
-    = cond.price_above_ma(df, donchian_mid, bars=1)
+    price_above_donchian_mid = cond.price_above_ma(df, donchian_mid, bars=1)
     
     # 多头进场: 所有条件 AND
     long = entry.all_of([

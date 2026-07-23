@@ -496,7 +496,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--use-oos", action="store_true",
                     help="diagnose against OOS slice instead of IS")
     sp.add_argument("--auto-opt-path", default=None,
-                    help="path to auto-optimize/src (default: /Users/hankchung/Dev/auto-optimize/src)")
+                    help="path to the auto-optimize 'src' directory "
+                         "(default: the AUTO_OPT_SRC environment variable, if set)")
     sp.set_defaults(func=cmd_diagnose)
 
     return p
