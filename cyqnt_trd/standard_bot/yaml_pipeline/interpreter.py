@@ -201,11 +201,21 @@ def build_make_signals(spec: Dict[str, Any]) -> Callable[[Any], Tuple[Any, Optio
     short_node = entry_spec.get("short")
 
     def make_signals(df):
+        import pandas as pd
+
         env: Dict[str, Any] = {}
         for name, ispec in ind_specs.items():
             env[name] = eval_indicator(df, ispec)
         long_s = eval_node(df, env, long_node) if long_node else None
         short_s = eval_node(df, env, short_node) if short_node else None
+        # Long-only (no short node) / short-only: return an all-False boolean
+        # Series for the missing side rather than None, so every consumer —
+        # the event-driven BlockStrategyPlugin AND the vectorized backtester
+        # (which does short_sig.reindex(...)) — handles it uniformly.
+        if long_s is None:
+            long_s = pd.Series(False, index=df.index)
+        if short_s is None:
+            short_s = pd.Series(False, index=df.index)
         return long_s, short_s
 
     return make_signals

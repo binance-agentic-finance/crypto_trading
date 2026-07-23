@@ -115,18 +115,25 @@ def _check_exit_long(
     opposite_signal: bool,
     ma_val: Optional[float],
     exit_cfg: dict,
-) -> Tuple[bool, float, str]:
-    """Return (should_exit, exit_price, reason) for a long position.
+    running_peak: float = 0.0,
+) -> Tuple[bool, float, str, float]:
+    """Return (should_exit, exit_price, reason, new_running_peak) for a long position.
 
     Unified exit priority (first hit wins):
-        1. Stop Loss      — intra-bar, fill at stop price (pct_stop_tp / atr_stop_tp)
+        1. Stop Loss / Trailing Stop — intra-bar, fill at stop price (pct_stop_tp / atr_stop_tp / atr_trailing_stop)
         2. Take Profit    — intra-bar, fill at tp price   (pct_stop_tp / atr_stop_tp)
         3. MA cross       — bar close,  fill at next-bar open (ma_cross_exit only)
         4. Opposite signal — bar close, fill at next-bar open (always checked, all types)
         5. max_bars       — bar close,  fill at next-bar open (timeout)
+
+    The ``running_peak`` parameter is the previous bar's tracked peak (for
+    ``atr_trailing_stop``). Returned ``new_running_peak`` is updated to
+    ``max(running_peak, bar_high)`` for long. Caller must persist it across
+    bars while the position is open and reset it on entry.
     """
     etype = exit_cfg.get("type", "opposite_signal")
     max_bars = int(exit_cfg.get("max_bars", 9999))
+    new_peak = running_peak
 
     # Priority 1 & 2: Stop Loss / Take Profit (intra-bar) — only when configured
     if etype == "pct_stop_tp":
@@ -135,9 +142,9 @@ def _check_exit_long(
         stop_price = entry_price * (1.0 - stop_pct)
         tp_price = entry_price * (1.0 + tp_pct)
         if bar_low <= stop_price:
-            return True, stop_price, "stop_loss"
+            return True, stop_price, "stop_loss", new_peak
         if bar_high >= tp_price:
-            return True, tp_price, "take_profit"
+            return True, tp_price, "take_profit", new_peak
     elif etype == "atr_stop_tp":
         stop_mult = float(exit_cfg.get("stop_mult", 2.0))
         tp_mult = float(exit_cfg.get("tp_mult", 3.0))
@@ -145,24 +152,35 @@ def _check_exit_long(
             stop_price = entry_price - stop_mult * atr_at_entry
             tp_price = entry_price + tp_mult * atr_at_entry
             if bar_low <= stop_price:
-                return True, stop_price, "stop_loss"
+                return True, stop_price, "stop_loss", new_peak
             if bar_high >= tp_price:
-                return True, tp_price, "take_profit"
+                return True, tp_price, "take_profit", new_peak
+    elif etype == "atr_trailing_stop":
+        # Update running peak first, then derive dynamic stop from
+        # entry-time ATR. Fill at the dynamic stop_price for faithfulness.
+        trail_mult = float(exit_cfg.get("trail_mult", 3.0))
+        if atr_at_entry > 0 and not math.isnan(atr_at_entry):
+            new_peak = max(running_peak, bar_high)
+            stop_price = new_peak - trail_mult * atr_at_entry
+            if bar_low <= stop_price:
+                return True, stop_price, "trailing_stop", new_peak
 
     # Priority 3: MA cross (bar close) — only when type=ma_cross_exit
     if etype == "ma_cross_exit":
         if ma_val is not None and bar_close < ma_val:
-            return True, bar_open, "ma_cross"
+            # Fill at bar close (decision bar) — no lookahead, matches the
+            # event-driven SnapshotBacktestRunner. (Was bar_open = lookahead.)
+            return True, bar_close, "ma_cross", new_peak
 
     # Priority 4: Opposite signal (bar close) — checked for ALL exit types
     if opposite_signal:
-        return True, bar_open, "opposite_signal"
+        return True, bar_open, "opposite_signal", new_peak
 
     # Priority 5: max_bars timeout (bar close)
     if i - entry_idx >= max_bars:
-        return True, bar_open, "max_bars"
+        return True, bar_open, "max_bars", new_peak
 
-    return False, 0.0, ""
+    return False, 0.0, "", new_peak
 
 
 def _check_exit_short(
@@ -178,13 +196,18 @@ def _check_exit_short(
     opposite_signal: bool,
     ma_val: Optional[float],
     exit_cfg: dict,
-) -> Tuple[bool, float, str]:
-    """Return (should_exit, exit_price, reason) for a short position.
+    running_peak: float = 0.0,
+) -> Tuple[bool, float, str, float]:
+    """Return (should_exit, exit_price, reason, new_running_peak) for a short position.
 
     Same priority as long, with side-aware SL/TP and MA cross direction.
+
+    For ``atr_trailing_stop``, ``running_peak`` is the *running low*; updated
+    to ``min(running_peak, bar_low)`` and stop = peak + trail_mult * ATR.
     """
     etype = exit_cfg.get("type", "opposite_signal")
     max_bars = int(exit_cfg.get("max_bars", 9999))
+    new_peak = running_peak
 
     # Priority 1 & 2: Stop Loss / Take Profit (intra-bar)
     if etype == "pct_stop_tp":
@@ -193,9 +216,9 @@ def _check_exit_short(
         stop_price = entry_price * (1.0 + stop_pct)  # short: stop above entry
         tp_price = entry_price * (1.0 - tp_pct)      # short: TP below entry
         if bar_high >= stop_price:
-            return True, stop_price, "stop_loss"
+            return True, stop_price, "stop_loss", new_peak
         if bar_low <= tp_price:
-            return True, tp_price, "take_profit"
+            return True, tp_price, "take_profit", new_peak
     elif etype == "atr_stop_tp":
         stop_mult = float(exit_cfg.get("stop_mult", 2.0))
         tp_mult = float(exit_cfg.get("tp_mult", 3.0))
@@ -203,24 +226,33 @@ def _check_exit_short(
             stop_price = entry_price + stop_mult * atr_at_entry  # short: stop above
             tp_price = entry_price - tp_mult * atr_at_entry      # short: TP below
             if bar_high >= stop_price:
-                return True, stop_price, "stop_loss"
+                return True, stop_price, "stop_loss", new_peak
             if bar_low <= tp_price:
-                return True, tp_price, "take_profit"
+                return True, tp_price, "take_profit", new_peak
+    elif etype == "atr_trailing_stop":
+        trail_mult = float(exit_cfg.get("trail_mult", 3.0))
+        if atr_at_entry > 0 and not math.isnan(atr_at_entry):
+            new_peak = min(running_peak, bar_low)
+            stop_price = new_peak + trail_mult * atr_at_entry
+            if bar_high >= stop_price:
+                return True, stop_price, "trailing_stop", new_peak
 
     # Priority 3: MA cross (bar close) — short exits when close > MA
     if etype == "ma_cross_exit":
         if ma_val is not None and bar_close > ma_val:
-            return True, bar_open, "ma_cross"
+            # Fill at bar close (decision bar) — no lookahead, matches the
+            # event-driven SnapshotBacktestRunner. (Was bar_open = lookahead.)
+            return True, bar_close, "ma_cross", new_peak
 
     # Priority 4: Opposite signal (bar close) — checked for ALL exit types
     if opposite_signal:
-        return True, bar_open, "opposite_signal"
+        return True, bar_open, "opposite_signal", new_peak
 
     # Priority 5: max_bars timeout
     if i - entry_idx >= max_bars:
-        return True, bar_open, "max_bars"
+        return True, bar_open, "max_bars", new_peak
 
-    return False, 0.0, ""
+    return False, 0.0, "", new_peak
 
 
 # ── Main backtest function ─────────────────────────────────────────────────
@@ -312,6 +344,9 @@ def run_vectorized_backtest(
     entry_price = 0.0
     entry_idx = 0
     atr_at_entry = 0.0
+    # ATR-trailing state: running peak (long: max of bar_highs since entry;
+    # short: min of bar_lows since entry). Reset on entry.
+    trail_peak = 0.0
 
     equity = initial_capital
     equity_curve = np.empty(n, dtype=np.float64)
@@ -334,12 +369,14 @@ def run_vectorized_backtest(
 
         # ── Exit check ────────────────────────────────────────────────
         if pos == 1:
-            should_exit, ex_px, reason = _check_exit_long(
+            should_exit, ex_px, reason, new_peak = _check_exit_long(
                 i=i, entry_price=entry_price, entry_idx=entry_idx,
                 bar_open=bar_o, bar_high=bar_h, bar_low=bar_l, bar_close=bar_c,
                 atr_at_entry=atr_at_entry, opposite_signal=s_prev,
                 ma_val=ma_val, exit_cfg=exit_cfg,
+                running_peak=trail_peak,
             )
+            trail_peak = new_peak
             if should_exit:
                 fill_px = ex_px * (1.0 - slip_rate)
                 pnl_pct = (fill_px - entry_price) / entry_price
@@ -358,12 +395,14 @@ def run_vectorized_backtest(
                 exited_this_bar = True
 
         elif pos == -1:
-            should_exit, ex_px, reason = _check_exit_short(
+            should_exit, ex_px, reason, new_peak = _check_exit_short(
                 i=i, entry_price=entry_price, entry_idx=entry_idx,
                 bar_open=bar_o, bar_high=bar_h, bar_low=bar_l, bar_close=bar_c,
                 atr_at_entry=atr_at_entry, opposite_signal=l_prev,
                 ma_val=ma_val, exit_cfg=exit_cfg,
+                running_peak=trail_peak,
             )
+            trail_peak = new_peak
             if should_exit:
                 fill_px = ex_px * (1.0 + slip_rate)
                 pnl_pct = (entry_price - fill_px) / entry_price
@@ -391,12 +430,16 @@ def run_vectorized_backtest(
                 entry_price = bar_o * (1.0 + slip_rate)
                 entry_idx = i
                 atr_at_entry = atr_arr[i - 1] if not math.isnan(atr_arr[i - 1]) else 0.0
+                # Initialize running peak to current bar high so the first
+                # exit check at i+1 sees max(entry_high, ...).
+                trail_peak = bar_h
                 equity -= equity * size * fee_rate  # entry fee
             elif short_sig[i - 1] and not long_only:
                 pos = -1
                 entry_price = bar_o * (1.0 - slip_rate)
                 entry_idx = i
                 atr_at_entry = atr_arr[i - 1] if not math.isnan(atr_arr[i - 1]) else 0.0
+                trail_peak = bar_l
                 equity -= equity * size * fee_rate  # entry fee
 
         # ── Mark-to-market ────────────────────────────────────────────

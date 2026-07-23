@@ -56,11 +56,22 @@ __all__ = [
     "rsi_overbought",
     "rsi_oversold",
     "rsi_in_range",
+    # StochRSI (faster than RSI)
+    "stochrsi_oversold",
+    "stochrsi_overbought",
+    "stochrsi_cross_above",
     # ADX
     "adx_trending",
     "adx_ranging",
     "adx_direction_long",
     "adx_direction_short",
+    # Aroon (trend strength)
+    "aroon_up_strong",
+    "aroon_down_strong",
+    "aroon_oscillator_above",
+    # PSAR (trend flip detector)
+    "psar_flip_up",
+    "psar_flip_down",
     # MA position
     "price_above_ma",
     "price_below_ma",
@@ -279,6 +290,30 @@ def rsi_in_range(rsi_series: pd.Series, low: float = 40.0, high: float = 60.0) -
 
 
 # ---------------------------------------------------------------------------
+# StochRSI (faster than RSI)
+# ---------------------------------------------------------------------------
+
+
+def stochrsi_oversold(stochrsi_series: pd.Series, threshold: float = 20.0) -> pd.Series:
+    """StochRSI below oversold threshold."""
+    return (ensure_series(stochrsi_series) <= threshold).fillna(False).astype(bool)
+
+
+def stochrsi_overbought(stochrsi_series: pd.Series, threshold: float = 80.0) -> pd.Series:
+    """StochRSI above overbought threshold."""
+    return (ensure_series(stochrsi_series) >= threshold).fillna(False).astype(bool)
+
+
+def stochrsi_cross_above(
+    stochrsi_series: pd.Series, lookback: int = 14, threshold: float = 20.0
+) -> pd.Series:
+    """StochRSI crosses above *threshold*."""
+    lookback = positive_int(lookback, "lookback")
+    s = ensure_series(stochrsi_series)
+    return crossover(s, pd.Series(threshold, index=s.index)).fillna(False).astype(bool)
+
+
+# ---------------------------------------------------------------------------
 # ADX
 # ---------------------------------------------------------------------------
 
@@ -301,6 +336,71 @@ def adx_direction_long(plus_di: pd.Series, minus_di: pd.Series) -> pd.Series:
 def adx_direction_short(plus_di: pd.Series, minus_di: pd.Series) -> pd.Series:
     """``-DI > +DI`` — directional bias is short."""
     return (ensure_series(minus_di) > ensure_series(plus_di)).fillna(False).astype(bool)
+
+
+# ---------------------------------------------------------------------------
+# Aroon (trend strength)
+# ---------------------------------------------------------------------------
+
+
+def aroon_up_strong(aroon_up_series: pd.Series, threshold: float = 70.0) -> pd.Series:
+    """Aroon Up >= threshold."""
+    return (ensure_series(aroon_up_series) >= threshold).fillna(False).astype(bool)
+
+
+def aroon_down_strong(aroon_down_series: pd.Series, threshold: float = 70.0) -> pd.Series:
+    """Aroon Down >= threshold."""
+    return (ensure_series(aroon_down_series) >= threshold).fillna(False).astype(bool)
+
+
+def aroon_oscillator_above(
+    aroon_up_series: pd.Series, aroon_down_series: pd.Series, threshold: float = 20.0
+) -> pd.Series:
+    """Aroon Up - Aroon Down >= threshold."""
+    return (
+        (ensure_series(aroon_up_series) - ensure_series(aroon_down_series))
+        >= threshold
+    ).fillna(False).astype(bool)
+
+
+# ---------------------------------------------------------------------------
+# PSAR (trend flip detector)
+# ---------------------------------------------------------------------------
+
+
+def psar_flip_up(psar_series: pd.Series, close_series: pd.Series) -> pd.Series:
+    """PSAR was above close (downtrend) and now flips below close (uptrend).
+
+    Triggers on the bar where the trend reversal completes — the canonical
+    long entry signal from the Parabolic SAR system.
+
+    Parameters
+    ----------
+    psar_series : pd.Series
+        SAR value series (first element of ``indicators.parabolic_sar()``).
+    close_series : pd.Series
+        Close price series.
+    """
+    psar = ensure_series(psar_series)
+    close = ensure_series(close_series)
+    return (
+        (psar.shift(1) > close.shift(1))   # was downtrend
+        & (psar < close)                    # now uptrend
+    ).fillna(False).astype(bool)
+
+
+def psar_flip_down(psar_series: pd.Series, close_series: pd.Series) -> pd.Series:
+    """PSAR was below close (uptrend) and now flips above close (downtrend).
+
+    Triggers on the bar where the trend reversal completes — the canonical
+    short entry / long exit signal from the Parabolic SAR system.
+    """
+    psar = ensure_series(psar_series)
+    close = ensure_series(close_series)
+    return (
+        (psar.shift(1) < close.shift(1))   # was uptrend
+        & (psar > close)                    # now downtrend
+    ).fillna(False).astype(bool)
 
 
 # ---------------------------------------------------------------------------

@@ -61,22 +61,96 @@ class SnapshotBacktestRunner:
         signal_batches = []
 
         cash = float(request.initial_capital)
-        position_qty = 0.0
+        position_qty = 0.0                     # magnitude (>= 0)
+        position_side: Optional[str] = None    # "long" | "short" | None
         position_entry = 0.0
         current_instrument = request.instruments[0]
         commission_bps = float(request.fee_model.get("commission_bps", 0.0))
         slippage_bps = float(request.slippage_model.get("slippage_bps", 0.0))
+        # long_only: when True, SELL signals only CLOSE longs (never OPEN shorts).
+        # Auto-set by the entrypoint (spot=True, futures=False) or explicit --long-only.
+        long_only = bool((request.extras or {}).get("long_only", False))
+        _comm = commission_bps / 10_000.0
+        _slip = slippage_bps / 10_000.0
 
         # Execution model: "close_fill" (legacy) or "next_bar_open" (realistic)
         execution_model = (request.extras or {}).get("execution_model", "close_fill")
 
-        # --- Phase 2 state: exit management ---
+        # --- Position / exit state ---
         position_exit_spec: Optional[Dict] = None
         position_entry_idx: int = 0
 
         # --- Next-bar-open state: pending orders from previous bar ---
-        pending_entry_signal = None  # queued BUY signal to fill next bar
-        pending_exit_sell: bool = False  # queued SELL to fill next bar
+        pending_entry_signal = None   # queued entry signal (BUY->long / SELL->short)
+        pending_close: bool = False   # queued close of the current position
+
+        def _open(side, base_px, idx, signal, ts):
+            """Open a long or short position (mirrored spot-cash accounting).
+
+            long : pay notional, cash -= qty*fill (+fee); equity = cash + qty*px
+            short: receive proceeds, cash += qty*fill (-fee); equity = cash - qty*px
+            The long branch is arithmetically identical to the pre-short code, so
+            long-only backtests are unchanged.
+            """
+            nonlocal cash, position_qty, position_side, position_entry
+            nonlocal position_exit_spec, position_entry_idx
+            fill = base_px * (1.0 + _slip) if side == "long" else base_px * (1.0 - _slip)
+            size_frac = float((signal.payload or {}).get("size", 1.0))
+            qty = (cash * size_frac) / fill if fill > 0 else 0.0
+            if qty <= 0:
+                return
+            fee = qty * fill * _comm
+            if side == "long":
+                cash -= qty * fill + fee
+            else:
+                cash += qty * fill - fee
+            position_qty = qty
+            position_side = side
+            position_entry = fill
+            position_entry_idx = idx
+            spec = (signal.payload or {}).get("exit_spec")
+            position_exit_spec = self._finalize_exit_prices(spec, fill, side=side) if spec else None
+            trade_rows.append({
+                "timestamp": ts, "instrument_id": signal.instrument_id,
+                "side": "buy" if side == "long" else "sell", "price": fill,
+                "quantity": qty, "fee": fee, "signal_id": signal.signal_id,
+                "action": "entry", "position_side": side,
+            })
+
+        def _close(base_px, reason, ts, apply_slip=True):
+            """Close the open position (side-aware PnL)."""
+            nonlocal cash, position_qty, position_side, position_entry, position_exit_spec
+            side = position_side
+            if apply_slip:
+                fill = base_px * (1.0 - _slip) if side == "long" else base_px * (1.0 + _slip)
+            else:
+                fill = base_px
+            fee = position_qty * fill * _comm
+            if side == "long":
+                cash += position_qty * fill - fee
+                pnl = (fill - position_entry) * position_qty - fee
+                close_side = "sell"
+            else:
+                cash -= position_qty * fill + fee
+                pnl = (position_entry - fill) * position_qty - fee
+                close_side = "buy"
+            trade_rows.append({
+                "timestamp": ts, "instrument_id": current_instrument, "side": close_side,
+                "price": fill, "quantity": position_qty, "fee": fee, "action": "exit",
+                "exit_reason": reason, "entry_price": position_entry, "pnl": pnl,
+                "position_side": side,
+            })
+            position_qty = 0.0
+            position_side = None
+            position_entry = 0.0
+            position_exit_spec = None
+
+        def _equity(mark_px):
+            if position_side == "long":
+                return cash + position_qty * mark_px
+            if position_side == "short":
+                return cash - position_qty * mark_px
+            return cash
 
         for snapshot_idx, snapshot in enumerate(ordered):
             step_result = self.signal_registry.run_pipeline_step(
@@ -100,62 +174,16 @@ class SnapshotBacktestRunner:
             # Step 1: Fill pending orders from PREVIOUS bar (next_bar_open)
             # =============================================================
             if execution_model == "next_bar_open":
-                # Fill pending SELL (exit) at this bar's open
-                if pending_exit_sell and position_qty > 0:
-                    exit_px = float(latest_bar.open) * (1.0 - slippage_bps / 10_000.0)
-                    fee = position_qty * exit_px * commission_bps / 10_000.0
-                    pnl = (exit_px - position_entry) * position_qty - fee
-                    cash = cash + position_qty * exit_px - fee
-                    trade_rows.append(
-                        {
-                            "timestamp": timestamp,
-                            "instrument_id": current_instrument,
-                            "side": "sell",
-                            "price": exit_px,
-                            "quantity": position_qty,
-                            "fee": fee,
-                            "action": "exit",
-                            "exit_reason": "signal_sell",
-                            "entry_price": position_entry,
-                            "pnl": pnl,
-                        }
-                    )
-                    position_qty = 0.0
-                    position_entry = 0.0
-                    position_exit_spec = None
-                    pending_exit_sell = False
+                # Fill pending close (exit) at this bar's open
+                if pending_close and position_side is not None:
+                    _close(float(latest_bar.open), "signal", timestamp)
+                    pending_close = False
 
-                # Fill pending BUY (entry) at this bar's open
-                if pending_entry_signal is not None and position_qty == 0:
-                    signal = pending_entry_signal
-                    execution_price = float(latest_bar.open) * (1.0 + slippage_bps / 10_000.0)
-                    size_frac = float((signal.payload or {}).get("size", 1.0))
-                    target_notional = cash * size_frac
-                    qty = target_notional / execution_price if execution_price > 0 else 0.0
-                    fee = qty * execution_price * commission_bps / 10_000.0
-                    if qty > 0:
-                        cash = cash - qty * execution_price - fee
-                        position_qty = qty
-                        position_entry = execution_price
-                        position_entry_idx = snapshot_idx
-                        payload = signal.payload or {}
-                        position_exit_spec = payload.get("exit_spec")
-                        if position_exit_spec:
-                            position_exit_spec = self._finalize_exit_prices(
-                                position_exit_spec, execution_price, side="long"
-                            )
-                        trade_rows.append(
-                            {
-                                "timestamp": timestamp,
-                                "instrument_id": signal.instrument_id,
-                                "side": signal.side.value,
-                                "price": execution_price,
-                                "quantity": qty,
-                                "fee": fee,
-                                "signal_id": signal.signal_id,
-                                "action": "entry",
-                            }
-                        )
+                # Fill pending entry (long or short) at this bar's open
+                if pending_entry_signal is not None and position_side is None:
+                    sig = pending_entry_signal
+                    side = "long" if sig.side == TradeSide.BUY else "short"
+                    _open(side, float(latest_bar.open), snapshot_idx, sig, timestamp)
                     pending_entry_signal = None
 
             # =============================================================
@@ -165,29 +193,36 @@ class SnapshotBacktestRunner:
             # Track exit_cfg type for close-only enforcement in Step 3.
             exit_cfg_type = (position_exit_spec or {}).get("type", "opposite_signal")
 
-            if position_qty > 0 and position_exit_spec is not None:
-                # Detect opposite signal in this bar's batch (SELL while long).
-                has_sell_signal = any(
-                    s.kind == SignalKind.TRADE and s.side == TradeSide.SELL
-                    for s in step_result.batch.signals
-                )
+            if position_side is not None and position_exit_spec is not None:
+                # Opposite signal = a signal against the current side
+                # (long → SELL present; short → BUY present).
+                if position_side == "long":
+                    has_opp = any(
+                        s.kind == SignalKind.TRADE and s.side == TradeSide.SELL
+                        for s in step_result.batch.signals
+                    )
+                else:
+                    has_opp = any(
+                        s.kind == SignalKind.TRADE and s.side == TradeSide.BUY
+                        for s in step_result.batch.signals
+                    )
 
-                # Pre-compute MA value at this bar for ma_cross_exit.
+                # Pre-compute MA value at this bar for ma_cross_exit — use the
+                # canonical blocks indicator library (same as the vectorized
+                # engine and all block strategies) instead of a hand-rolled EMA,
+                # so the two backtest engines agree on ma_cross exits.
                 ma_value: Optional[float] = None
                 if exit_cfg_type == "ma_cross_exit":
                     period = int(position_exit_spec.get("period", 50))
                     ma_type = str(position_exit_spec.get("ma_type", "ema"))
-                    closes = [float(b.close) for b in series[-max(period * 3, period + 1):]]
+                    closes = [float(b.close) for b in series]
                     if len(closes) >= period:
-                        if ma_type == "ema":
-                            # Simple EMA
-                            k = 2.0 / (period + 1.0)
-                            ema_v = closes[0]
-                            for c in closes[1:]:
-                                ema_v = c * k + ema_v * (1.0 - k)
-                            ma_value = float(ema_v)
-                        else:
-                            ma_value = float(sum(closes[-period:]) / period)
+                        import pandas as _pd
+                        from ...blocks import indicators as _ind
+
+                        _s = _pd.Series(closes, dtype=float)
+                        _ma = _ind.ema(_s, period) if ma_type == "ema" else _ind.sma(_s, period)
+                        ma_value = float(_ma.iloc[-1])
 
                 triggered, exit_price, exit_reason = self._check_exit(
                     spec=position_exit_spec,
@@ -198,32 +233,11 @@ class SnapshotBacktestRunner:
                     bar_low=float(latest_bar.low),
                     bar_close=float(latest_bar.close),
                     ma_value=ma_value,
-                    opposite_signal=has_sell_signal,
+                    opposite_signal=has_opp,
                 )
                 if triggered:
-                    exit_px = exit_price * (1.0 - slippage_bps / 10_000.0)
-                    fee = position_qty * exit_px * commission_bps / 10_000.0
-                    pnl = (exit_px - position_entry) * position_qty - fee
-                    cash = cash + position_qty * exit_px - fee
-                    trade_rows.append(
-                        {
-                            "timestamp": timestamp,
-                            "instrument_id": current_instrument,
-                            "side": "sell",
-                            "price": exit_px,
-                            "quantity": position_qty,
-                            "fee": fee,
-                            "action": "exit",
-                            "exit_reason": exit_reason,
-                            "entry_price": position_entry,
-                            "pnl": pnl,
-                        }
-                    )
-                    position_qty = 0.0
-                    position_entry = 0.0
-                    position_exit_spec = None
-                    # Cancel any queued SELL — Step 2 just exited.
-                    pending_exit_sell = False
+                    _close(exit_price, exit_reason, timestamp)
+                    pending_close = False   # Step 2 just exited; cancel any queued close
                     exited_this_bar = True
 
             # =============================================================
@@ -231,109 +245,55 @@ class SnapshotBacktestRunner:
             # =============================================================
             trade_signals = [signal for signal in step_result.batch.signals if signal.kind == SignalKind.TRADE]
 
-            # Close-only: when exit_cfg.type != "opposite_signal", we just
-            # exited via Step 2 (or have an active spec) — let exit_spec own
-            # the exits. SELL signals are ignored, and BUY entries on the
-            # same bar as an exit are skipped to enforce close-only behavior.
+            # Close-only: for non-opposite_signal exit types, exit_spec owns the
+            # exits — no opposite-side entries/flips on the same bar.
             close_only = exit_cfg_type != "opposite_signal"
 
             if execution_model == "next_bar_open":
-                # Queue signals for next bar fill
+                # Queue signals for next-bar fill
                 for signal in trade_signals:
-                    if signal.side == TradeSide.BUY and position_qty == 0 and pending_entry_signal is None:
+                    want = "long" if signal.side == TradeSide.BUY else "short"
+                    if want == "short" and long_only:
+                        # SELL only closes an open long; never opens a short.
+                        if position_side == "long" and not close_only and pending_entry_signal is None:
+                            pending_close = True
+                        continue
+                    if position_side is None and pending_entry_signal is None:
                         if exited_this_bar and close_only:
                             continue  # close-only: no re-entry on same bar
                         pending_entry_signal = signal
-                    elif signal.side == TradeSide.SELL and position_qty > 0:
-                        if close_only:
-                            continue  # exit_spec manages exits, ignore SELL
-                        pending_exit_sell = True
+                    elif position_side is not None and want != position_side and not close_only:
+                        # Opposite signal → close next bar (flip re-enters once flat).
+                        pending_close = True
             else:
                 # Legacy close_fill model: execute immediately at bar close
                 for signal in trade_signals:
-                    execution_price = latest_bar.close * (
-                        1.0 + (slippage_bps / 10_000.0 if signal.side == TradeSide.BUY else -slippage_bps / 10_000.0)
-                    )
-                    if signal.side == TradeSide.BUY and position_qty == 0:
+                    want = "long" if signal.side == TradeSide.BUY else "short"
+                    base = float(latest_bar.close)
+                    if want == "short" and long_only:
+                        if position_side == "long" and not close_only:
+                            _close(base, "signal_sell", timestamp)
+                            exited_this_bar = True
+                        continue
+                    if position_side is None:
                         if exited_this_bar and close_only:
                             continue  # close-only: no re-entry on same bar
-                        size_frac = float((signal.payload or {}).get("size", 1.0))
-                        target_notional = cash * size_frac
-                        qty = target_notional / execution_price if execution_price > 0 else 0.0
-                        fee = qty * execution_price * commission_bps / 10_000.0
-                        if qty > 0:
-                            cash = cash - qty * execution_price - fee
-                            position_qty = qty
-                            position_entry = execution_price
-                            position_entry_idx = snapshot_idx
-                            payload = signal.payload or {}
-                            position_exit_spec = payload.get("exit_spec")
-                            if position_exit_spec:
-                                position_exit_spec = self._finalize_exit_prices(
-                                    position_exit_spec, execution_price, side="long"
-                                )
-                            trade_rows.append(
-                                {
-                                    "timestamp": timestamp,
-                                    "instrument_id": signal.instrument_id,
-                                    "side": signal.side.value,
-                                    "price": execution_price,
-                                    "quantity": qty,
-                                    "fee": fee,
-                                    "signal_id": signal.signal_id,
-                                    "action": "entry",
-                                }
-                            )
-                    elif signal.side == TradeSide.SELL and position_qty > 0:
-                        if close_only:
-                            continue  # exit_spec manages exits, ignore SELL
-                        fee = position_qty * execution_price * commission_bps / 10_000.0
-                        realized = position_qty * execution_price - fee
-                        pnl = (execution_price - position_entry) * position_qty - fee
-                        cash = cash + realized
-                        trade_rows.append(
-                            {
-                                "timestamp": timestamp,
-                                "instrument_id": signal.instrument_id,
-                                "side": signal.side.value,
-                                "price": execution_price,
-                                "quantity": position_qty,
-                                "fee": fee,
-                                "signal_id": signal.signal_id,
-                                "action": "exit",
-                                "entry_price": position_entry,
-                                "pnl": pnl,
-                            }
-                        )
-                        position_qty = 0.0
-                        position_entry = 0.0
-                        position_exit_spec = None
+                        _open(want, base, snapshot_idx, signal, timestamp)
+                    elif want != position_side and not close_only:
+                        # Flip: close current, open opposite on the same bar close.
+                        _close(base, "signal_flip", timestamp)
+                        _open(want, base, snapshot_idx, signal, timestamp)
 
-            equity = cash + position_qty * latest_bar.close
+            equity = _equity(float(latest_bar.close))
             equity_curve.append(EquityPoint(timestamp=timestamp, equity=float(equity), cash=float(cash)))
 
-        if ordered and position_qty > 0:
+        if ordered and position_side is not None:
             final_snapshot = ordered[-1]
             market = final_snapshot.require_market()
             series = market.bars.get(market.key(current_instrument, request.primary_timeframe), [])
             final_bar = series[-1]
-            exit_price = final_bar.close
-            fee = position_qty * exit_price * commission_bps / 10_000.0
-            pnl = (exit_price - position_entry) * position_qty - fee
-            cash = cash + position_qty * exit_price - fee
-            trade_rows.append(
-                {
-                    "timestamp": final_bar.timestamp,
-                    "instrument_id": current_instrument,
-                    "side": "sell",
-                    "price": exit_price,
-                    "quantity": position_qty,
-                    "fee": fee,
-                    "action": "forced_exit",
-                    "entry_price": position_entry,
-                    "pnl": pnl,
-                }
-            )
+            # Close at final bar close, no slippage (matches legacy forced-exit).
+            _close(float(final_bar.close), "forced_exit", final_bar.timestamp, apply_slip=False)
             if equity_curve:
                 equity_curve[-1] = EquityPoint(
                     timestamp=equity_curve[-1].timestamp,
@@ -428,25 +388,53 @@ class SnapshotBacktestRunner:
                  TP triggers when bar_high >= tp   (price rises to TP)
           Short: SL triggers when bar_high >= stop (price rises to stop)
                  TP triggers when bar_low  <= tp   (price drops to TP)
+
+        ATR trailing (etype == "atr_trailing_stop"):
+            Mutates ``spec["running_peak"]`` in place each call:
+              long  → max(peak, bar_high), trigger when bar_low <= peak - trail*ATR
+              short → min(peak, bar_low),  trigger when bar_high >= peak + trail*ATR
         """
         side = spec.get("side", "long")
         etype = spec.get("type", "opposite_signal")
 
         # Priority 1 & 2: Stop Loss / Take Profit (intra-bar, side-aware)
-        stop_price = spec.get("stop_loss_price")
-        tp_price = spec.get("take_profit_price")
-
-        if side == "long":
-            if stop_price is not None and bar_low <= stop_price:
-                return True, stop_price, "stop_loss"
-            if tp_price is not None and bar_high >= tp_price:
-                return True, tp_price, "take_profit"
+        # For atr_trailing_stop we update running_peak then derive a dynamic
+        # stop_price; treat that as the SL price for the priority order.
+        if etype == "atr_trailing_stop":
+            atr = spec.get("atr_at_entry")
+            trail_mult = float(spec.get("trail_mult", 3.0))
+            if atr is not None and atr > 0:
+                peak = spec.get("running_peak", entry_price)
+                if side == "long":
+                    peak = max(float(peak), bar_high)
+                    spec["running_peak"] = peak
+                    stop_price_dyn = peak - trail_mult * float(atr)
+                    spec["stop_loss_price"] = stop_price_dyn  # for inspection
+                    if bar_low <= stop_price_dyn:
+                        return True, stop_price_dyn, "trailing_stop"
+                else:
+                    peak = min(float(peak), bar_low)
+                    spec["running_peak"] = peak
+                    stop_price_dyn = peak + trail_mult * float(atr)
+                    spec["stop_loss_price"] = stop_price_dyn
+                    if bar_high >= stop_price_dyn:
+                        return True, stop_price_dyn, "trailing_stop"
+            # Fall through to opposite_signal / max_bars below.
         else:
-            # Short: stop when price rises, TP when price drops
-            if stop_price is not None and bar_high >= stop_price:
-                return True, stop_price, "stop_loss"
-            if tp_price is not None and bar_low <= tp_price:
-                return True, tp_price, "take_profit"
+            stop_price = spec.get("stop_loss_price")
+            tp_price = spec.get("take_profit_price")
+
+            if side == "long":
+                if stop_price is not None and bar_low <= stop_price:
+                    return True, stop_price, "stop_loss"
+                if tp_price is not None and bar_high >= tp_price:
+                    return True, tp_price, "take_profit"
+            else:
+                # Short: stop when price rises, TP when price drops
+                if stop_price is not None and bar_high >= stop_price:
+                    return True, stop_price, "stop_loss"
+                if tp_price is not None and bar_low <= tp_price:
+                    return True, tp_price, "take_profit"
 
         # Priority 3: MA cross (bar close) — only when type=ma_cross_exit
         if etype == "ma_cross_exit" and ma_value is not None:
@@ -474,6 +462,9 @@ class SnapshotBacktestRunner:
         Side-aware:
           Long:  SL = fill × (1 - stop_pct),  TP = fill × (1 + tp_pct)
           Short: SL = fill × (1 + stop_pct),  TP = fill × (1 - tp_pct)
+
+        For atr_trailing_stop, anchor ``running_peak`` to ``fill_price`` so
+        the initial trail width is computed from the actual fill.
         """
         spec = dict(spec)  # copy
         spec["side"] = side
@@ -500,6 +491,18 @@ class SnapshotBacktestRunner:
                 else:  # short
                     spec["stop_loss_price"] = fill_price + stop_mult * atr
                     spec["take_profit_price"] = fill_price - tp_mult * atr
+
+        elif etype == "atr_trailing_stop":
+            # Re-anchor the trailing peak to the actual fill price so the
+            # initial trail width uses a faithful starting point.
+            spec["running_peak"] = float(fill_price)
+            atr = spec.get("atr_at_entry")
+            if atr is not None and atr > 0:
+                trail_mult = float(spec.get("trail_mult", 3.0))
+                if side == "long":
+                    spec["stop_loss_price"] = fill_price - trail_mult * atr
+                else:
+                    spec["stop_loss_price"] = fill_price + trail_mult * atr
 
         # time_only / ma_cross_exit / opposite_signal: no absolute prices needed
         return spec

@@ -65,3 +65,6 @@ docs/backtests/*_smoke.json
 
 # strategy_lab (local experiment, not tracked)
 strategy_lab/
+
+# 內部用戶意圖分析(含 user_id 等內部資料,絕不 push 到公開 repo)
+docs/user_demand_analysis/
