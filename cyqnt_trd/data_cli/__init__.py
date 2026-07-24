@@ -36,6 +36,19 @@ from .news import (
     fetch_hot_post,
 )
 
+# Generic, configurable REST → typed DataFrame fetcher (no hardcoded endpoints;
+# point it at any JSON API/website via a RestSourceSpec or an external config).
+from .rest_source import (
+    fetch_rest,
+    register_spec,
+    get_spec,
+    load_specs,
+    list_specs,
+    RestSourceSpec,
+    FieldSpec,
+    EXAMPLE_SPECS,
+)
+
 # AI/workflow data (binance-pro-cli)
 from .pro import pro_indicators_fetch, pro_trade_signal_query, pro_trade_signal_rank
 from .workflow import workflow_leaderboard, workflow_token, workflow_analysis
@@ -79,6 +92,15 @@ __all__ = [
     "fetch_ticker_rank",
     "fetch_topic_trending",
     "fetch_hot_post",
+    # generic configurable REST fetcher
+    "fetch_rest",
+    "register_spec",
+    "get_spec",
+    "load_specs",
+    "list_specs",
+    "RestSourceSpec",
+    "FieldSpec",
+    "EXAMPLE_SPECS",
     # AI signals (binance-pro-cli)
     "pro_indicators_fetch",
     "pro_trade_signal_query",

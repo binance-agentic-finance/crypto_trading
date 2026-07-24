@@ -68,3 +68,10 @@ strategy_lab/
 
 # 內部用戶意圖分析(含 user_id 等內部資料,絕不 push 到公開 repo)
 docs/user_demand_analysis/
+
+# Deployment-specific REST source specs (internal hosts/endpoints/fields).
+# fetch_rest / load_specs read these from $CYQNT_SOURCES_CONFIG; they must NEVER
+# be committed to this public repo. Keep them private / local only.
+sources*.json
+*.sources.json
+data_sources/
