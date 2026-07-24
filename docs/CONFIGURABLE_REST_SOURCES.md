@@ -105,7 +105,38 @@ df = fetch_rest("fear_greed", params={"limit": 0})   # 0 = full history
 # columns: timestamp (ms), value (0-100), value_classification
 ```
 
-## 5. Contract
+## 5. Ready-to-use public sources (backtestable, no config)
+
+`public_sources.py` ships pre-built specs for the **publicly reachable** data
+sources the analysed user bots relied on most — real endpoints, no credentials,
+no internal network. Register them and fetch immediately:
+
+```python
+from cyqnt_trd.data_cli import register_public_sources, fetch_rest
+
+register_public_sources()
+df = fetch_rest("funding_rate", params={"symbol": "ETHUSDT", "limit": 1000})
+fg = fetch_rest("fear_greed", params={"limit": 0})   # 0 = full history
+```
+
+| spec name | endpoint | user demand | tier |
+|---|---|---|---|
+| `funding_rate` | `fapi/v1/fundingRate` | 38.5% | BACKTESTABLE (deep) |
+| `fear_greed` | `alternative.me/fng` | regime | BACKTESTABLE (deep) |
+| `open_interest` | `futures/data/openInterestHist` | 23.7% | SEMI (~30d) |
+| `ls_account` | `futures/data/globalLongShortAccountRatio` | 11.6% | SEMI |
+| `ls_top_position` | `futures/data/topLongShortPositionRatio` | crowding | SEMI |
+| `taker_ratio` | `futures/data/takerlongshortRatio` | 6.5% | SEMI |
+
+`SOURCE_TIERS[name]` gives the backtestability tier (wire it into your
+research/live gate). Premium/basis is array-shaped like klines and is served by
+the existing kline fetcher, not a spec here.
+
+**Non-public sources** the bots also used (ETF flow, whale movement, sector
+rotation, social rank, screener, next-funding, on-chain, …) are **not defined
+in this repo**. Supply them through a private, git-ignored config (§3).
+
+## 6. Contract
 
 - Signature: `fetch_rest(source, *, params=None, ttl=None, refresh=False) -> DataFrame`
 - Cache-miss / transport error / failed `ok_check` → **empty typed frame** (never raises).

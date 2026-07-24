@@ -48,6 +48,15 @@ from .rest_source import (
     FieldSpec,
     EXAMPLE_SPECS,
 )
+# Ready-to-use PUBLIC source specs (real endpoints, backtestable) mapped to the
+# data sources the analysed user bots relied on most (funding / OI / long-short
+# / taker / fear&greed). Internal-only sources are NOT defined here — inject
+# them via a private config with load_specs($CYQNT_SOURCES_CONFIG).
+from .public_sources import (
+    PUBLIC_SOURCES,
+    register_public_sources,
+    SOURCE_TIERS,
+)
 
 # AI/workflow data (binance-pro-cli)
 from .pro import pro_indicators_fetch, pro_trade_signal_query, pro_trade_signal_rank
@@ -101,6 +110,10 @@ __all__ = [
     "RestSourceSpec",
     "FieldSpec",
     "EXAMPLE_SPECS",
+    # ready-to-use public source specs
+    "PUBLIC_SOURCES",
+    "register_public_sources",
+    "SOURCE_TIERS",
     # AI signals (binance-pro-cli)
     "pro_indicators_fetch",
     "pro_trade_signal_query",
