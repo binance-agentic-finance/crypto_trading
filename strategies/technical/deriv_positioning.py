@@ -41,11 +41,21 @@ def inputs() -> Dict[str, object]:
     return {"kline": ["<primary>"], "funding": True, "oi": True, "htf": [], "news": False}
 
 
-def _side_series(df: pd.DataFrame, cfg: dict) -> pd.Series:
-    if "open_interest" not in df.columns:
-        raise ValueError("df 缺 open_interest 欄 —— 請先 attach_derivatives()")
+def _side_series(df: pd.DataFrame, cfg: dict):
+    """回傳 (side_series, divergence_series)。
+
+    缺 open_interest 欄(或整欄 NaN)時**退化為全 flat**(不 raise),讓已註冊
+    的 plugin 在沒有衍生品資料的資料集上優雅地不出訊號,而不是讓整個 run 崩掉。
+    有資料時,run loop 經 bars_to_df 的 extras 溢出已把 open_interest/funding_rate
+    掛成 df 欄(見 blocks/data.py),不必再手動 attach_derivatives()。
+    """
+    if "open_interest" not in df.columns or bool(df["open_interest"].isna().all()):
+        flat = pd.Series("flat", index=df.index)
+        none = pd.Series("none", index=df.index)
+        return flat, none
     div = D.oi_price_divergence(df["close"], df["open_interest"], lookback=cfg["oi_lookback"])
-    return div.map(lambda s: "long" if s in _LONG else ("short" if s in _SHORT else "flat")), div
+    side = div.map(lambda s: "long" if s in _LONG else ("short" if s in _SHORT else "flat"))
+    return side, div
 
 
 def make_signals(df: pd.DataFrame):
@@ -96,3 +106,16 @@ def generate(df: pd.DataFrame, symbol: str, interval: str,
             "provenance": {"strategy_id": BOT_ID, "version": VERSION, "inputs": ["kline", "funding", "oi"]},
         })
     return out
+
+
+# 走現有引擎(與既有策略同一條路線)。needs={"derivatives": True} 宣告要 funding/OI;
+# run loop 的 bars_to_df extras 溢出會把 open_interest/funding_rate 掛成 df 欄。
+from cyqnt_trd.blocks import strategy as _strat
+
+_strat.register(
+    BOT_ID, make_signals,
+    needs={"derivatives": True},
+    exit_cfg={"type": "atr_stop_tp", "atr_period": CONFIG["atr_period"],
+              "stop_mult": CONFIG["stop_mult"], "tp_mult": CONFIG["tp_mult"]},
+    size=0.1,
+)

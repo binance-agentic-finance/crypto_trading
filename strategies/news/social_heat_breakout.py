@@ -53,13 +53,12 @@ def _breakout(df: pd.DataFrame, cfg: dict):
     return False, px, None, None, feat
 
 
-def generate_selection(rank_now: pd.DataFrame, rank_prev: pd.DataFrame,
-                       klines: Optional[Dict[str, pd.DataFrame]] = None, *,
-                       as_of_ms: int = 0, market_type: str = "futures",
-                       cfg: Optional[dict] = None) -> List[Dict]:
-    c = dict(CONFIG); c.update(cfg or {})
+def _build_candidates(rank_now: pd.DataFrame, rank_prev: Optional[pd.DataFrame],
+                      klines: Optional[Dict[str, pd.DataFrame]], c: dict) -> List[Dict]:
+    """核心:提及量環比暴增 → top-K → 對候選拉 K 線做 Donchian 突破 + 量能確認。"""
     klines = klines or {}
-    prev = rank_prev.set_index("ticker")["mention_count"].to_dict()
+    prev = (rank_prev.set_index("ticker")["mention_count"].to_dict()
+            if rank_prev is not None else {})
     rows = []
     for _, r in rank_now.iterrows():
         tk = str(r["ticker"]).upper(); now = float(r["mention_count"])
@@ -90,6 +89,30 @@ def generate_selection(rank_now: pd.DataFrame, rank_prev: pd.DataFrame,
                          "leverage": c["leverage"], "max_notional_usdt": c["max_notional_usdt"]},
             }
         candidates.append(cand)
+    return candidates
+
+
+def selection_fn(universe_df: Optional[pd.DataFrame], ticker_rank_df: Optional[pd.DataFrame] = None, *,
+                 ticker_rank_prev: Optional[pd.DataFrame] = None,
+                 klines: Optional[Dict[str, pd.DataFrame]] = None, **_) -> List[Dict]:
+    """register_selection 契約:rank_now=ticker_rank_df、rank_prev=ticker_rank_prev、
+    klines=每個候選的 K 線;universe_df 本策略用不到。"""
+    if ticker_rank_df is None:
+        return []
+    return _build_candidates(ticker_rank_df, ticker_rank_prev, klines or {}, dict(CONFIG))
+
+
+def generate_selection(rank_now: pd.DataFrame, rank_prev: pd.DataFrame,
+                       klines: Optional[Dict[str, pd.DataFrame]] = None, *,
+                       as_of_ms: int = 0, market_type: str = "futures",
+                       cfg: Optional[dict] = None) -> List[Dict]:
+    """匯出格式(cyqnt.signal/v1 kind=selection)。
+
+    執行介面是 selection_fn + register_selection(同交易型一條路線);
+    這個 generate_selection() 只是給 JS/前端的匯出 JSON。
+    """
+    c = dict(CONFIG); c.update(cfg or {})
+    candidates = _build_candidates(rank_now, rank_prev, klines or {}, c)
     return [{
         "schema": "cyqnt.signal/v1", "kind": "selection", "bot_id": BOT_ID,
         "ts": int(as_of_ms), "as_of": int(as_of_ms), "universe_size": int(len(rank_now)),
@@ -97,3 +120,9 @@ def generate_selection(rank_now: pd.DataFrame, rank_prev: pd.DataFrame,
         "reason": f"Square 提及量環比暴增(≥+{c['min_delta']})取 top{c['top_k']},再要求 Donchian{c['breakout_window']} 突破+量能×{c['vol_surge_mult']} 才給進場",
         "provenance": {"strategy_id": BOT_ID, "version": VERSION, "inputs": ["universe", "news", "kline"]},
     }]
+
+
+# 走同一條 registry 路線(SELECTION plugin);讀 snapshot.universe 的 ticker_rank(+prev)+klines。
+from cyqnt_trd.blocks import strategy as _strat
+
+_strat.register_selection(BOT_ID, selection_fn)

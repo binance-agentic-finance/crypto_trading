@@ -108,12 +108,13 @@ def _interval_ms(interval: str) -> int:
     return n * {"m": 60_000, "h": 3_600_000, "d": 86_400_000}.get(unit, 3_600_000)
 
 
-# 走現有引擎(backtest/paper/live);exit 用 ATR 停損停利
-try:
-    from cyqnt_trd.blocks import strategy as _strat
-    _strat.register(BOT_ID, make_signals,
-                    exit_cfg={"type": "atr_stop_tp", "atr_period": CONFIG["atr_period"],
-                              "stop_mult": CONFIG["stop_mult"], "tp_mult": CONFIG["tp_mult"]},
-                    size=0.1)
-except Exception:
-    pass  # 匯入即註冊;獨立 generate() 不依賴註冊
+# 走現有引擎(backtest/paper/live);exit 用 ATR 停損停利。
+# 匯入即註冊(與 8 支既有策略同一條路線);register() 失敗應直接冒出,不吞掉。
+from cyqnt_trd.blocks import strategy as _strat
+
+_strat.register(
+    BOT_ID, make_signals,
+    exit_cfg={"type": "atr_stop_tp", "atr_period": CONFIG["atr_period"],
+              "stop_mult": CONFIG["stop_mult"], "tp_mult": CONFIG["tp_mult"]},
+    size=0.1,
+)
