@@ -77,12 +77,21 @@ __all__ = [
     "register",
     "build_plugin",
     "BlockStrategyPlugin",
+    "register_selection",
+    "build_selection_plugin",
+    "SelectionStrategyPlugin",
+    "is_known_selection_strategy",
+    "get_selection_plugin",
 ]
 
 
 SignalFnOutput = Union[pd.Series, Tuple[pd.Series, Optional[pd.Series]]]
 SignalFn = Callable[[pd.DataFrame], SignalFnOutput]
 HtfSpec = Tuple[str, int]  # (htf_timeframe, sma_period)
+# A selection strategy ranks a universe of symbols at one point in time.
+# Contract: selection_fn(universe_df, ticker_rank_df, *, ticker_rank_prev,
+#           klines, as_of_ms, market_type) -> list[candidate dict]
+SelectionFn = Callable[..., List[Dict]]
 
 
 @dataclass
@@ -105,6 +114,7 @@ def register(
     htf_specs: Optional[List[HtfSpec]] = None,
     exit_cfg: Optional[Dict] = None,
     size: float = 1.0,
+    needs: Optional[Dict[str, bool]] = None,
 ) -> None:
     """Register a block-based strategy with the standard_bot registry.
 
@@ -127,6 +137,12 @@ def register(
         opposite-side signals from the strategy (existing behavior).
     :param size: fraction of equity to deploy per trade, in ``(0, 1]``.
         Default ``1.0`` (full equity, matching pre-Phase-2 behavior).
+    :param needs: optional map of extra input requirements, e.g.
+        ``{"derivatives": True}`` for a strategy whose ``make_signals`` reads
+        ``funding_rate`` / ``open_interest`` columns. Merged into
+        :meth:`BlockStrategyPlugin.required_inputs`. Additive; the default
+        ``{"market": True, "social": False, "onchain": False,
+        "derivatives": False}`` is unchanged when ``needs`` is None.
     """
     plugin = build_plugin(
         strategy_id, signal_fn,
@@ -134,6 +150,7 @@ def register(
         htf_specs=htf_specs,
         exit_cfg=exit_cfg,
         size=size,
+        needs=needs,
     )
     factory = _make_config_factory(plugin.plugin_id)
     _register_with_global(plugin, factory)
@@ -147,6 +164,7 @@ def build_plugin(
     htf_specs: Optional[List[HtfSpec]] = None,
     exit_cfg: Optional[Dict] = None,
     size: float = 1.0,
+    needs: Optional[Dict[str, bool]] = None,
 ) -> "BlockStrategyPlugin":
     """Construct (without registering) a SignalPlugin from a signal function."""
     if not strategy_id or not isinstance(strategy_id, str):
@@ -162,6 +180,58 @@ def build_plugin(
         htf_specs=list(htf_specs) if htf_specs else [],
         exit_cfg=dict(exit_cfg) if exit_cfg else None,
         size=float(size),
+        needs=dict(needs) if needs else None,
+    )
+
+
+def register_selection(
+    strategy_id: str,
+    selection_fn: SelectionFn,
+    *,
+    version: str = "selection/v1",
+    market_type: str = "futures",
+) -> None:
+    """Register a cross-sectional SELECTION strategy.
+
+    This is the sibling of :func:`register` for strategies that rank a
+    *universe* of symbols rather than emit per-bar long/short on one
+    instrument. It routes through the SAME registration mechanism
+    (``_PENDING_REGISTRATIONS`` → ``flush_pending_into`` →
+    ``SignalPluginRegistry.register``) and the SAME
+    ``run_pipeline_step`` execution path — the only difference is the plugin
+    reads ``snapshot.universe`` and emits a single ``kind=SELECTION`` envelope.
+
+    ``selection_fn`` contract::
+
+        selection_fn(universe_df, ticker_rank_df, *, ticker_rank_prev,
+                     klines, as_of_ms, market_type) -> list[candidate dict]
+
+    Extra keyword args it does not use should be absorbed with ``**_``.
+    """
+    plugin = build_selection_plugin(
+        strategy_id, selection_fn, version=version, market_type=market_type
+    )
+    factory = _make_config_factory(plugin.plugin_id)
+    _register_selection_with_global(plugin, factory)
+
+
+def build_selection_plugin(
+    strategy_id: str,
+    selection_fn: SelectionFn,
+    *,
+    version: str = "selection/v1",
+    market_type: str = "futures",
+) -> "SelectionStrategyPlugin":
+    """Construct (without registering) a SELECTION SignalPlugin."""
+    if not strategy_id or not isinstance(strategy_id, str):
+        raise ValueError("strategy_id must be a non-empty string")
+    if not callable(selection_fn):
+        raise TypeError("selection_fn must be callable")
+    return SelectionStrategyPlugin(
+        plugin_id=strategy_id,
+        plugin_version=version,
+        selection_fn=selection_fn,
+        market_type=market_type,
     )
 
 
@@ -175,6 +245,15 @@ def _register_with_global(plugin: "BlockStrategyPlugin", factory: Callable[[dict
     _PENDING_REGISTRATIONS.append((plugin, factory))
     _KNOWN_BLOCK_STRATEGY_IDS.add(plugin.plugin_id)
     _KNOWN_BLOCK_PLUGINS[plugin.plugin_id] = plugin
+
+
+def _register_selection_with_global(plugin: "SelectionStrategyPlugin", factory: Callable[[dict], object]) -> None:
+    # Lazy import to avoid heavy deps at module-import time.
+    from ..standard_bot.signal.registry import SignalPluginRegistry  # type: ignore  # noqa: F401
+
+    _PENDING_REGISTRATIONS.append((plugin, factory))
+    _KNOWN_SELECTION_STRATEGY_IDS.add(plugin.plugin_id)
+    _KNOWN_SELECTION_PLUGINS[plugin.plugin_id] = plugin
 
 
 # ---------------------------------------------------------------------------
@@ -196,11 +275,15 @@ class BlockStrategyPlugin:
     htf_specs: List[HtfSpec] = field(default_factory=list)
     exit_cfg: Optional[Dict] = None
     size: float = 1.0
+    needs: Optional[Dict[str, bool]] = None
 
     # ---- SignalPlugin protocol ----
 
     def required_inputs(self) -> Dict[str, bool]:
-        return {"market": True, "social": False, "onchain": False}
+        base = {"market": True, "social": False, "onchain": False, "derivatives": False}
+        if self.needs:
+            base.update({k: bool(v) for k, v in self.needs.items()})
+        return base
 
     def needed_timeframes(self) -> List[str]:
         """Return distinct HTF timeframes this strategy needs (besides primary).
@@ -599,6 +682,135 @@ class BlockStrategyPlugin:
 
 
 # ---------------------------------------------------------------------------
+# SELECTION plugin implementation
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class SelectionStrategyPlugin:
+    """A SignalPlugin adapter for cross-sectional SELECTION strategies.
+
+    Unlike :class:`BlockStrategyPlugin` (single-instrument, per-bar boolean
+    signals), a selection strategy ranks a *universe* of symbols at one point
+    in time. It reads the :class:`UniverseBundle` off ``snapshot.universe`` and
+    emits ONE ``SELECTION``-kind :class:`SignalEnvelope` carrying the ranked
+    candidates in ``payload["candidates"]``. It rides the exact same registry /
+    ``run_pipeline_step`` mechanism as trade plugins — only the input source
+    (universe vs per-bar bars) and the emitted ``kind`` differ.
+    """
+
+    plugin_id: str
+    plugin_version: str
+    selection_fn: SelectionFn
+    market_type: str = "futures"
+
+    # ---- SignalPlugin protocol ----
+
+    def required_inputs(self) -> Dict[str, bool]:
+        return {
+            "market": False, "social": True, "onchain": False,
+            "derivatives": False, "universe": True,
+        }
+
+    def needed_timeframes(self) -> List[str]:
+        return []
+
+    def initialize_state(self):
+        from ..standard_bot.signal.interfaces import SignalState  # type: ignore
+
+        return SignalState(plugin_id=self.plugin_id, values={})
+
+    def run(self, snapshot, config, context=None):  # type: ignore[no-untyped-def]
+        return self._make_batch(snapshot, [self._build_envelope(snapshot, config)])
+
+    def step(self, snapshot, state, config, context=None):  # type: ignore[no-untyped-def]
+        from ..standard_bot.signal.interfaces import StepSignalResult  # type: ignore
+
+        return StepSignalResult(state=state, signals=[self._build_envelope(snapshot, config)])
+
+    # ---- helpers ----
+
+    def _resolve_market_type(self, config) -> str:
+        mt = getattr(config, "market_type", None)
+        if mt is None and hasattr(config, "get"):
+            mt = config.get("market_type")
+        return str(mt or self.market_type)
+
+    def _build_envelope(self, snapshot, config):
+        import uuid as _uuid
+
+        from ..standard_bot.core import (  # type: ignore
+            SignalEnvelope, SignalKind, SignalProvenance,
+        )
+
+        ub = getattr(snapshot, "universe", None)
+        decision_as_of = snapshot.meta.decision_as_of
+        candidates: List[Dict] = []
+        universe_size = 0
+        if ub is not None:
+            as_of = int(getattr(ub, "as_of", 0) or 0) or int(decision_as_of or 0)
+            candidates = list(
+                self.selection_fn(
+                    ub.universe,
+                    ub.ticker_rank,
+                    ticker_rank_prev=ub.ticker_rank_prev,
+                    klines=ub.klines,
+                    as_of_ms=as_of,
+                    market_type=self._resolve_market_type(config),
+                )
+                or []
+            )
+            try:
+                universe_size = int(len(ub.universe)) if ub.universe is not None else 0
+            except TypeError:
+                universe_size = 0
+        else:
+            as_of = int(decision_as_of or 0)
+
+        ns = _uuid.UUID("6d011acb-2b89-5dc5-bd38-fa9f903e6495")
+        sig_id = str(
+            _uuid.uuid5(ns, f"{snapshot.meta.snapshot_id}|{self.plugin_id}|selection|{as_of}")
+        )
+        return SignalEnvelope(
+            version=self.plugin_version,
+            signal_id=sig_id,
+            kind=SignalKind.SELECTION,
+            instrument_id=None,
+            side=None,
+            strength=1.0,
+            time_horizon="swing",
+            valid_until=decision_as_of,
+            payload={
+                "candidates": candidates,
+                "as_of": as_of,
+                "universe_size": universe_size,
+            },
+            provenance=SignalProvenance(
+                plugin_id=self.plugin_id,
+                plugin_version=self.plugin_version,
+                config_hash=self._resolve_market_type(config),
+                input_fingerprint=snapshot.meta.snapshot_id,
+            ),
+        )
+
+    def _make_batch(self, snapshot, signals):
+        import time as _time
+        import uuid as _uuid
+
+        from ..standard_bot.core import SignalBatch  # type: ignore
+
+        ns = _uuid.UUID("6d011acb-2b89-5dc5-bd38-fa9f903e6495")
+        batch_id = str(
+            _uuid.uuid5(ns, f"{self.plugin_id}|{snapshot.meta.snapshot_id}|{len(signals)}")
+        )
+        return SignalBatch(
+            signals=list(signals),
+            batch_id=batch_id,
+            created_at=int(_time.time() * 1000),
+        )
+
+
+# ---------------------------------------------------------------------------
 # Hookable global registration list
 # ---------------------------------------------------------------------------
 
@@ -622,6 +834,13 @@ _KNOWN_BLOCK_STRATEGY_IDS: set = set()
 #: introspect a registered strategy's metadata such as ``htf_specs`` /
 #: ``needed_timeframes()`` AFTER ``make_registry()`` has run.
 _KNOWN_BLOCK_PLUGINS: Dict[str, "BlockStrategyPlugin"] = {}
+
+#: SELECTION-strategy analogues of the block registries above. Selection
+#: plugins share ``_PENDING_REGISTRATIONS`` (so ``flush_pending_into`` drains
+#: them into the same registry) but are tracked separately so entrypoints can
+#: branch on strategy kind.
+_KNOWN_SELECTION_STRATEGY_IDS: set = set()
+_KNOWN_SELECTION_PLUGINS: Dict[str, "SelectionStrategyPlugin"] = {}
 
 
 def _make_config_factory(plugin_id: str) -> Callable[[dict], object]:
@@ -664,6 +883,16 @@ def flush_pending_into(registry) -> int:  # type: ignore[no-untyped-def]
 def is_known_block_strategy(strategy_id: str) -> bool:
     """Return True if a block strategy with this ID has been registered."""
     return strategy_id in _KNOWN_BLOCK_STRATEGY_IDS
+
+
+def is_known_selection_strategy(strategy_id: str) -> bool:
+    """Return True if a SELECTION strategy with this ID has been registered."""
+    return strategy_id in _KNOWN_SELECTION_STRATEGY_IDS
+
+
+def get_selection_plugin(strategy_id: str) -> Optional["SelectionStrategyPlugin"]:
+    """Return the registered :class:`SelectionStrategyPlugin` for *strategy_id*."""
+    return _KNOWN_SELECTION_PLUGINS.get(strategy_id)
 
 
 def get_block_plugin(strategy_id: str) -> Optional["BlockStrategyPlugin"]:

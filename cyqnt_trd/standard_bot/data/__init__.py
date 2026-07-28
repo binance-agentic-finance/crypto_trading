@@ -28,6 +28,7 @@ from .historical import (
 )
 from .interfaces import MarketDataAdapter, OnChainDataAdapter, SnapshotAssembler, SocialDataAdapter
 from .snapshot import HistoricalSnapshotAssembler
+from .selection_assembler import build_selection_snapshot, build_universe_bundle, run_selection
 
 __all__ = [
     "AlignmentPolicy",
@@ -49,6 +50,9 @@ __all__ = [
     "OnChainDataAdapter",
     "SnapshotAssembler",
     "SocialDataAdapter",
+    "build_selection_snapshot",
+    "build_universe_bundle",
+    "run_selection",
     "assemble_snapshot",
     "build_history_path",
     "determine_download_timeframes",

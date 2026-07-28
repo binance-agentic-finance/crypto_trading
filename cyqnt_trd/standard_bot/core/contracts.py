@@ -189,6 +189,29 @@ class OnChainSignalBundle:
 
 
 @dataclass
+class UniverseBundle:
+    """Cross-sectional selection inputs (many symbols at a single ``as_of``).
+
+    Trade strategies read a single-instrument per-bar DataFrame; SELECTION
+    strategies instead rank a *universe* of symbols. This bundle carries the
+    24h ticker universe table and the Square ticker-rank mention/sentiment
+    aggregates a selection strategy ranks over, plus (for delta-based
+    strategies) the previous ticker-rank snapshot and per-candidate klines.
+
+    The tables are kept opaque (``Any`` = pandas DataFrame) so ``core`` has no
+    hard pandas import. All frames are expected to be PIT-gated (only rows
+    whose availability time <= ``as_of``) by the assembler that builds them.
+    """
+
+    as_of: int = 0
+    universe: Any = None          # 24h ticker table (DataFrame)
+    ticker_rank: Any = None       # Square mention/sentiment aggregates (DataFrame)
+    ticker_rank_prev: Any = None  # previous ticker-rank snapshot (delta selection, N2)
+    klines: Dict[str, Any] = field(default_factory=dict)  # per-candidate klines (N2)
+    meta: BundleMeta = field(default_factory=BundleMeta)
+
+
+@dataclass
 class SnapshotMeta:
     snapshot_id: str
     assembled_at: int
@@ -210,6 +233,10 @@ class DataSnapshot:
     meta: SnapshotMeta = field(
         default_factory=lambda: SnapshotMeta(snapshot_id="", assembled_at=0)
     )
+    # Optional cross-sectional selection inputs for SELECTION-kind strategies.
+    # Defaults to None so every existing market/social/onchain assembler path
+    # and the 8 pre-existing strategies are byte-identical.
+    universe: Optional["UniverseBundle"] = None
 
     def require_market(self) -> MarketBundle:
         if self.market is None:
@@ -256,6 +283,9 @@ class SignalBatch:
 
     def trade_signals(self) -> List[SignalEnvelope]:
         return [signal for signal in self.signals if signal.kind == SignalKind.TRADE]
+
+    def selection_signals(self) -> List[SignalEnvelope]:
+        return [signal for signal in self.signals if signal.kind == SignalKind.SELECTION]
 
 
 @dataclass

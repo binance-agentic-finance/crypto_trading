@@ -42,6 +42,7 @@ from .contracts import (
     Timeframe,
     TradeSide,
     TriggerType,
+    UniverseBundle,
 )
 
 __all__ = [
@@ -84,4 +85,5 @@ __all__ = [
     "Timeframe",
     "TradeSide",
     "TriggerType",
+    "UniverseBundle",
 ]

@@ -77,6 +77,13 @@ def df_to_bars(
         raise ValueError(f"timestamp column {timestamp_col!r} not found in DataFrame")
     bars: List["Bar"] = []
     qv_col = "quote_volume" if "quote_volume" in df.columns else None
+    # Columns already represented as first-class Bar fields / standard extras.
+    _std_cols = {
+        "open", "high", "low", "close", "volume", "quote_volume",
+        "open_time", "close_time", "trades", "instrument_id", "timeframe",
+        timestamp_col,
+    }
+    _extra_numeric_cols = [c for c in df.columns if c not in _std_cols]
     for _, row in df.iterrows():
         extras = {}
         if "open_time" in df.columns:
@@ -85,6 +92,14 @@ def df_to_bars(
             extras["close_time"] = int(row["close_time"])
         if "trades" in df.columns:
             extras["trades"] = int(row["trades"])
+        # Carry any additional numeric columns (funding_rate, open_interest,
+        # funding_rate_bps, oi_change_bps, ...) into extras so bars_to_df can
+        # surface them again — keeps the df<->bars round-trip lossless for the
+        # derivative features that T3-style make_signals strategies consume.
+        for col in _extra_numeric_cols:
+            val = row[col]
+            if isinstance(val, (int, float, np.integer, np.floating)) and pd.notna(val):
+                extras[col] = float(val)
         bars.append(
             Bar(
                 open=float(row["open"]),
@@ -118,21 +133,27 @@ def bars_to_df(bars: List["Bar"]) -> pd.DataFrame:
         )
     rows = []
     for b in bars:
-        rows.append(
-            {
-                "open": b.open,
-                "high": b.high,
-                "low": b.low,
-                "close": b.close,
-                "volume": b.volume,
-                "quote_volume": b.quote_volume,
-                "open_time": b.extras.get("open_time"),
-                "close_time": b.extras.get("close_time", b.timestamp),
-                "trades": b.extras.get("trades"),
-                "instrument_id": b.instrument_id,
-                "timeframe": b.timeframe,
-            }
-        )
+        row = {
+            "open": b.open,
+            "high": b.high,
+            "low": b.low,
+            "close": b.close,
+            "volume": b.volume,
+            "quote_volume": b.quote_volume,
+            "open_time": b.extras.get("open_time"),
+            "close_time": b.extras.get("close_time", b.timestamp),
+            "trades": b.extras.get("trades"),
+            "instrument_id": b.instrument_id,
+            "timeframe": b.timeframe,
+        }
+        # Spill any additional Bar.extras (funding_rate, open_interest,
+        # funding_rate_bps, oi_change_bps, mark_price, liq notionals, ...)
+        # into columns additively so make_signals(df) can consume derivative
+        # features through the same snapshot->bars_to_df path as OHLCV.
+        # setdefault protects the canonical open_time/close_time/trades above.
+        for k, v in b.extras.items():
+            row.setdefault(k, v)
+        rows.append(row)
     return pd.DataFrame(rows)
 
 
