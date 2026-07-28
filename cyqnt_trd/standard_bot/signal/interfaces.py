@@ -37,7 +37,12 @@ class SignalPlugin(Protocol):
     def required_inputs(self) -> Dict[str, bool]:
         ...
 
-    def run(self, snapshot: DataSnapshot, context: Optional[SignalContext] = None) -> SignalBatch:
+    def run(
+        self,
+        snapshot: DataSnapshot,
+        config: Optional[Any] = None,
+        context: Optional[SignalContext] = None,
+    ) -> SignalBatch:
         ...
 
 
@@ -58,6 +63,7 @@ class IncrementalSignalPlugin(Protocol):
         self,
         snapshot: DataSnapshot,
         state: SignalState,
+        config: Optional[Any] = None,
         context: Optional[SignalContext] = None,
     ) -> StepSignalResult:
         ...
