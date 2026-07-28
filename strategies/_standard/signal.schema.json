@@ -1,0 +1,85 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "cyqnt.signal/v1",
+  "title": "cyqnt bot signal (language-agnostic)",
+  "description": "策略 bot 的標準輸出訊號。策略端(Python, cyqnt_trd.blocks)產生此 JSON;執行層(Python paper/live 或 JS)消費此 JSON。kind=trade 給單標的下單;kind=selection 給選幣。",
+  "type": "object",
+  "required": ["schema", "kind", "bot_id", "ts", "provenance"],
+  "properties": {
+    "schema": { "const": "cyqnt.signal/v1" },
+    "kind": { "enum": ["trade", "selection", "alert", "noop"] },
+    "bot_id": { "type": "string", "description": "策略/bot 唯一 id,對應 register 的 strategy_id" },
+    "run_id": { "type": "string" },
+    "ts": { "type": "integer", "description": "決策時間 epoch ms(=bar close_time / capture avail 時間;lookahead-safe)" },
+
+    "//trade": "===== kind=trade 用 =====",
+    "symbol": { "type": "string", "example": "BTCUSDT" },
+    "market_type": { "enum": ["spot", "futures"] },
+    "side": { "enum": ["long", "short", "flat"] },
+    "action": { "enum": ["entry", "exit", "adjust"] },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "verdict": { "enum": ["STRONG_CANDIDATE", "CANDIDATE", "WATCHLIST", "SKIP", "AVOID"], "description": "對應 blocks/verdicts.py 5 級" },
+    "entry": {
+      "type": "object",
+      "properties": {
+        "type": { "enum": ["market", "limit"] },
+        "price": { "type": "number", "description": "限價/參考價" },
+        "zone": { "type": "array", "items": { "type": "number" }, "description": "[lo, hi] 進場區間" }
+      }
+    },
+    "stop_loss": { "type": "number", "description": "絕對停損價(對齊現有 exit_spec.stop_loss_price)" },
+    "take_profit": {
+      "type": "array",
+      "description": "分批止盈;對齊 exit graduated TP",
+      "items": {
+        "type": "object",
+        "properties": { "price": { "type": "number" }, "close_pct": { "type": "number" } }
+      }
+    },
+    "size": {
+      "type": "object",
+      "properties": {
+        "mode": { "enum": ["equity_fraction", "fixed_usdt", "risk_pct"] },
+        "value": { "type": "number" },
+        "leverage": { "type": "number" },
+        "max_notional_usdt": { "type": "number" }
+      }
+    },
+    "time_horizon": { "enum": ["scalp", "intraday", "swing"] },
+    "valid_until": { "type": "integer", "description": "訊號失效 epoch ms" },
+
+    "//selection": "===== kind=selection 用 =====",
+    "as_of": { "type": "integer", "description": "選幣快照時間 epoch ms(lookahead-safe)" },
+    "universe_size": { "type": "integer" },
+    "candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["symbol", "rank", "score"],
+        "properties": {
+          "symbol": { "type": "string" },
+          "rank": { "type": "integer" },
+          "score": { "type": "number" },
+          "side": { "enum": ["long", "short"] },
+          "reason": { "type": "string" },
+          "features": { "type": "object", "description": "如 news_mention_count / bull_ratio / oi_change / funding" },
+          "trade": { "$comment": "可選:每個候選附一個 kind=trade 的內嵌計畫(entry/stop_loss/take_profit)" }
+        }
+      }
+    },
+
+    "//common": "===== 共用 =====",
+    "reason": { "type": "string", "description": "人類可讀的訊號理由" },
+    "features": { "type": "object", "description": "產生訊號的關鍵特徵值(供稽核/回測歸因)" },
+    "provenance": {
+      "type": "object",
+      "required": ["strategy_id"],
+      "properties": {
+        "strategy_id": { "type": "string" },
+        "version": { "type": "string" },
+        "inputs": { "type": "array", "items": { "enum": ["kline", "htf", "news", "sentiment", "funding", "oi", "long_short", "taker_cvd", "liquidation", "universe"] } },
+        "generated_at": { "type": "integer" }
+      }
+    }
+  }
+}
