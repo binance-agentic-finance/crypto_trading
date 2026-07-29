@@ -14,6 +14,7 @@ from ..core import (
     OnChainSignalBundle,
     SnapshotMeta,
     SocialFeedBundle,
+    UniverseBundle,
 )
 
 
@@ -125,9 +126,19 @@ def assemble_snapshot(
     onchain: Optional[OnChainSignalBundle] = None,
     decision_as_of: Optional[int] = None,
     partial_ok: bool = True,
+    universe: Optional["UniverseBundle"] = None,
 ) -> DataSnapshot:
     """
     Apply the PIT filtering policy and assemble a ``DataSnapshot``.
+
+    ``universe`` is passed through unfiltered: its frames are cross-sectional
+    (one row per symbol at a single ``as_of``) rather than per-bar, so the
+    bar-level PIT filters here do not apply. Whoever builds the
+    :class:`UniverseBundle` is responsible for PIT-gating it — see
+    ``build_universe_bundle``. Accepting it here is what lets ONE snapshot feed
+    both a trade strategy (``DataSnapshot.market``) and a selection strategy
+    (``DataSnapshot.universe``); before this parameter existed the two lived on
+    separate, mutually exclusive assembler paths.
     """
     if decision_as_of is None:
         decision_as_of = assembled_at
@@ -152,4 +163,5 @@ def assemble_snapshot(
         social=filtered_social,
         onchain=filtered_onchain,
         meta=meta,
+        universe=universe,
     )
