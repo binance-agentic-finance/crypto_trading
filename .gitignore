@@ -71,3 +71,6 @@ docs/user_demand_analysis/
 
 # 內部策略設計文件(引用內部需求分析 / Confluence 內部頁,不進公開 repo)
 strategies/_standard/BOT_STANDARD_AND_STRATEGIES.md
+
+# 當日策略研究(審核後才進 strategies/)
+2026-07-29/
