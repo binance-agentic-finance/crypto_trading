@@ -9,6 +9,8 @@ fixture when offline.
 from __future__ import annotations
 
 import json
+import re
+import warnings
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
@@ -64,6 +66,18 @@ def _fixture(symbol: str, interval: str):
     return df
 
 
+def _interval_matches(path: Path, interval: str) -> bool:
+    """True when *interval* appears as a delimited token in *path*.
+
+    Token-delimited so ``1h`` does not match ``21h`` / ``1h30`` and ``1m`` does
+    not match ``1mo``.
+    """
+    return re.search(
+        rf"(?<![0-9a-z]){re.escape(interval.lower())}(?![0-9a-z])",
+        path.as_posix().lower(),
+    ) is not None
+
+
 def load_ohlcv(spec: Dict[str, Any], input_json: Optional[str] = None,
                limit: int = 1000) -> Tuple[Any, str]:
     """Return (df, source_label)."""
@@ -81,15 +95,37 @@ def load_ohlcv(spec: Dict[str, Any], input_json: Optional[str] = None,
         rows = payload["data"] if isinstance(payload, dict) and "data" in payload else payload
         return _rows_to_df(rows, price_keyed=True), f"input_json({Path(path).name})"
 
-    # 2) historical parquet dir (best-effort single-file lookup)
+    # 2) historical parquet dir — MUST match both symbol and interval.
+    #    Previously this fell back to `glob("*.parquet")` and took cands[0],
+    #    so a directory holding only ETHUSDT data would happily "satisfy" a
+    #    BTCUSDT spec and the whole backtest silently ran on the wrong symbol.
+    #    Now: no match -> raise, and never load an unrelated file.
     if stype == "historical_parquet" and source.get("dir"):
         import pandas as pd
         d = Path(source["dir"])
-        cands = list(d.glob(f"*{symbol}*{interval}*.parquet")) + list(d.glob("*.parquet"))
-        if cands:
-            df = pd.read_parquet(cands[0]).reset_index(drop=True)
-            df["timestamp"] = df.get("close_time", df.index)
-            return df, f"parquet({cands[0].name})"
+        cands = sorted(
+            f for f in d.rglob("*.parquet")
+            if symbol.lower() in f.as_posix().lower()
+            and _interval_matches(f, interval)
+        )
+        if not cands:
+            available = sorted(f.name for f in d.rglob("*.parquet"))[:10]
+            raise RuntimeError(
+                f"historical_parquet: no file under {d} matches symbol={symbol} "
+                f"interval={interval}. Refusing to fall back to an unrelated file "
+                f"(that would backtest the wrong instrument). "
+                f"Found instead: {available or 'nothing'}"
+            )
+        if len(cands) > 1:
+            warnings.warn(
+                f"historical_parquet: {len(cands)} files match {symbol} {interval} "
+                f"under {d}; using {cands[0].name}. Narrow `data.source.dir` to "
+                f"make this deterministic.",
+                RuntimeWarning, stacklevel=2,
+            )
+        df = pd.read_parquet(cands[0]).reset_index(drop=True)
+        df["timestamp"] = df.get("close_time", df.index)
+        return df, f"parquet({cands[0].name})"
 
     # 3) binance_rest
     try:
@@ -102,5 +138,13 @@ def load_ohlcv(spec: Dict[str, Any], input_json: Optional[str] = None,
     except Exception as exc:
         fx = _fixture(symbol, interval)
         if fx is not None:
+            # Loud: this is repo TEST DATA, not market data. Silently substituting
+            # it made offline `run` look like a successful real backtest.
+            warnings.warn(
+                f"load_ohlcv: Binance REST failed ({type(exc).__name__}); falling back to the "
+                f"repo TEST FIXTURE for {symbol} {interval}. Results are NOT real market data — "
+                f"use data.source.type=input_json or historical_parquet for anything real.",
+                RuntimeWarning, stacklevel=2,
+            )
             return fx, f"fixture(offline:{type(exc).__name__})"
         raise RuntimeError(f"cannot load OHLCV for {symbol} {interval}: {exc}") from exc
