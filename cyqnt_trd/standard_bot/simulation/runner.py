@@ -232,6 +232,7 @@ class SnapshotBacktestRunner:
                     bar_high=float(latest_bar.high),
                     bar_low=float(latest_bar.low),
                     bar_close=float(latest_bar.close),
+                    bar_open=float(latest_bar.open),
                     ma_value=ma_value,
                     opposite_signal=has_opp,
                 )
@@ -259,8 +260,13 @@ class SnapshotBacktestRunner:
                             pending_close = True
                         continue
                     if position_side is None and pending_entry_signal is None:
-                        if exited_this_bar and close_only:
-                            continue  # close-only: no re-entry on same bar
+                        # NOTE: no `exited_this_bar and close_only` guard here.
+                        # In this branch the signal is only QUEUED — it fills at
+                        # the NEXT bar's open in Step 1 — so a same-bar re-entry
+                        # is already impossible. Dropping the signal here would
+                        # cost one extra bar of delay versus the vectorized
+                        # engine (and versus reality). The guard is still needed
+                        # in the close_fill branch below, which fills instantly.
                         pending_entry_signal = signal
                     elif position_side is not None and want != position_side and not close_only:
                         # Opposite signal → close next bar (flip re-enters once flat).
@@ -369,6 +375,7 @@ class SnapshotBacktestRunner:
         bar_high: float,
         bar_low: float,
         bar_close: float,
+        bar_open: Optional[float] = None,
         ma_value: Optional[float] = None,
         opposite_signal: bool = False,
     ) -> tuple:
@@ -381,7 +388,12 @@ class SnapshotBacktestRunner:
             2. Take Profit    — intra-bar (side-aware)
             3. MA cross       — bar close, fill at bar close (only when type=ma_cross_exit)
             4. Opposite signal — bar close, fill at bar close (always checked)
-            5. max_bars       — bar close, fill at bar close (timeout)
+            5. max_bars       — time-only condition, known at this bar's OPEN, so it
+               fills at ``bar_open`` when supplied. This keeps the holding period at
+               exactly ``max_bars`` bars and matches both the documented
+               "decide at close, fill at next open" model and
+               ``run_vectorized_backtest``. Falls back to ``bar_close`` when
+               ``bar_open`` is not supplied (legacy callers / unit tests).
 
         Side-aware:
           Long:  SL triggers when bar_low  <= stop (price drops to stop)
@@ -396,6 +408,15 @@ class SnapshotBacktestRunner:
         """
         side = spec.get("side", "long")
         etype = spec.get("type", "opposite_signal")
+
+        # Priority 0: max_bars — a pure time condition, already true at this
+        # bar's OPEN, so chronologically it fires before this bar's high/low can
+        # reach a stop. Checking it after SL/TP (as this function used to) let a
+        # stop that was only touched *later in the same bar* pre-empt an exit
+        # that had already happened at the open.
+        max_bars = spec.get("max_bars", 9999)
+        if current_idx - entry_idx >= max_bars:
+            return True, (bar_close if bar_open is None else bar_open), "max_bars"
 
         # Priority 1 & 2: Stop Loss / Take Profit (intra-bar, side-aware)
         # For atr_trailing_stop we update running_peak then derive a dynamic
@@ -446,12 +467,6 @@ class SnapshotBacktestRunner:
         # Priority 4: Opposite signal (bar close) — checked for ALL exit types
         if opposite_signal:
             return True, bar_close, "opposite_signal"
-
-        # Priority 5: max_bars timeout (bar close)
-        max_bars = spec.get("max_bars", 9999)
-        bars_held = current_idx - entry_idx
-        if bars_held >= max_bars:
-            return True, bar_close, "max_bars"
 
         return False, 0.0, ""
 

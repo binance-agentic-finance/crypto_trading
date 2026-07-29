@@ -276,8 +276,16 @@ def test_max_bars_still_fires_for_atr_trailing_stop():
     assert triggered is True
     assert reason == "max_bars"
     assert exit_price == 109.0
-    # peak still updated even though we exit by timeout
-    assert spec["running_peak"] == 110.0
+    # ``running_peak`` is deliberately NOT updated on a max_bars exit.
+    # max_bars is a pure time condition that is already true at this bar's OPEN,
+    # so it is now evaluated before the intra-bar trailing-stop block (which is
+    # what mutates running_peak). Ordering it after the stop check let a stop
+    # that was only touched later in the same bar pre-empt an exit that had
+    # already filled at the open, and made the event-driven and vectorized
+    # engines disagree — see tests/standard_bot/test_engine_parity.py.
+    # The peak value has no behavioural effect here: the position is closing and
+    # the runner drops ``position_exit_spec`` immediately afterwards.
+    assert spec["running_peak"] == 100.0
 
 
 # ---------------------------------------------------------------------------
