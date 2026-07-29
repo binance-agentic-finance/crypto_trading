@@ -281,8 +281,12 @@ def build_parser() -> argparse.ArgumentParser:
                        help="override data source with a local kline JSON (offline backtest)")
     p_run.add_argument("--output-json", default=None, help="write backtest result JSON here")
     p_run.add_argument("--engine", choices=["vectorized", "event"], default="vectorized",
-                       help="backtest engine: 'vectorized' (long+short, matches paper/live; default) "
-                            "or 'event' (SnapshotBacktestRunner, long-only reference)")
+                       help="backtest engine: 'vectorized' (in-process run_vectorized_backtest; "
+                            "default) or 'event' (mvp_backtest --engine python / "
+                            "SnapshotBacktestRunner). BOTH support long+short on futures "
+                            "(spot is long-only by design). 'event' additionally honours "
+                            "backtest.execution_model and data.htf[], which the vectorized "
+                            "path ignores.")
     p_run.add_argument("--start", action="store_true",
                        help="paper mode: actually spawn the daemon (needs a data feed)")
     p_run.set_defaults(func=cmd_run)

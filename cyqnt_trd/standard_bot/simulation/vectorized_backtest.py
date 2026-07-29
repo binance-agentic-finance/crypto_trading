@@ -37,6 +37,7 @@ Execution model (matches SnapshotBacktestRunner / PythonLivePaperSession):
 from __future__ import annotations
 
 import math
+import warnings
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -135,6 +136,22 @@ def _check_exit_long(
     max_bars = int(exit_cfg.get("max_bars", 9999))
     new_peak = running_peak
 
+    # Priority 0: exits that fill at THIS bar's OPEN. Chronologically the open
+    # precedes this bar's high/low, so they must be tested before the intra-bar
+    # stop/TP — otherwise a stop only touched later in the same bar pre-empts an
+    # exit that had already been filled at the open, and this engine disagrees
+    # with the event-driven one (which acts on the same information one bar
+    # earlier, at that bar's close).
+    # ``opposite_signal`` is checked BEFORE ``max_bars``: it is a decision made
+    # on bar i-1's CLOSE, whereas max_bars is a bar-i condition. Bar i-1's close
+    # happens first, so when both are due at bar i the opposite signal wins —
+    # which is also what the event engine does, because it sees the opposite
+    # signal a whole bar earlier (at bar i-1) and by then max_bars is not yet due.
+    if opposite_signal:
+        return True, bar_open, "opposite_signal", new_peak
+    if i - entry_idx >= max_bars:
+        return True, bar_open, "max_bars", new_peak
+
     # Priority 1 & 2: Stop Loss / Take Profit (intra-bar) — only when configured
     if etype == "pct_stop_tp":
         stop_pct = float(exit_cfg.get("stop_pct", 0.02))
@@ -172,14 +189,6 @@ def _check_exit_long(
             # event-driven SnapshotBacktestRunner. (Was bar_open = lookahead.)
             return True, bar_close, "ma_cross", new_peak
 
-    # Priority 4: Opposite signal (bar close) — checked for ALL exit types
-    if opposite_signal:
-        return True, bar_open, "opposite_signal", new_peak
-
-    # Priority 5: max_bars timeout (bar close)
-    if i - entry_idx >= max_bars:
-        return True, bar_open, "max_bars", new_peak
-
     return False, 0.0, "", new_peak
 
 
@@ -208,6 +217,13 @@ def _check_exit_short(
     etype = exit_cfg.get("type", "opposite_signal")
     max_bars = int(exit_cfg.get("max_bars", 9999))
     new_peak = running_peak
+
+    # Priority 0: open-filled exits first, opposite before max_bars — see
+    # _check_exit_long for the rationale.
+    if opposite_signal:
+        return True, bar_open, "opposite_signal", new_peak
+    if i - entry_idx >= max_bars:
+        return True, bar_open, "max_bars", new_peak
 
     # Priority 1 & 2: Stop Loss / Take Profit (intra-bar)
     if etype == "pct_stop_tp":
@@ -243,14 +259,6 @@ def _check_exit_short(
             # Fill at bar close (decision bar) — no lookahead, matches the
             # event-driven SnapshotBacktestRunner. (Was bar_open = lookahead.)
             return True, bar_close, "ma_cross", new_peak
-
-    # Priority 4: Opposite signal (bar close) — checked for ALL exit types
-    if opposite_signal:
-        return True, bar_open, "opposite_signal", new_peak
-
-    # Priority 5: max_bars timeout
-    if i - entry_idx >= max_bars:
-        return True, bar_open, "max_bars", new_peak
 
     return False, 0.0, "", new_peak
 
@@ -304,6 +312,15 @@ def run_vectorized_backtest(
         exit_cfg = {"type": "opposite_signal", "max_bars": 9999}
 
     if df.empty or len(df) < 50:
+        # Don't return an all-zero result silently — a caller sweeping many
+        # windows would read it as "strategy made no money" instead of
+        # "not enough data to backtest".
+        warnings.warn(
+            f"run_vectorized_backtest: only {len(df)} bars supplied (minimum 50); "
+            "returning an empty result with total_return=0.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
         return VectorizedBacktestResult()
 
     # ── Step 1: Vectorized signal generation (ONE call) ────────────────
@@ -353,6 +370,63 @@ def run_vectorized_backtest(
     trade_returns: List[float] = []
     trades: List[Dict[str, Any]] = []
     bars_in_position = 0
+    last_exit_reason = ""
+
+    def _try_exit(*, i, bar_o, bar_h, bar_l, bar_c, ma_val, l_prev, s_prev) -> bool:
+        """Run the exit check for the open position at bar *i*.
+
+        Returns True when the position was closed. Mutates ``pos`` / ``equity``
+        / ``trail_peak`` and appends to ``trade_returns`` / ``trades``.
+        Called twice per bar: once before entry (normal path) and once right
+        after an entry fill (entry-bar exit risk).
+        """
+        nonlocal pos, equity, trail_peak, last_exit_reason
+
+        if pos == 1:
+            should_exit, ex_px, reason, new_peak = _check_exit_long(
+                i=i, entry_price=entry_price, entry_idx=entry_idx,
+                bar_open=bar_o, bar_high=bar_h, bar_low=bar_l, bar_close=bar_c,
+                atr_at_entry=atr_at_entry, opposite_signal=s_prev,
+                ma_val=ma_val, exit_cfg=exit_cfg,
+                running_peak=trail_peak,
+            )
+            trail_peak = new_peak
+            if not should_exit:
+                return False
+            fill_px = ex_px * (1.0 - slip_rate)
+            pnl_pct = (fill_px - entry_price) / entry_price
+            side = "long"
+        elif pos == -1:
+            should_exit, ex_px, reason, new_peak = _check_exit_short(
+                i=i, entry_price=entry_price, entry_idx=entry_idx,
+                bar_open=bar_o, bar_high=bar_h, bar_low=bar_l, bar_close=bar_c,
+                atr_at_entry=atr_at_entry, opposite_signal=l_prev,
+                ma_val=ma_val, exit_cfg=exit_cfg,
+                running_peak=trail_peak,
+            )
+            trail_peak = new_peak
+            if not should_exit:
+                return False
+            fill_px = ex_px * (1.0 + slip_rate)
+            pnl_pct = (entry_price - fill_px) / entry_price
+            side = "short"
+        else:
+            return False
+
+        trade_pnl = equity * size * pnl_pct
+        trade_fee = equity * size * fee_rate
+        equity += trade_pnl - trade_fee
+        trade_returns.append((trade_pnl - trade_fee) / (equity - trade_pnl + trade_fee))
+        if record_trades:
+            trades.append({
+                "entry_idx": entry_idx, "exit_idx": i,
+                "side": side, "entry_price": entry_price,
+                "exit_price": fill_px, "pnl": trade_pnl - trade_fee,
+                "reason": reason,
+            })
+        pos = 0
+        last_exit_reason = reason
+        return True
 
     for i in range(n):
         bar_o = open_arr[i]
@@ -365,65 +439,30 @@ def run_vectorized_backtest(
         s_prev = bool(short_sig[i - 1]) if i > 0 else False
         ma_val = float(ma_arr[i]) if ma_arr is not None and not math.isnan(ma_arr[i]) else None
 
-        exited_this_bar = False
-
         # ── Exit check ────────────────────────────────────────────────
-        if pos == 1:
-            should_exit, ex_px, reason, new_peak = _check_exit_long(
-                i=i, entry_price=entry_price, entry_idx=entry_idx,
-                bar_open=bar_o, bar_high=bar_h, bar_low=bar_l, bar_close=bar_c,
-                atr_at_entry=atr_at_entry, opposite_signal=s_prev,
-                ma_val=ma_val, exit_cfg=exit_cfg,
-                running_peak=trail_peak,
-            )
-            trail_peak = new_peak
-            if should_exit:
-                fill_px = ex_px * (1.0 - slip_rate)
-                pnl_pct = (fill_px - entry_price) / entry_price
-                trade_pnl = equity * size * pnl_pct
-                trade_fee = equity * size * fee_rate
-                equity += trade_pnl - trade_fee
-                trade_returns.append((trade_pnl - trade_fee) / (equity - trade_pnl + trade_fee))
-                if record_trades:
-                    trades.append({
-                        "entry_idx": entry_idx, "exit_idx": i,
-                        "side": "long", "entry_price": entry_price,
-                        "exit_price": fill_px, "pnl": trade_pnl - trade_fee,
-                        "reason": reason,
-                    })
-                pos = 0
-                exited_this_bar = True
-
-        elif pos == -1:
-            should_exit, ex_px, reason, new_peak = _check_exit_short(
-                i=i, entry_price=entry_price, entry_idx=entry_idx,
-                bar_open=bar_o, bar_high=bar_h, bar_low=bar_l, bar_close=bar_c,
-                atr_at_entry=atr_at_entry, opposite_signal=l_prev,
-                ma_val=ma_val, exit_cfg=exit_cfg,
-                running_peak=trail_peak,
-            )
-            trail_peak = new_peak
-            if should_exit:
-                fill_px = ex_px * (1.0 + slip_rate)
-                pnl_pct = (entry_price - fill_px) / entry_price
-                trade_pnl = equity * size * pnl_pct
-                trade_fee = equity * size * fee_rate
-                equity += trade_pnl - trade_fee
-                trade_returns.append((trade_pnl - trade_fee) / (equity - trade_pnl + trade_fee))
-                if record_trades:
-                    trades.append({
-                        "entry_idx": entry_idx, "exit_idx": i,
-                        "side": "short", "entry_price": entry_price,
-                        "exit_price": fill_px, "pnl": trade_pnl - trade_fee,
-                        "reason": reason,
-                    })
-                pos = 0
-                exited_this_bar = True
+        exited_this_bar = _try_exit(
+            i=i, bar_o=bar_o, bar_h=bar_h, bar_l=bar_l, bar_c=bar_c,
+            ma_val=ma_val, l_prev=l_prev, s_prev=s_prev,
+        )
 
         # ── Entry (signal on bar i-1 → fill at bar i open) ───────────
         # Close-only: if we just exited under a non-opposite_signal exit_cfg,
         # skip re-entry on the same bar — wait for the next bar.
-        can_enter = (pos == 0 and i > 0 and not (exited_this_bar and not exit_allows_flip))
+        #
+        # Exception: an ``opposite_signal`` exit was decided on bar i-1's close
+        # and fills at bar i's OPEN — the very same information and fill point
+        # the entry would use. Blocking it here delayed the flip by one bar
+        # versus the event-driven engine, which books that exit on bar i-1 and
+        # queues bar i-1's signal for a bar-i-open fill. So allow it.
+        # ``max_bars`` deliberately does NOT get this exemption: the event
+        # engine books it on bar i and then queues *bar i's* signal, so both
+        # engines re-enter at bar i+1 and already agree.
+        same_bar_reentry_ok = last_exit_reason == "opposite_signal"
+        can_enter = (
+            pos == 0 and i > 0
+            and not (exited_this_bar and not exit_allows_flip and not same_bar_reentry_ok)
+        )
+        entered_this_bar = False
         if can_enter:
             if long_sig[i - 1]:
                 pos = 1
@@ -434,6 +473,7 @@ def run_vectorized_backtest(
                 # exit check at i+1 sees max(entry_high, ...).
                 trail_peak = bar_h
                 equity -= equity * size * fee_rate  # entry fee
+                entered_this_bar = True
             elif short_sig[i - 1] and not long_only:
                 pos = -1
                 entry_price = bar_o * (1.0 - slip_rate)
@@ -441,6 +481,26 @@ def run_vectorized_backtest(
                 atr_at_entry = atr_arr[i - 1] if not math.isnan(atr_arr[i - 1]) else 0.0
                 trail_peak = bar_l
                 equity -= equity * size * fee_rate  # entry fee
+                entered_this_bar = True
+
+        # ── Exit risk ON the entry bar ────────────────────────────────
+        # A position filled at bar i's open is exposed to bar i's own high/low
+        # and to bar i's close. The event-driven SnapshotBacktestRunner fills
+        # the entry (Step 1) *before* checking exits (Step 2), so it can stop
+        # out on the entry bar; skipping that here understated stop-loss risk
+        # and was a main source of engine disagreement.
+        #
+        # ``opposite_signal`` is deliberately suppressed: on the entry bar the
+        # only signal available to this engine is bar i-1's (the one that
+        # caused the entry). The event engine sees bar i's signal there, and
+        # this engine already picks that up on the next iteration via
+        # ``s_prev``/``l_prev`` — filling at bar i+1's open, which equals
+        # bar i's close in a continuous market. So the two stay aligned.
+        if entered_this_bar:
+            _try_exit(
+                i=i, bar_o=bar_o, bar_h=bar_h, bar_l=bar_l, bar_c=bar_c,
+                ma_val=ma_val, l_prev=False, s_prev=False,
+            )
 
         # ── Mark-to-market ────────────────────────────────────────────
         if pos == 1:
@@ -453,6 +513,29 @@ def run_vectorized_backtest(
             bars_in_position += 1
         else:
             equity_curve[i] = equity
+
+    # ── Forced exit of any position still open at the end of the data ──
+    # Matches SnapshotBacktestRunner, which force-closes at the final bar's
+    # close with NO slippage and records it as a trade. Previously this engine
+    # left the position open: its unrealized PnL still landed in equity_curve
+    # (so total_return counted it) but it was excluded from trades /
+    # trade_count / win_rate, and never paid an exit fee.
+    if pos != 0 and n > 0:
+        fill_px = close_arr[n - 1]
+        pnl_pct = ((fill_px - entry_price) if pos == 1 else (entry_price - fill_px)) / entry_price
+        trade_pnl = equity * size * pnl_pct
+        trade_fee = equity * size * fee_rate
+        equity += trade_pnl - trade_fee
+        trade_returns.append((trade_pnl - trade_fee) / (equity - trade_pnl + trade_fee))
+        if record_trades:
+            trades.append({
+                "entry_idx": entry_idx, "exit_idx": n - 1,
+                "side": "long" if pos == 1 else "short", "entry_price": entry_price,
+                "exit_price": fill_px, "pnl": trade_pnl - trade_fee,
+                "reason": "forced_exit",
+            })
+        pos = 0
+        equity_curve[n - 1] = equity
 
     # ── Step 4: Compute metrics ───────────────────────────────────────
     final_equity = equity_curve[-1]

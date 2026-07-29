@@ -528,7 +528,7 @@ class BlockStrategyPlugin:
             # Embed exit_spec on entry signals (BUY/SELL openings).
             # For atr_stop_tp, compute absolute stop/TP prices using ATR at
             # the entry bar; runner just compares to bar high/low.
-            if self.exit_cfg and triggered_long:  # long entry
+            if triggered_long:  # long entry
                 exit_spec = self._compute_exit_spec(
                     side="long",
                     entry_close=float(close_arr[i]) if close_arr is not None else None,
@@ -536,7 +536,7 @@ class BlockStrategyPlugin:
                 )
                 if exit_spec is not None:
                     payload["exit_spec"] = exit_spec
-            elif self.exit_cfg and triggered_short:  # short entry
+            elif triggered_short:  # short entry
                 exit_spec = self._compute_exit_spec(
                     side="short",
                     entry_close=float(close_arr[i]) if close_arr is not None else None,
@@ -575,7 +575,19 @@ class BlockStrategyPlugin:
         """Build an exit_spec dict from this plugin's exit_cfg, baking in
         absolute prices for atr-based stops. Runner reads this and applies."""
         if not self.exit_cfg:
-            return None
+            # register(exit_cfg=None) is documented as "exits are driven solely
+            # by opposite-side signals". Make that explicit instead of emitting
+            # no exit_spec at all.
+            #
+            # Returning None left SnapshotBacktestRunner's Step 2 disabled, so
+            # reversals fell through to its Step 3 flip path, which needs TWO
+            # bars (queue close -> fill at bar i+1's open -> queue entry -> fill
+            # at bar i+2's open). run_vectorized_backtest defaults exit_cfg to
+            # {"type": "opposite_signal"} and reverses in ONE bar. Every one of
+            # the 8 pre-existing strategies registers without exit_cfg, so they
+            # all disagreed between the two engines (e.g. ma_cross_v1 on BTC 1h:
+            # 19 round trips / -3.74% event vs 37 / +7.51% vectorized).
+            return {"type": "opposite_signal", "max_bars": 9999}
         cfg = dict(self.exit_cfg)
         etype = cfg.get("type")
         out: Dict = {"type": etype}

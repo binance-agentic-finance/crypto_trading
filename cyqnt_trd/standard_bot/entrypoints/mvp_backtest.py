@@ -262,6 +262,23 @@ def main() -> int:
         )
 
     trades = result.extras.get("trades", [])
+
+    # Fail-loud on the silent "0 signals" failure mode. The event-driven engine
+    # recomputes indicators on a rolling window of the last --tail-bars bars
+    # (HistoricalSnapshotAssembler._clip_market_bundle), so any indicator that
+    # needs more history than that yields all-NaN and the strategy emits nothing
+    # — previously reported as a perfectly normal "trades=0 total_return=0".
+    total_signals = sum(len(batch.signals) for batch in result.signal_batches)
+    if total_signals == 0 and args.engine == "python":
+        print(
+            "WARNING: strategy '%s' emitted 0 signals across %d snapshots. "
+            "Most common cause: --tail-bars %d is smaller than the longest "
+            "indicator lookback your make_signals() needs, so the indicator is "
+            "all-NaN on every bar. Set --tail-bars to >= 2-3x your longest "
+            "period (e.g. EMA-200 needs --tail-bars 400+) and re-run."
+            % (args.strategy, int(result.metrics.get("snapshot_count", 0)), args.tail_bars)
+        )
+
     print(
         "engine=%s run_id=%s snapshots=%s trades=%s total_return=%.6f final_equity=%.2f"
         % (

@@ -112,6 +112,11 @@ class PythonLivePaperSession:
         self.symbol = symbol
         self.config = dict(config)
         self.market_type = market_type
+        # Spot accounts cannot hold a short. mvp_backtest derives the same rule
+        # (mvp_backtest.py: long_only = market_type == "spot"); this session had
+        # no long_only concept at all, so a spot paper/live run would happily
+        # open shorts that the real account can never hold.
+        self.long_only = market_type == "spot"
         self.contract_multiplier = contract_multiplier
         self.max_bar_volume_fraction = max_bar_volume_fraction
 
@@ -239,16 +244,21 @@ class PythonLivePaperSession:
             if exit_cfg_type == "ma_cross_exit":
                 period = int(self._position_exit_spec.get("period", 50))
                 ma_type = str(self._position_exit_spec.get("ma_type", "ema"))
-                closes = self._closes[-max(period * 3, period + 1):]
+                # Use the canonical blocks indicator library on the FULL close
+                # history — same as SnapshotBacktestRunner and the vectorized
+                # engine. The previous hand-rolled EMA loop was seeded at the
+                # start of a truncated period*3 window, so paper/live disagreed
+                # with both backtest engines on every ma_cross_exit.
+                closes = self._closes
                 if len(closes) >= period:
-                    if ma_type == "ema":
-                        k = 2.0 / (period + 1.0)
-                        ema_v = closes[0]
-                        for c in closes[1:]:
-                            ema_v = c * k + ema_v * (1.0 - k)
-                        ma_value = float(ema_v)
-                    else:
-                        ma_value = float(sum(closes[-period:]) / period)
+                    import pandas as _pd
+
+                    from ...blocks import indicators as _ind
+
+                    _s = _pd.Series([float(c) for c in closes], dtype=float)
+                    _ma = _ind.ema(_s, period) if ma_type == "ema" else _ind.sma(_s, period)
+                    _last = _ma.iloc[-1]
+                    ma_value = None if _pd.isna(_last) else float(_last)
 
             triggered, _exit_price, exit_reason = self._check_exit(
                 spec=self._position_exit_spec,
@@ -284,6 +294,9 @@ class PythonLivePaperSession:
         if target_at_this_bar != TARGET_KEEP:
             current_direction = self._position_direction()
             target_direction = int(target_at_this_bar)
+            if self.long_only and target_direction < 0:
+                # Spot: a SHORT target only means "close any long", never "go short".
+                target_direction = 0
             if target_direction != current_direction:
                 if not (exited_this_bar and close_only):
                     self._pending_order = PendingOrder(
