@@ -81,13 +81,19 @@ def make_signals(df: pd.DataFrame):
     bullish_engulfing = pat.bullish_engulfing(df)
     hammer = pat.hammer(df)
     morning_star = pat.morning_star(df)
-    strong_bullish_bar = pat.is_bullish_bar(df, min_body_pct=0.01)  # Large body
+    # NOTE: this used to call pat.is_bullish_bar(df, min_body_pct=0.01), which
+    # does not exist in cyqnt_trd.blocks.patterns — make_signals raised
+    # AttributeError on every call, so this strategy could never run. Rebuilt
+    # from the canonical blocks with the original intent ("large bullish body",
+    # body >= 1% of the open price).
+    _body_pct_of_price = pat.candle_body(df) / df["open"]
+    strong_bullish_bar = pat.is_bullish(df) & (_body_pct_of_price >= 0.01)
     
     # Bearish patterns for short entry
     bearish_engulfing = pat.bearish_engulfing(df)
     shooting_star = pat.shooting_star(df)
     evening_star = pat.evening_star(df)
-    strong_bearish_bar = pat.is_bearish_bar(df, min_body_pct=0.01)
+    strong_bearish_bar = pat.is_bearish(df) & (_body_pct_of_price >= 0.01)
     
     # === Structure Break Confirmation ===
     # Breakout above previous high (for long)

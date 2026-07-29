@@ -8,6 +8,8 @@ Scoring-based short strategy that accumulates points from:
 
 Short signal fires when score >= 60 (adjustable threshold).
 """
+import pandas as pd  # used for the pd.Series fallbacks below (was missing -> NameError)
+
 from cyqnt_trd.blocks import indicators as ind, conditions as cond, entry, scoring, strategy
 
 
