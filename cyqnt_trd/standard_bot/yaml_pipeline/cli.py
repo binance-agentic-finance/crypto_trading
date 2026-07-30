@@ -28,14 +28,30 @@ from .interpreter import SpecError, build_make_signals
 from .spec import load_spec, register_from_yaml, validate_spec
 
 
+def _extra_data_argv(spec: Dict[str, Any]) -> List[str]:
+    """Flags for the ``data:`` sections beyond OHLCV.
+
+    The event engine reads these files through its own adapter, so the spec's
+    declared sources have to be handed on or ``--engine event`` would quietly run
+    the OHLCV-only version of the same strategy.
+    """
+    from .vocabulary import DATA_SECTIONS, declared_sections
+
+    data = spec.get("data") or {}
+    argv: List[str] = []
+    for key in declared_sections(spec):
+        argv += [DATA_SECTIONS[key].cli_flag, (data.get(key) or {})["dir"]]
+    return argv
+
+
 def _data_source_argv(spec: Dict[str, Any], overrides: argparse.Namespace) -> List[str]:
     """Map ``data.source`` (or CLI overrides) to backtest data flags."""
     if getattr(overrides, "input_json", None):
-        return ["--input-json", overrides.input_json]
+        return ["--input-json", overrides.input_json] + _extra_data_argv(spec)
     source = (spec.get("data") or {}).get("source") or {}
     stype = source.get("type", "binance_rest")
     if stype == "input_json":
-        return ["--input-json", source["path"]]
+        return ["--input-json", source["path"]] + _extra_data_argv(spec)
     if stype == "historical_parquet":
         argv = ["--historical-dir", source.get("dir", "data/historical")]
         if source.get("storage_timeframe"):
@@ -46,10 +62,10 @@ def _data_source_argv(spec: Dict[str, Any], overrides: argparse.Namespace) -> Li
             argv += ["--start-ts", str(source["start_ts"])]
         if source.get("end_ts"):
             argv += ["--end-ts", str(source["end_ts"])]
-        return argv
+        return argv + _extra_data_argv(spec)
     if stype == "binance_rest":
-        return ["--allow-remote-api"]
-    return []
+        return ["--allow-remote-api"] + _extra_data_argv(spec)
+    return _extra_data_argv(spec)
 
 
 def _common_run_fields(spec: Dict[str, Any]):
@@ -92,6 +108,86 @@ def cmd_validate(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 # run
 # ---------------------------------------------------------------------------
+
+
+def _run_selection(spec: Dict[str, Any], args: argparse.Namespace) -> int:
+    """Evaluate a ``selection:`` spec once and emit the ranked basket.
+
+    A selection spec ranks a universe at ONE point in time; it has no per-bar
+    equity curve, and this repo has no cross-sectional backtest engine. Before
+    this, ``run`` dispatched purely on ``run.mode``, so a selection spec declaring
+    ``mode: backtest`` fell into the single-instrument bar backtest: it fetched
+    1000 BTCUSDT candles, ignored the ``selection:`` section entirely, and printed
+    ``trades=0`` with a clean exit code. Nothing was wrong with the spec and
+    nothing said so — the most expensive kind of silence.
+
+    So: run the selector for real, print the basket, and refuse to call it a
+    backtest.
+    """
+    import json
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from cyqnt_trd.blocks import strategy as _strategy
+
+    from ..core import DataSnapshot, SnapshotMeta, UniverseBundle
+    from ..runtime import data as data_runtime
+
+    strategy_id = spec["strategy"]["id"]
+    plugin = _strategy.get_selection_plugin(strategy_id)
+    if plugin is None:                                  # register_from_yaml ran first
+        print(f"no selection plugin registered as {strategy_id!r}")
+        return 1
+
+    market_type = (spec.get("data") or {}).get("market_type", "futures")
+    status: Dict[str, str] = {}
+    frames: Dict[str, Any] = {}
+    with data_runtime.session() as session:
+        as_of = session.as_of_ms
+        for node, params in (("universe", {"market_type": market_type}),
+                             ("ticker_rank", {"window": "24h", "limit": 30})):
+            try:
+                frames[node] = session.call(node, **params)
+                status[node] = "ok" if len(frames[node]) else "empty"
+            except data_runtime.DataUnavailable as exc:
+                frames[node] = None
+                status[node] = "error: %s" % exc.reason
+
+    snapshot = DataSnapshot(
+        version="mvp/v1",
+        universe=UniverseBundle(as_of=as_of, universe=frames.get("universe"),
+                                ticker_rank=frames.get("ticker_rank")),
+        meta=SnapshotMeta(snapshot_id="yaml-selection-%d" % as_of, assembled_at=as_of,
+                          decision_as_of=as_of, source_status=status, partial_ok=True),
+    )
+    envelope = plugin.run(snapshot, SimpleNamespace(market_type=market_type)).signals[0]
+    payload = envelope.payload
+    candidates = payload.get("candidates") or []
+
+    print(f"[yaml_pipeline] selection strategy={strategy_id} market={market_type} "
+          f"universe={payload.get('universe_size')} as_of={as_of}")
+    print(f"  output={envelope.version} kind={envelope.kind.value} "
+          f"data_quality={payload.get('data_quality')}")
+    for key, value in status.items():
+        if value != "ok":
+            print(f"  {key}: {value}")
+    if not candidates:
+        print("  no candidate passed the filters — nothing to rank")
+    for candidate in candidates:
+        print("  #%-2d %-12s score=%-12.6g %-8s %s"
+              % (candidate["rank"], candidate["symbol"], candidate["score"],
+                 candidate["direction"], candidate.get("reason", "")))
+    if (spec.get("run") or {}).get("mode") == "backtest":
+        print("  NOTE: run.mode=backtest, but a cross-sectional selector has no "
+              "per-bar equity curve and this repo has no cross-sectional backtest "
+              "engine. The above is ONE decision point, not a backtest.")
+    if getattr(args, "output_json", None):
+        Path(args.output_json).write_text(json.dumps(
+            {"signal_id": envelope.signal_id, "version": envelope.version,
+             "kind": envelope.kind.value, "payload": payload},
+            ensure_ascii=False, indent=2))
+        print(f"  wrote {args.output_json}")
+    return 0
 
 
 def _run_backtest_vectorized(spec: Dict[str, Any], args: argparse.Namespace) -> int:
@@ -247,6 +343,11 @@ def cmd_run(args: argparse.Namespace) -> int:
         return 1
 
     mode = (spec.get("run") or {}).get("mode")
+    # Dispatch on the SHAPE of the spec first, then the mode. Dispatching on mode
+    # alone sent every selection spec into the per-bar backtest, which has no
+    # universe to rank and reported a clean trades=0.
+    if isinstance(spec.get("selection"), dict):
+        return _run_selection(spec, args)
     if mode == "backtest":
         if getattr(args, "engine", "vectorized") == "event":
             return _run_backtest_event(spec, args)

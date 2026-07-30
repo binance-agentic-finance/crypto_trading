@@ -1,0 +1,21 @@
+{
+  "venue_class": "CEX_PERP",
+  "intent_type": "MARKET",
+  "instrument": "BTCUSDT",
+  "side": "BUY",
+  "position_intent": "close_short",
+  "reduce_only": true,
+  "size": {
+    "mode": "position_pct",
+    "value": 1.0,
+    "leverage": null,
+    "max_notional_quote": null,
+    "reduce_only": true
+  },
+  "params": {
+    "time_in_force": "GTC"
+  },
+  "client_tag": "sample_bot:binance:usd_m_perpetual:B",
+  "source_signal_id": "d9dd0ad4-2251-5639-8057-4672822b006b",
+  "requires_confirmation": true
+}

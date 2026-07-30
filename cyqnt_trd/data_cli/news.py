@@ -29,6 +29,7 @@ from ._vendor.binance_bigdata_client import get_public_client, is_ok_envelope
 
 __all__ = [
     "fetch_news",
+    "fetch_search",
     "fetch_sentiment",
     "fetch_ticker_rank",
     "fetch_topic_trending",
@@ -48,6 +49,8 @@ _POST_FIELDS = [
     ("id", str),
     ("title", str),
     ("summary", str),
+    ("body", str),
+    ("web_link", str),
     ("date", "int"),                 # content time (ms) — do NOT use for gating
     ("latest_release_time", "int"),  # content time (ms) — do NOT use for gating
     ("content_type", "int"),
@@ -65,6 +68,7 @@ _POST_FIELDS = [
     ("rank", "int"),
     ("score", "float"),
     ("tickers", object),             # list[str]
+    ("user_input_tickers", object),  # list[str]
     ("hashtag_list", object),        # list[str]
     ("generated_at", "int"),         # API content-generation time (ms)
 ]
@@ -140,6 +144,8 @@ def _parse_post_items(items) -> pd.DataFrame:
             "id": str(it.get("id", "")),
             "title": it.get("title") or "",
             "summary": it.get("summary") or "",
+            "body": it.get("body") or "",
+            "web_link": it.get("webLink") or "",
             "date": _as_int(it.get("date")),
             "latest_release_time": _as_int(it.get("latestReleaseTime")),
             "content_type": _as_int(it.get("contentType")),
@@ -157,6 +163,7 @@ def _parse_post_items(items) -> pd.DataFrame:
             "rank": _as_int(it.get("rank")),
             "score": _as_float(it.get("score")),
             "tickers": _as_list(it.get("tickers")),
+            "user_input_tickers": _as_list(it.get("userInputTickers")),
             "hashtag_list": _as_list(it.get("hashtagList")),
             "generated_at": 0,  # filled by caller from data.generatedAt
         })
@@ -215,6 +222,52 @@ def fetch_hot_post(
             return cached
 
     resp = get_public_client(env=env).get_hot_post(sort=sort, window=window, limit=limit, lang=lang)
+    data = _envelope_data(resp)
+    if data is None:
+        return _empty(POST_COLUMNS)
+    df = _parse_post_items(data.get("items"))
+    if not df.empty:
+        df["generated_at"] = _as_int(data.get("generatedAt"))
+    cache_set(key, df, ttl=ttl_sec)
+    return df
+
+
+def fetch_search(
+    keyword: str = "",
+    author: str = "",
+    min_likes: int = 0,
+    window: str = "24h",
+    page_index: int = 1,
+    page_size: int = 20,
+    lang: str = "en",
+    *,
+    env: str = "prod",
+    ttl: Optional[int] = None,
+    refresh: bool = False,
+) -> pd.DataFrame:
+    """Square keyword/author search → typed DataFrame.
+
+    At least one of ``keyword``, ``author`` or ``min_likes`` must be set.
+    ``getFeed`` is deliberately not used because it is empty on Prod.
+    """
+    if not keyword and not author and not min_likes:
+        raise ValueError("fetch_search requires keyword, author, or min_likes")
+    ttl_sec = ttl if ttl is not None else TTL_NEWS
+    key = ("search", keyword, author, min_likes, window, page_index, page_size, lang, env)
+    if not refresh:
+        cached = cache_get(key)
+        if cached is not None:
+            return cached
+
+    resp = get_public_client(env=env).get_search(
+        keyword=keyword,
+        author=author,
+        min_likes=min_likes,
+        window=window,
+        page_index=page_index,
+        page_size=page_size,
+        lang=lang,
+    )
     data = _envelope_data(resp)
     if data is None:
         return _empty(POST_COLUMNS)

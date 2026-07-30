@@ -1,0 +1,85 @@
+{
+  "schema": "cyqnt.signal/v2",
+  "kind": "alert",
+  "bot_id": "funding_oi_crowding_monitor",
+  "bot_version": "v1",
+  "signal_id": "0037a620-71b5-5d21-9ff8-a77a73073c55",
+  "decision_time": 1786000000000,
+  "symbol": "BTCUSDT",
+  "venue": "binance",
+  "product": "usd_m_perpetual",
+  "base_asset": "",
+  "quote_asset": "",
+  "market_scope": "single",
+  "intent": "hold",
+  "target_side": null,
+  "closes_side": null,
+  "order_side": null,
+  "reduce_only": false,
+  "direction": "short",
+  "advisory_action": "avoid",
+  "score": 90.0,
+  "confidence": 0.8,
+  "entry": null,
+  "exit_plan": null,
+  "size": null,
+  "risk": {
+    "max_loss_quote": null,
+    "max_position_quote": null,
+    "max_leverage": null,
+    "liquidation_buffer_pct": null,
+    "daily_loss_cap_quote": null
+  },
+  "time_horizon": "intraday",
+  "horizon_seconds": 3600,
+  "valid_until": 1786003600000,
+  "topic": "derivatives_positioning",
+  "reason_codes": [
+    "FUNDING_CROWDED_LONG",
+    "OI_BUILDUP_CONFIRMS",
+    "SQUEEZE_RISK"
+  ],
+  "summary": "BTCUSDT 拥挤多：资金费率 20.0 bps，OI 变化 +35.0%",
+  "recommended_behavior": "拥挤 + 杠杆仍在堆积，优先规避而非反向追单。",
+  "evidence": [
+    {
+      "source": "data.funding",
+      "observed": {
+        "funding_bps": 20.0
+      },
+      "available_time": 1786000000000,
+      "url": "",
+      "note": ""
+    },
+    {
+      "source": "data.open_interest",
+      "observed": {
+        "change_pct": 35.0
+      },
+      "available_time": 1786000000000,
+      "url": "",
+      "note": ""
+    }
+  ],
+  "data_quality": "good",
+  "source_status": {},
+  "warnings": [],
+  "candidates": [],
+  "universe_size": 0,
+  "auto_trade_eligible": false,
+  "requires_confirmation": true,
+  "dedup_key": "funding_oi_crowding_monitor:binance:usd_m_perpetual:BTCUSDT:hold",
+  "provenance": {
+    "strategy_id": "sample_bot",
+    "strategy_version": "v1",
+    "snapshot_id": "0d2f…",
+    "config_hash": "",
+    "inputs": [
+      "klines",
+      "funding",
+      "contract_positions"
+    ],
+    "run_id": "",
+    "trace_id": ""
+  }
+}

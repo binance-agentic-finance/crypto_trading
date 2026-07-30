@@ -1,0 +1,221 @@
+{
+  "BarFrame@1.0": {
+    "kind": "bar",
+    "row_grain": "one instrument × timeframe × bar",
+    "description": "OHLCV candles. The base series every technical block reads.",
+    "required": [
+      "instrument_id",
+      "timeframe",
+      "open_time",
+      "close_time",
+      "open",
+      "high",
+      "low",
+      "close",
+      "volume",
+      "available_time"
+    ],
+    "optional": [
+      "quote_volume",
+      "trades",
+      "confirmed",
+      "event_time"
+    ],
+    "sample_row": {
+      "instrument_id": "BTCUSDT",
+      "timeframe": "1h",
+      "open_time": "2026-08-06T06:00:00Z",
+      "close_time": "2026-08-06T07:00:00Z",
+      "available_time": "2026-08-06T07:00:00Z",
+      "open": 61250.0,
+      "high": 61480.0,
+      "low": 61120.0,
+      "close": 61390.0,
+      "volume": 812.44,
+      "quote_volume": 49871233.0,
+      "trades": 21044,
+      "confirmed": true
+    }
+  },
+  "MetricFrame@1.0": {
+    "kind": "metric",
+    "row_grain": "one instrument × metric × time",
+    "description": "Long-form numeric observations. One row per measurement, so a source that fails contributes zero rows instead of a zero value.",
+    "required": [
+      "event_time",
+      "available_time",
+      "instrument_id",
+      "metric",
+      "value"
+    ],
+    "optional": [
+      "venue",
+      "product",
+      "unit",
+      "window",
+      "source_id",
+      "quality"
+    ],
+    "sample_row": {
+      "event_time": "2026-08-06T00:00:00Z",
+      "available_time": "2026-08-06T00:00:12Z",
+      "instrument_id": "BTCUSDT",
+      "metric": "funding_rate_8h",
+      "value": 0.00012,
+      "venue": "binance",
+      "product": "usd_m_perpetual",
+      "unit": "ratio",
+      "window": "8h",
+      "source_id": "binance.funding_rate",
+      "quality": "ok"
+    }
+  },
+  "PanelFrame@1.0": {
+    "kind": "panel",
+    "row_grain": "one timestamp; one column per instrument",
+    "description": "Wide time × instrument numeric panel — the natural input for a cross-sectional strategy that ranks a universe each bar.",
+    "required": [
+      "event_time",
+      "available_time"
+    ],
+    "optional": [
+      "metric"
+    ],
+    "sample_row": {
+      "event_time": "2026-08-05T00:00:00Z",
+      "available_time": "2026-08-05T00:00:12Z",
+      "metric": "funding_rate_daily",
+      "BTCUSDT": 0.00036,
+      "ETHUSDT": 0.00021,
+      "SOLUSDT": -0.00014
+    }
+  },
+  "EventFrame@1.0": {
+    "kind": "event",
+    "row_grain": "one event × instrument (instrument may be null for market-wide)",
+    "description": "Discrete dated events: news, announcements, calendar entries, unlocks, macro releases. Carries provenance so a directional read can be refused when the source is unverified.",
+    "required": [
+      "event_id",
+      "event_time",
+      "available_time",
+      "source_id",
+      "topic"
+    ],
+    "optional": [
+      "instrument_id",
+      "urgency",
+      "title",
+      "summary",
+      "url",
+      "bias",
+      "event_type",
+      "source_reliability",
+      "corroboration_count",
+      "quality_flags"
+    ],
+    "sample_row": {
+      "event_id": "sq-90412",
+      "event_time": "2026-08-06T06:41:00Z",
+      "available_time": "2026-08-06T06:43:20Z",
+      "source_id": "square.getNews",
+      "topic": "exchange_announcement",
+      "instrument_id": "ABCUSDT",
+      "urgency": "breaking",
+      "title": "Binance Will List ABC",
+      "summary": "…",
+      "url": "https://www.binance.com/en/support/announcement/…",
+      "bias": "positive",
+      "event_type": "listing",
+      "source_reliability": 0.85,
+      "corroboration_count": 2,
+      "quality_flags": []
+    }
+  },
+  "RankFrame@1.0": {
+    "kind": "rank",
+    "row_grain": "one instrument at one as-of",
+    "description": "Cross-sectional snapshot: a scored/ranked instrument list. Feature columns beyond the required ones are passed through untouched.",
+    "required": [
+      "available_time",
+      "instrument_id"
+    ],
+    "optional": [
+      "event_time",
+      "rank",
+      "score",
+      "venue",
+      "product",
+      "source_id"
+    ],
+    "sample_row": {
+      "available_time": "2026-08-06T07:00:00Z",
+      "event_time": "2026-08-06T07:00:00Z",
+      "instrument_id": "SOLUSDT",
+      "rank": 1,
+      "score": 0.91,
+      "source_id": "square.getTickerRank",
+      "mention_count": 812,
+      "unique_authors": 431,
+      "bullish_count": 590
+    }
+  },
+  "PositionFrame@1.0": {
+    "kind": "position",
+    "row_grain": "one open position",
+    "description": "Account state. This is what the position lifecycle reads to know whether an exit means CLOSE_LONG or CLOSE_SHORT.",
+    "required": [
+      "available_time",
+      "instrument_id",
+      "side",
+      "quantity"
+    ],
+    "optional": [
+      "venue",
+      "product",
+      "entry_price",
+      "leverage",
+      "margin_ratio",
+      "unrealized_pnl",
+      "notional"
+    ],
+    "sample_row": {
+      "available_time": "2026-08-06T07:00:03Z",
+      "instrument_id": "BTCUSDT",
+      "side": "short",
+      "quantity": 0.42,
+      "venue": "binance",
+      "product": "usd_m_perpetual",
+      "entry_price": 61810.0,
+      "leverage": 5.0,
+      "margin_ratio": 0.09,
+      "unrealized_pnl": 176.4,
+      "notional": 25783.8
+    }
+  },
+  "BookFrame@1.0": {
+    "kind": "book",
+    "row_grain": "one price level on one side",
+    "description": "Order-book ladder snapshot.",
+    "required": [
+      "available_time",
+      "instrument_id",
+      "side",
+      "level",
+      "price",
+      "quantity"
+    ],
+    "optional": [
+      "event_time",
+      "venue",
+      "product"
+    ],
+    "sample_row": {
+      "available_time": "2026-08-06T07:00:01Z",
+      "instrument_id": "BTCUSDT",
+      "side": "bid",
+      "level": 1,
+      "price": 61388.5,
+      "quantity": 3.117
+    }
+  }
+}

@@ -20,7 +20,7 @@ PyPI 版本變動見 `pyproject.toml` 與 git tag。
 2. **Vendored PUBLIC client** `cyqnt_trd/data_cli/_vendor/binance_bigdata_client.py`：
    純 stdlib（urllib）、`env='prod'`、`min_interval` 節流、帶 provenance 標頭；
    **只含 7 個 PUBLIC Square 方法**，完全排除 `TradingInsightClient` 與所有
-   `*.eureka.qa.local` 內網方法。支援 `CYQNT_BIGDATA_API_PATH` 覆寫改 import 上游。
+   內網主機上的方法。支援 `CYQNT_BIGDATA_API_PATH` 覆寫改 import 上游。
    不引入任何新 runtime 依賴。
 3. **Lookahead-safe 特徵層** `cyqnt_trd/blocks/news_feed.py`：
    `load_pit_index / build_pit_feature_frame / attach_news_features /

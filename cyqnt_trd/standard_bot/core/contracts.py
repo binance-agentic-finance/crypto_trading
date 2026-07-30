@@ -110,11 +110,26 @@ class OnChainQuery:
 
 
 @dataclass
+class FrameQuery:
+    """Declared need for one named long-form frame (advisory/monitor route).
+
+    ``schema`` is the frame contract id (e.g. ``MarketMetricFrame@1.0``), so an
+    assembler knows what to normalize into ``DataSnapshot.frames[name]``.
+    """
+
+    schema: str
+    required: bool = True
+    field_keys: List[str] = field(default_factory=list)
+    extras: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class DataQuery:
     market: Optional[MarketQuery] = None
     social: Optional[SocialQuery] = None
     onchain: Optional[OnChainQuery] = None
     options: QueryOptions = field(default_factory=QueryOptions)
+    frames: Dict[str, FrameQuery] = field(default_factory=dict)
 
 
 @dataclass
@@ -237,11 +252,21 @@ class DataSnapshot:
     # Defaults to None so every existing market/social/onchain assembler path
     # and the 8 pre-existing strategies are byte-identical.
     universe: Optional["UniverseBundle"] = None
+    # Extensible named long-form frames for data that is not naturally
+    # OHLCV/social/on-chain. ALERT-kind advisory bots read normalized pandas
+    # frames from here (``market_metrics`` / ``news_events``) so they ride the
+    # same DataSnapshot -> SignalBatch pipeline as trade/selection strategies.
+    frames: Dict[str, Any] = field(default_factory=dict)
 
     def require_market(self) -> MarketBundle:
         if self.market is None:
             raise ValueError("DataSnapshot.market is required for this operation")
         return self.market
+
+    def require_frame(self, name: str) -> Any:
+        if name not in self.frames:
+            raise ValueError("DataSnapshot.frames[%r] is required for this operation" % name)
+        return self.frames[name]
 
 
 @dataclass

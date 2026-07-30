@@ -1,0 +1,243 @@
+{
+ "schema": "cyqnt.input/v1",
+ "snapshot_id": "e7904858-a31d-5b85-841f-4219d5409a02",
+ "decision_time": 1776322799999,
+ "market_type": "futures",
+ "instruments": [
+  "BTCUSDT"
+ ],
+ "primary_timeframe": "1h",
+ "source_status": {
+  "klines": "ok",
+  "funding": "ok",
+  "open_interest": "ok",
+  "liquidations": "empty",
+  "news": "ok",
+  "ticker_rank": "ok",
+  "universe": "ok",
+  "internal_metrics": "ok",
+  "internal_ai_signal": "unavailable: internal client not installed",
+  "internal_bdp_screen": "unavailable: internal client not installed",
+  "internal_calendar": "unavailable: internal client not installed",
+  "internal_chip_distribution": "unavailable: internal client not installed",
+  "internal_etf_flow": "ok",
+  "internal_event_upcoming": "unavailable: internal client not installed",
+  "internal_futures_radar": "ok",
+  "internal_hot_event": "unavailable: internal client not installed",
+  "internal_large_flow": "unavailable: internal client not installed",
+  "internal_macro_calendar": "ok",
+  "internal_sector_flow": "unavailable: internal client not installed",
+  "internal_token_unlock": "unavailable: internal client not installed"
+ },
+ "warnings": [
+  "open_interest_1h.parquet not found; used open_interest_5m.parquet instead",
+  "internal_futures_radar is a snapshot with no point-in-time history; collect it forward, do not replay it in a walk-forward backtest"
+ ],
+ "positions": {},
+ "equity": null,
+ "_note": "Same structure as input_bundle_example.json; rows truncated for reading. Row counts of the full artifact are in frames[*].full_row_count.",
+ "frames": {
+  "klines": {
+   "shape": "BarFrame@1.0",
+   "full_row_count": 300,
+   "rows": [
+    {
+     "instrument_id": "BTCUSDT",
+     "timeframe": "1h",
+     "open_time": 1775242800000,
+     "close_time": 1775246399999,
+     "open": 66783.6,
+     "high": 66882.9,
+     "low": 66740.6,
+     "close": 66857.0,
+     "volume": 1227.2699999999998,
+     "quote_volume": 81975573.25019999,
+     "confirmed": true,
+     "available_time": 1775246399999
+    },
+    {
+     "instrument_id": "BTCUSDT",
+     "timeframe": "1h",
+     "open_time": 1775246400000,
+     "close_time": 1775249999999,
+     "open": 66857.0,
+     "high": 66888.0,
+     "low": 66800.0,
+     "close": 66800.1,
+     "volume": 776.8509999999998,
+     "quote_volume": 51930944.13990001,
+     "confirmed": true,
+     "available_time": 1775249999999
+    },
+    {
+     "instrument_id": "BTCUSDT",
+     "timeframe": "1h",
+     "open_time": 1775250000000,
+     "close_time": 1775253599999,
+     "open": 66800.0,
+     "high": 66946.3,
+     "low": 66791.8,
+     "close": 66929.5,
+     "volume": 1612.3639999999998,
+     "quote_volume": 107831409.55370003,
+     "confirmed": true,
+     "available_time": 1775253599999
+    }
+   ]
+  },
+  "funding": {
+   "shape": "MetricFrame@1.0",
+   "full_row_count": 126,
+   "rows": [
+    {
+     "event_time": 1774512000001,
+     "available_time": 1774512000001,
+     "instrument_id": "BTCUSDT",
+     "metric": "funding_rate",
+     "value": 1.379e-05
+    },
+    {
+     "event_time": 1774512000001,
+     "available_time": 1774512000001,
+     "instrument_id": "BTCUSDT",
+     "metric": "mark_price",
+     "value": 70053.8
+    }
+   ]
+  },
+  "open_interest": {
+   "shape": "MetricFrame@1.0",
+   "source_timeframe": "5m",
+   "full_row_count": 480,
+   "rows": [
+    {
+     "event_time": 1776250800000,
+     "available_time": 1776250800000,
+     "instrument_id": "BTCUSDT",
+     "metric": "open_interest",
+     "value": 97565.389
+    },
+    {
+     "event_time": 1776250800000,
+     "available_time": 1776250800000,
+     "instrument_id": "BTCUSDT",
+     "metric": "open_interest_value",
+     "value": 7202091641.7409
+    }
+   ]
+  },
+  "news": {
+   "shape": "EventFrame@1.0",
+   "full_row_count": 1,
+   "rows": [
+    {
+     "event_id": "n1",
+     "event_time": 1776319199999,
+     "available_time": 1776319299999,
+     "source_id": "square",
+     "topic": "etf_inflow",
+     "instrument_id": "BTCUSDT",
+     "title": "ETF net inflow hits 30d high",
+     "urgency": "high"
+    }
+   ]
+  },
+  "ticker_rank": {
+   "shape": "RankFrame@1.0",
+   "full_row_count": 2,
+   "rows": [
+    {
+     "instrument_id": "BTCUSDT",
+     "available_time": 1776322799999,
+     "rank": 1,
+     "score": 96.0,
+     "mention_count": 120,
+     "bull_ratio": 0.9
+    },
+    {
+     "instrument_id": "ETHUSDT",
+     "available_time": 1776322799999,
+     "rank": 2,
+     "score": 32.0,
+     "mention_count": 80,
+     "bull_ratio": 0.25
+    }
+   ]
+  },
+  "universe": {
+   "shape": "RankFrame@1.0",
+   "full_row_count": 2,
+   "rows": [
+    {
+     "instrument_id": "BTCUSDT",
+     "available_time": 1776322799999,
+     "quote_volume": 500000000.0
+    },
+    {
+     "instrument_id": "ETHUSDT",
+     "available_time": 1776322799999,
+     "quote_volume": 300000000.0
+    }
+   ]
+  },
+  "internal_metrics": {
+   "shape": "MetricFrame@1.0",
+   "full_row_count": 1,
+   "rows": [
+    {
+     "event_time": 1776322799999,
+     "available_time": 1776322799999,
+     "instrument_id": "BTCUSDT",
+     "metric": "etf_net_flow_usd",
+     "value": 310000000.0
+    }
+   ]
+  },
+  "internal_etf_flow": {
+   "shape": "MetricFrame@1.0",
+   "pit_safe": true,
+   "full_row_count": 3,
+   "rows": [
+    {
+     "event_time": 1776322799999,
+     "available_time": 1776322799999,
+     "instrument_id": "BTC",
+     "metric": "flow",
+     "value": 310000000.0
+    }
+   ]
+  },
+  "internal_futures_radar": {
+   "shape": "MetricFrame@1.0",
+   "pit_safe": false,
+   "full_row_count": 1,
+   "rows": [
+    {
+     "event_time": 1776322799999,
+     "available_time": 1776322799999,
+     "instrument_id": "BTCUSDT",
+     "metric": "value",
+     "value": -0.051
+    }
+   ]
+  },
+  "internal_macro_calendar": {
+   "shape": "EventFrame@1.0",
+   "pit_safe": true,
+   "full_row_count": 1,
+   "rows": [
+    {
+     "event_time": 1776315599999,
+     "event_type": "CPI",
+     "actual": 3.1,
+     "forecast": 3.2,
+     "previous": 3.4,
+     "available_time": 1776315599999,
+     "source_id": "internal_macro_calendar",
+     "topic": "CPI",
+     "event_id": "96597596cfdaab18"
+    }
+   ]
+  }
+ }
+}

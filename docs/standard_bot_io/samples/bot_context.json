@@ -1,0 +1,249 @@
+{
+  "schema": "cyqnt.input/v1",
+  "bot_id": "sample_bot",
+  "decision_time": 1786000000000,
+  "snapshot_id": "773d55b7-8eb1-56b4-965d-3f4878b82373",
+  "equity": 100000.0,
+  "positions": {
+    "BTCUSDT": -0.42
+  },
+  "source_status": {
+    "klines": "ok",
+    "funding": "ok",
+    "open_interest": "ok",
+    "news": "ok",
+    "contract_positions": "ok"
+  },
+  "warnings": [
+    "klines: klines: declared source column(s) absent from the response: symbol",
+    "funding: funding: available_time derived per row from event_time — the source states no publication lag, so a replay may be optimistic by that lag",
+    "open_interest: open_interest: available_time derived per row from event_time — the source states no publication lag, so a replay may be optimistic by that lag",
+    "news: news: available_time derived per row from event_time — the source states no publication lag, so a replay may be optimistic by that lag",
+    "contract_positions: contract_positions: declared source column(s) absent from the response: entryPrice, positionAmt",
+    "contract_positions: contract_positions: available_time taken from the fetch time — this source is a snapshot with no per-row event time, so it cannot be replayed bar by bar"
+  ],
+  "inferred_availability": [
+    "contract_positions",
+    "funding",
+    "news",
+    "open_interest"
+  ],
+  "declared_inputs": {
+    "klines": {
+      "node": "klines",
+      "required": true,
+      "emits": "bar",
+      "schema": "BarFrame@1.0",
+      "availability": "BACKTESTABLE",
+      "pit_hazard": ""
+    },
+    "funding": {
+      "node": "funding",
+      "required": true,
+      "emits": "metric",
+      "schema": "MetricFrame@1.0",
+      "availability": "BACKTESTABLE",
+      "pit_hazard": ""
+    },
+    "open_interest": {
+      "node": "open_interest",
+      "required": false,
+      "emits": "metric",
+      "schema": "MetricFrame@1.0",
+      "availability": "SEMI",
+      "pit_hazard": "public endpoint keeps only ~30 days. A longer backtest silently starts mid-series — check the first timestamp, do not assume."
+    },
+    "news": {
+      "node": "news",
+      "required": false,
+      "emits": "event",
+      "schema": "EventFrame@1.0",
+      "availability": "FORWARD_ONLY",
+      "pit_hazard": "Prod IP-whitelisted; off-whitelist returns success:true with an EMPTY data block, which is indistinguishable from 'no news' unless you check source_status. No bulk history — collect forward."
+    },
+    "contract_positions": {
+      "node": "contract_positions",
+      "required": true,
+      "emits": "position",
+      "schema": "PositionFrame@1.0",
+      "availability": "FORWARD_ONLY",
+      "pit_hazard": "live account state. A backtest must use the simulated book, never this node."
+    }
+  },
+  "frames": {
+    "klines": {
+      "shape": "BarFrame@1.0",
+      "status": "ok",
+      "availability": "BACKTESTABLE",
+      "rows": [
+        {
+          "open_time": 1785992800000,
+          "open": 61100.0,
+          "high": 61300.0,
+          "low": 61010.0,
+          "close": 61250.0,
+          "volume": 744.1,
+          "quote_volume": 45500000.0,
+          "close_time": 1785996400000,
+          "trades": 19004,
+          "instrument_id": "BTCUSDT",
+          "timeframe": "1h",
+          "available_time": 1785996400000,
+          "event_time": 1785996400000
+        },
+        {
+          "open_time": 1785996400000,
+          "open": 61250.0,
+          "high": 61480.0,
+          "low": 61120.0,
+          "close": 61390.0,
+          "volume": 812.4,
+          "quote_volume": 49871233.0,
+          "close_time": 1786000000000,
+          "trades": 21044,
+          "instrument_id": "BTCUSDT",
+          "timeframe": "1h",
+          "available_time": 1786000000000,
+          "event_time": 1786000000000
+        },
+        {
+          "open_time": 1785996400000,
+          "open": 61390.0,
+          "high": 61520.0,
+          "low": 61280.0,
+          "close": 61460.0,
+          "volume": 690.2,
+          "quote_volume": 42400000.0,
+          "close_time": 1786003600000,
+          "trades": 17322,
+          "instrument_id": "BTCUSDT",
+          "timeframe": "1h",
+          "available_time": 1786003600000,
+          "event_time": 1786003600000
+        }
+      ]
+    },
+    "funding": {
+      "shape": "MetricFrame@1.0",
+      "status": "ok",
+      "availability": "BACKTESTABLE",
+      "rows": [
+        {
+          "instrument_id": "BTCUSDT",
+          "event_time": 1785942400000,
+          "unit": "ratio",
+          "window": "8h",
+          "source_id": "binance.funding_rate",
+          "metric": "rate",
+          "value": 9e-05,
+          "available_time": 1785942400000
+        },
+        {
+          "instrument_id": "BTCUSDT",
+          "event_time": 1785971200000,
+          "unit": "ratio",
+          "window": "8h",
+          "source_id": "binance.funding_rate",
+          "metric": "rate",
+          "value": 0.00011,
+          "available_time": 1785971200000
+        },
+        {
+          "instrument_id": "BTCUSDT",
+          "event_time": 1786000000000,
+          "unit": "ratio",
+          "window": "8h",
+          "source_id": "binance.funding_rate",
+          "metric": "rate",
+          "value": 0.00012,
+          "available_time": 1786000000000
+        }
+      ],
+      "available_time_inferred": true
+    },
+    "open_interest": {
+      "shape": "MetricFrame@1.0",
+      "status": "ok",
+      "availability": "SEMI",
+      "rows": [
+        {
+          "event_time": 1785996400000,
+          "unit": "notional",
+          "source_id": "binance.open_interest_statistics",
+          "instrument_id": "BTCUSDT",
+          "timeframe": "1h",
+          "metric": "oi_base",
+          "value": 82140.0,
+          "available_time": 1785996400000
+        },
+        {
+          "event_time": 1786000000000,
+          "unit": "notional",
+          "source_id": "binance.open_interest_statistics",
+          "instrument_id": "BTCUSDT",
+          "timeframe": "1h",
+          "metric": "oi_base",
+          "value": 84902.0,
+          "available_time": 1786000000000
+        },
+        {
+          "event_time": 1785996400000,
+          "unit": "notional",
+          "source_id": "binance.open_interest_statistics",
+          "instrument_id": "BTCUSDT",
+          "timeframe": "1h",
+          "metric": "oi_value",
+          "value": 5041000000.0,
+          "available_time": 1785996400000
+        }
+      ],
+      "pit_hazard": "public endpoint keeps only ~30 days. A longer backtest silently starts mid-series — check the first timestamp, do not assume.",
+      "available_time_inferred": true
+    },
+    "news": {
+      "shape": "EventFrame@1.0",
+      "status": "ok",
+      "availability": "FORWARD_ONLY",
+      "rows": [
+        {
+          "event_id": "sq-90412",
+          "title": "Binance Will List ABC",
+          "summary": "…",
+          "body": "…",
+          "event_time": 1785999860000,
+          "url": "https://binance.com/announcement/1",
+          "tickers": [
+            "ABC"
+          ],
+          "author_role": "official",
+          "content_type": 2,
+          "tendency": 1,
+          "author_name": "Binance",
+          "source_id": "square.getNews",
+          "topic": "unclassified",
+          "available_time": 1785999860000
+        }
+      ],
+      "pit_hazard": "Prod IP-whitelisted; off-whitelist returns success:true with an EMPTY data block, which is indistinguishable from 'no news' unless you check source_status. No bulk history — collect forward.",
+      "available_time_inferred": true
+    },
+    "contract_positions": {
+      "shape": "PositionFrame@1.0",
+      "status": "ok",
+      "availability": "FORWARD_ONLY",
+      "rows": [
+        {
+          "instrument_id": "BTCUSDT",
+          "side": "short",
+          "quantity": 0.42,
+          "entry_price": 61810.0,
+          "leverage": 5.0,
+          "unrealized_pnl": 176.4,
+          "available_time": 1786000000000
+        }
+      ],
+      "pit_hazard": "live account state. A backtest must use the simulated book, never this node.",
+      "available_time_inferred": true
+    }
+  }
+}

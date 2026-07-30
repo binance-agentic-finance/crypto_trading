@@ -10,8 +10,9 @@ the public web gateway (``https://www.binance.com/bapi/bigdata``):
 Everything internal has been intentionally left behind:
 
   * ``TradingInsightClient`` (QA-only Signal篇 endpoints) — NOT vendored.
-  * Any ``*.eureka.qa.local`` internal host (indicators / offline charts /
-    futures market data / bdp-search-recall rankings) — NOT vendored.
+  * Every internal-network host (indicators / offline charts / futures
+    market data / search-recall rankings) — NOT vendored. Those hosts are
+    named in the private deployment config, never in this public repo.
   * ``.local`` DNS-fallback / ``subprocess`` host resolution — NOT vendored
     (only ever needed for the internal hosts above).
 
@@ -53,18 +54,37 @@ __provenance__ = {
     "excluded": [
         "TradingInsightClient",
         "indicators / offline_charts / futures_market_*",
-        "ranking_spot / ranking_um / ranking_cm (bdp-search-recall)",
+        "ranking_spot / ranking_um / ranking_cm (internal search-recall)",
         "get_ai_signal / get_strategy_ranking / *PriceChangeRank / getTradeSignalTopRank",
-        "all *.eureka.qa.local internal hosts + .local DNS fallback",
+        "all internal-network hosts + .local DNS fallback",
     ],
     "public_only": True,
     "stdlib_only": True,
 }
 
-# ---- Public gateway endpoints --------------------------------------------
+# ---- Gateway endpoints ----------------------------------------------------
 GW_PROD = "https://www.binance.com/bapi/bigdata"   # public, has real data
-GW_QA = "https://www.qa1fdg.net/bapi/bigdata"      # public QA gateway (cache mostly empty)
+
+#: QA gateway. The host used to be hardcoded here and was labelled a "public QA
+#: gateway" — it is not: it resolves to an RFC1918 address and is only reachable
+#: from the corporate network, so publishing it in this public repository leaked
+#: an internal hostname. Supply it via ``CYQNT_BIGDATA_QA_GATEWAY`` where the QA
+#: environment is actually reachable; ``env="qa"`` raises without it rather than
+#: silently falling back to prod (which would send QA traffic at real data).
+_QA_GATEWAY_ENV = "CYQNT_BIGDATA_QA_GATEWAY"
 SQUARE_PATH = "/v1/public/bigdata/square/skill"
+
+
+def qa_gateway() -> str:
+    """QA gateway base URL from the environment, or raise explaining why."""
+    value = os.environ.get(_QA_GATEWAY_ENV, "").strip()
+    if not value:
+        raise RuntimeError(
+            "env='qa' needs %s to be set (e.g. https://<qa-host>/bapi/bigdata). "
+            "The QA host is internal and is deliberately not hardcoded in this "
+            "public repository." % _QA_GATEWAY_ENV
+        )
+    return value.rstrip("/")
 
 #: Provenance header sent with every request so the server / any proxy can
 #: attribute traffic to the vendored client.
@@ -105,7 +125,7 @@ class PublicBigDataClient:
         self.timeout = timeout
         self.min_interval = float(min_interval)
         self._last_call = 0.0
-        self.gateway = GW_PROD if env == "prod" else GW_QA
+        self.gateway = GW_PROD if env == "prod" else qa_gateway()
 
     # ---- transport --------------------------------------------------------
     def _post(self, url: str, payload: dict, gray: bool = False) -> dict:

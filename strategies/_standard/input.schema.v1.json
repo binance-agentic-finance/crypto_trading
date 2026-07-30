@@ -1,0 +1,926 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "cyqnt.input/v1",
+  "title": "cyqnt standard bot input (BotContext, v1)",
+  "description": "The complete input a bot decides on. `frames` holds each declared data node exactly as its source returned it; `typed` holds the same data normalised to one of the canonical frame shapes below, so a bot reading funding, OI and news uses one column vocabulary instead of three. `source_status` covers EVERY declared node including failures, so \"not read\" and \"read and empty\" stay distinguishable. Generated from standard_bot/core/input_contract.py by docs/gen_input_schema_v1.py; do not hand-edit.",
+  "type": "object",
+  "required": [
+    "schema",
+    "decision_time"
+  ],
+  "properties": {
+    "schema": {
+      "const": "cyqnt.input/v1"
+    },
+    "bot_id": {
+      "type": "string"
+    },
+    "decision_time": {
+      "type": "integer",
+      "description": "epoch ms. The single point in time this whole context is valid at; equals the snapshot's decision_as_of. Every frame is PIT-gated to it."
+    },
+    "snapshot_id": {
+      "type": "string"
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "trace_id": {
+      "type": "string"
+    },
+    "equity": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "description": "Account equity, when the caller supplies it. Required to resolve an absolute size mode."
+    },
+    "positions": {
+      "type": "object",
+      "description": "Signed exposure per symbol: >0 long, <0 short, absent/0 flat. A bot that does not read this may not emit close/reduce/flip intents.",
+      "additionalProperties": {
+        "type": "number"
+      }
+    },
+    "frames": {
+      "type": "object",
+      "description": "node key -> one normalised frame. Each entry names its canonical `shape` and carries the `rows` in it, plus the metadata a reader needs to trust them: `status` (ok | empty | error | unnormalised), `reason` when it failed, `source_fallback` when a substitute source answered, and the node's `availability` / `pit_hazard`. `rows` is validated against the shape named in `shape`, so a frame cannot claim to be a BarFrame and carry something else.",
+      "additionalProperties": {
+        "$ref": "#/definitions/Frame"
+      }
+    },
+    "source_status": {
+      "type": "object",
+      "description": "node key -> ok | empty | stale | error. Present for every DECLARED node, including the ones that failed.",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "config": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "definitions": {
+    "BarFrame_1_0": {
+      "type": "array",
+      "description": "BarFrame@1.0 — row grain: one instrument × timeframe × bar. OHLCV candles. The base series every technical block reads.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "instrument_id": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ],
+            "description": "Canonical symbol, e.g. BTCUSDT. Null on a market-wide row."
+          },
+          "timeframe": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ]
+          },
+          "open_time": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "epoch ms"
+          },
+          "close_time": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "epoch ms"
+          },
+          "open": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "high": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "low": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "close": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "volume": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "available_time": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "When we could first have KNOWN it (epoch ms). The PIT gate: a backtest may only read rows whose available_time <= the decision time. Conflating this with event_time is how a walk-forward test silently reads the future."
+          },
+          "quote_volume": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "trades": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ]
+          },
+          "confirmed": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ],
+            "description": "False for an in-flight bar. A bot must not decide on one."
+          },
+          "event_time": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "When the thing HAPPENED (epoch ms)."
+          }
+        },
+        "required": [
+          "instrument_id",
+          "timeframe",
+          "open_time",
+          "close_time",
+          "open",
+          "high",
+          "low",
+          "close",
+          "volume",
+          "available_time"
+        ]
+      }
+    },
+    "MetricFrame_1_0": {
+      "type": "array",
+      "description": "MetricFrame@1.0 — row grain: one instrument × metric × time. Long-form numeric observations. One row per measurement, so a source that fails contributes zero rows instead of a zero value.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "event_time": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "When the thing HAPPENED (epoch ms)."
+          },
+          "available_time": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "When we could first have KNOWN it (epoch ms). The PIT gate: a backtest may only read rows whose available_time <= the decision time. Conflating this with event_time is how a walk-forward test silently reads the future."
+          },
+          "instrument_id": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ],
+            "description": "Canonical symbol, e.g. BTCUSDT. Null on a market-wide row."
+          },
+          "metric": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ],
+            "description": "Name of the measured quantity in a long-form MetricFrame, so funding / OI / long-short all share one column vocabulary."
+          },
+          "value": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "venue": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ]
+          },
+          "product": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ]
+          },
+          "unit": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ]
+          },
+          "window": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ]
+          },
+          "source_id": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ]
+          },
+          "quality": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "event_time",
+          "available_time",
+          "instrument_id",
+          "metric",
+          "value"
+        ]
+      }
+    },
+    "PanelFrame_1_0": {
+      "type": "array",
+      "description": "PanelFrame@1.0 — row grain: one timestamp; one column per instrument. Wide time × instrument numeric panel — the natural input for a cross-sectional strategy that ranks a universe each bar.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "event_time": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "When the thing HAPPENED (epoch ms)."
+          },
+          "available_time": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "When we could first have KNOWN it (epoch ms). The PIT gate: a backtest may only read rows whose available_time <= the decision time. Conflating this with event_time is how a walk-forward test silently reads the future."
+          },
+          "metric": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ],
+            "description": "Name of the measured quantity in a long-form MetricFrame, so funding / OI / long-short all share one column vocabulary."
+          }
+        },
+        "required": [
+          "event_time",
+          "available_time"
+        ]
+      }
+    },
+    "EventFrame_1_0": {
+      "type": "array",
+      "description": "EventFrame@1.0 — row grain: one event × instrument (instrument may be null for market-wide). Discrete dated events: news, announcements, calendar entries, unlocks, macro releases. Carries provenance so a directional read can be refused when the source is unverified.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "event_id": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ]
+          },
+          "event_time": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "When the thing HAPPENED (epoch ms)."
+          },
+          "available_time": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "When we could first have KNOWN it (epoch ms). The PIT gate: a backtest may only read rows whose available_time <= the decision time. Conflating this with event_time is how a walk-forward test silently reads the future."
+          },
+          "source_id": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ]
+          },
+          "topic": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ]
+          },
+          "instrument_id": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ],
+            "description": "Canonical symbol, e.g. BTCUSDT. Null on a market-wide row."
+          },
+          "urgency": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ]
+          },
+          "title": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ]
+          },
+          "summary": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ]
+          },
+          "url": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ]
+          },
+          "bias": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ]
+          },
+          "event_type": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ]
+          },
+          "source_reliability": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "corroboration_count": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "quality_flags": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "event_id",
+          "event_time",
+          "available_time",
+          "source_id",
+          "topic"
+        ]
+      }
+    },
+    "RankFrame_1_0": {
+      "type": "array",
+      "description": "RankFrame@1.0 — row grain: one instrument at one as-of. Cross-sectional snapshot: a scored/ranked instrument list. Feature columns beyond the required ones are passed through untouched.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "available_time": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "When we could first have KNOWN it (epoch ms). The PIT gate: a backtest may only read rows whose available_time <= the decision time. Conflating this with event_time is how a walk-forward test silently reads the future."
+          },
+          "instrument_id": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ],
+            "description": "Canonical symbol, e.g. BTCUSDT. Null on a market-wide row."
+          },
+          "event_time": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "When the thing HAPPENED (epoch ms)."
+          },
+          "rank": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "score": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "venue": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ]
+          },
+          "product": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ]
+          },
+          "source_id": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "available_time",
+          "instrument_id"
+        ]
+      }
+    },
+    "PositionFrame_1_0": {
+      "type": "array",
+      "description": "PositionFrame@1.0 — row grain: one open position. Account state. This is what the position lifecycle reads to know whether an exit means CLOSE_LONG or CLOSE_SHORT.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "available_time": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "When we could first have KNOWN it (epoch ms). The PIT gate: a backtest may only read rows whose available_time <= the decision time. Conflating this with event_time is how a walk-forward test silently reads the future."
+          },
+          "instrument_id": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ],
+            "description": "Canonical symbol, e.g. BTCUSDT. Null on a market-wide row."
+          },
+          "side": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ],
+            "description": "long | short for a position; bid | ask for a book level."
+          },
+          "quantity": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "venue": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ]
+          },
+          "product": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ]
+          },
+          "entry_price": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "leverage": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "margin_ratio": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "unrealized_pnl": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "notional": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "available_time",
+          "instrument_id",
+          "side",
+          "quantity"
+        ]
+      }
+    },
+    "BookFrame_1_0": {
+      "type": "array",
+      "description": "BookFrame@1.0 — row grain: one price level on one side. Order-book ladder snapshot.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "available_time": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "When we could first have KNOWN it (epoch ms). The PIT gate: a backtest may only read rows whose available_time <= the decision time. Conflating this with event_time is how a walk-forward test silently reads the future."
+          },
+          "instrument_id": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ],
+            "description": "Canonical symbol, e.g. BTCUSDT. Null on a market-wide row."
+          },
+          "side": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ],
+            "description": "long | short for a position; bid | ask for a book level."
+          },
+          "level": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "price": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "quantity": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "event_time": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "When the thing HAPPENED (epoch ms)."
+          },
+          "venue": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ]
+          },
+          "product": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "available_time",
+          "instrument_id",
+          "side",
+          "level",
+          "price",
+          "quantity"
+        ]
+      }
+    },
+    "Frame": {
+      "type": "object",
+      "required": [
+        "shape",
+        "rows"
+      ],
+      "properties": {
+        "shape": {
+          "type": "string",
+          "description": "canonical shape id; RawFrame@1.0 when the node declares none.",
+          "anyOf": [
+            {
+              "enum": [
+                "BarFrame@1.0",
+                "BookFrame@1.0",
+                "EventFrame@1.0",
+                "MetricFrame@1.0",
+                "PanelFrame@1.0",
+                "PositionFrame@1.0",
+                "RankFrame@1.0"
+              ]
+            },
+            {
+              "const": "RawFrame@1.0"
+            }
+          ]
+        },
+        "rows": {
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "ok",
+            "empty",
+            "error",
+            "unnormalised"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "description": "why the node could not be read; present exactly when status is error/unnormalised."
+        },
+        "availability": {
+          "type": "string"
+        },
+        "pit_hazard": {
+          "type": "string"
+        },
+        "source_fallback": {
+          "type": "string",
+          "description": "set when a substitute source answered instead of the primary one — two runs served by different transports are not comparable."
+        },
+        "available_time_inferred": {
+          "type": "boolean"
+        },
+        "window_start": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "window_end": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "rows_after_decision_time_dropped": {
+          "type": "integer"
+        },
+        "rows_before_window_dropped": {
+          "type": "integer"
+        },
+        "pit_safe": {
+          "type": "boolean"
+        },
+        "source_timeframe": {
+          "type": "string"
+        },
+        "full_row_count": {
+          "type": "integer"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "shape": {
+                "const": "BarFrame@1.0"
+              }
+            },
+            "required": [
+              "shape"
+            ]
+          },
+          "then": {
+            "properties": {
+              "rows": {
+                "$ref": "#/definitions/BarFrame_1_0"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "shape": {
+                "const": "BookFrame@1.0"
+              }
+            },
+            "required": [
+              "shape"
+            ]
+          },
+          "then": {
+            "properties": {
+              "rows": {
+                "$ref": "#/definitions/BookFrame_1_0"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "shape": {
+                "const": "EventFrame@1.0"
+              }
+            },
+            "required": [
+              "shape"
+            ]
+          },
+          "then": {
+            "properties": {
+              "rows": {
+                "$ref": "#/definitions/EventFrame_1_0"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "shape": {
+                "const": "MetricFrame@1.0"
+              }
+            },
+            "required": [
+              "shape"
+            ]
+          },
+          "then": {
+            "properties": {
+              "rows": {
+                "$ref": "#/definitions/MetricFrame_1_0"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "shape": {
+                "const": "PanelFrame@1.0"
+              }
+            },
+            "required": [
+              "shape"
+            ]
+          },
+          "then": {
+            "properties": {
+              "rows": {
+                "$ref": "#/definitions/PanelFrame_1_0"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "shape": {
+                "const": "PositionFrame@1.0"
+              }
+            },
+            "required": [
+              "shape"
+            ]
+          },
+          "then": {
+            "properties": {
+              "rows": {
+                "$ref": "#/definitions/PositionFrame_1_0"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "shape": {
+                "const": "RankFrame@1.0"
+              }
+            },
+            "required": [
+              "shape"
+            ]
+          },
+          "then": {
+            "properties": {
+              "rows": {
+                "$ref": "#/definitions/RankFrame_1_0"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

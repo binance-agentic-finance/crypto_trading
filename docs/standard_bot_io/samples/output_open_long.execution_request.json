@@ -1,0 +1,34 @@
+{
+  "venue_class": "CEX_PERP",
+  "intent_type": "LIMIT",
+  "instrument": "BTCUSDT",
+  "side": "BUY",
+  "position_intent": "open_long",
+  "reduce_only": false,
+  "size": {
+    "mode": "risk_pct",
+    "value": 0.01,
+    "leverage": 5,
+    "max_notional_quote": 2000.0,
+    "reduce_only": false
+  },
+  "params": {
+    "time_in_force": "GTC",
+    "price": 61300.0,
+    "zone": [
+      61200.0,
+      61400.0
+    ],
+    "bracket": {
+      "stop": 60340.0,
+      "take_profit": [
+        63139.0,
+        64978.0
+      ],
+      "exchange_managed": false
+    }
+  },
+  "client_tag": "sample_bot:binance:usd_m_perpetual:B",
+  "source_signal_id": "ba83c3b0-8376-59e3-aef4-6e6c0138c90b",
+  "requires_confirmation": true
+}

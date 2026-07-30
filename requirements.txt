@@ -15,6 +15,11 @@ binance-sdk-derivatives-trading-usds-futures>=10.0.1,<11.0
 binance-sdk-algo>=2.6.0,<3.0
 binance-common>=3.8.0,<4.0
 
+# Contract validation — tests/standard_bot/test_input_schema_v1.py
+# validates every cyqnt.input/v1 artifact AND asserts the schema
+# rejects polluted input. Without this the guard silently skips.
+jsonschema>=4.0.0
+
 # Development dependencies (optional)
 # pytest>=8.0.0
 # pytest-cov>=4.0.0,<5.0.0

@@ -30,8 +30,13 @@ from .interfaces import MarketDataAdapter, OnChainDataAdapter, SnapshotAssembler
 from .snapshot import HistoricalSnapshotAssembler
 from .selection_assembler import build_selection_snapshot, build_universe_bundle, run_selection
 from .unified_snapshot import build_unified_snapshot, universe_klines_to_market_bundle
+from .input_bundle import (build_input_bundle, load_input_bundle,
+                           write_input_bundle, read_input_bundle)
+from .advisory_assembler import build_advisory_snapshot, run_advisory
 
 __all__ = [
+    "build_live_bundle",
+    "to_panel",
     "AlignmentPolicy",
     "aggregate_force_order_records",
     "BinanceRestMarketDataAdapter",
@@ -55,6 +60,12 @@ __all__ = [
     "build_universe_bundle",
     "run_selection",
     "build_unified_snapshot",
+    "build_input_bundle",
+    "load_input_bundle",
+    "write_input_bundle",
+    "read_input_bundle",
+    "build_advisory_snapshot",
+    "run_advisory",
     "universe_klines_to_market_bundle",
     "assemble_snapshot",
     "build_history_path",
@@ -65,3 +76,9 @@ __all__ = [
     "resample_frame_from_1m",
     "timeframe_to_ms",
 ]
+
+# Live fetch -> one cyqnt.input/v1 bundle, and the bar-aligned wide frame
+# cyqnt_trd.blocks consumes. Imported lazily-friendly at the bottom so the
+# package keeps importing without pandas present.
+from .live_bundle import build_live_bundle  # noqa: E402
+from .panel import to_panel  # noqa: E402

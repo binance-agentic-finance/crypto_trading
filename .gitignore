@@ -74,3 +74,9 @@ strategies/_standard/BOT_STANDARD_AND_STRATEGIES.md
 
 # 當日策略研究(審核後才進 strategies/)
 2026-07-29/
+
+# 憑證外洩防護:這兩個檔案曾把 Binance API key/secret 硬編進公開 repo
+# (2025-12-13 ~ 2026-07-30)。已移除;此處擋住同名檔案再次被加入。
+# ⚠️ 移除只影響 HEAD —— 金鑰仍留在 git 歷史中,必須輪換才算修復。
+cyqnt_trd/test.py
+cyqnt_trd/diagnose_api.py

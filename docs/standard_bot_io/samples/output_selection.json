@@ -1,0 +1,87 @@
+{
+  "schema": "cyqnt.signal/v2",
+  "kind": "selection",
+  "bot_id": "funding_crowding_neutral",
+  "bot_version": "v1",
+  "signal_id": "ff7c16c4-b51d-529e-bec9-6b0bf19b5c0c",
+  "decision_time": 1786000000000,
+  "symbol": null,
+  "venue": "binance",
+  "product": "usd_m_perpetual",
+  "base_asset": "",
+  "quote_asset": "",
+  "market_scope": "cross_section",
+  "intent": "hold",
+  "target_side": null,
+  "closes_side": null,
+  "order_side": null,
+  "reduce_only": false,
+  "direction": "neutral",
+  "advisory_action": null,
+  "score": 60.0,
+  "confidence": 0.7,
+  "entry": null,
+  "exit_plan": null,
+  "size": null,
+  "risk": {
+    "max_loss_quote": null,
+    "max_position_quote": null,
+    "max_leverage": null,
+    "liquidation_buffer_pct": null,
+    "daily_loss_cap_quote": null
+  },
+  "time_horizon": "intraday",
+  "horizon_seconds": 3600,
+  "valid_until": 1786003600000,
+  "topic": "funding_crowding",
+  "reason_codes": [
+    "BASKET_SNAPSHOT"
+  ],
+  "summary": "资金费率拥挤度截面：2 多 / 2 空 / 6 观察",
+  "recommended_behavior": "",
+  "evidence": [],
+  "data_quality": "good",
+  "source_status": {},
+  "warnings": [],
+  "candidates": [
+    {
+      "symbol": "DOTUSDT",
+      "rank": 1,
+      "score": 0.0011,
+      "direction": "long",
+      "reason": "funding rank 1/10",
+      "features": {
+        "crowding_score": 0.0011
+      },
+      "trade": null
+    },
+    {
+      "symbol": "BTCUSDT",
+      "rank": 10,
+      "score": -0.0009,
+      "direction": "short",
+      "reason": "funding rank 10/10",
+      "features": {
+        "crowding_score": -0.0009
+      },
+      "trade": null
+    }
+  ],
+  "universe_size": 10,
+  "auto_trade_eligible": false,
+  "requires_confirmation": true,
+  "dedup_key": "funding_crowding_neutral:binance:usd_m_perpetual:GLOBAL:hold",
+  "provenance": {
+    "strategy_id": "sample_bot",
+    "strategy_version": "v1",
+    "snapshot_id": "0d2f…",
+    "config_hash": "",
+    "inputs": [
+      "klines",
+      "funding",
+      "contract_positions"
+    ],
+    "run_id": "",
+    "trace_id": ""
+  }
+}
