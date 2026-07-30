@@ -238,7 +238,11 @@ def test_state_series_get_their_own_comparator():
     """
     from cyqnt_trd.blocks import conditions as C, derivatives as D
 
-    funding = pd.Series([-8.0, 0.0, 8.0, 0.0])
+    # funding_rate_state takes the RAW RATIO (0.0001 == 1 bp) and converts to
+    # bps itself; only the thresholds are in bps. The fixture used to pass
+    # [-8.0, 8.0] as though it were already bps — which happened to classify the
+    # same way at that magnitude, so nothing noticed the unit was wrong.
+    funding = pd.Series([-0.0008, 0.0, 0.0008, 0.0])       # -8 bp / 0 / +8 bp / 0
     state = D.funding_rate_state(funding)
     assert state.dtype == object
     assert C.state_equals(state, "neutral").sum() == 2

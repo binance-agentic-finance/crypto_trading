@@ -45,9 +45,24 @@ __all__ = [
 # ---------------------------------------------------------------------------
 
 
-def oi_change_pct(oi: pd.Series, periods: int = 1) -> pd.Series:
-    """Percent change of open interest over *periods* bars."""
-    return ensure_series(oi).pct_change(periods=periods)
+def oi_change_pct(oi: pd.Series, periods: int = 1, *,
+                  as_percent: bool = False) -> pd.Series:
+    """Change in open interest over *periods* bars.
+
+    **Units: returns a FRACTION by default** — ``0.0617`` means 6.17%. The name
+    says ``_pct`` and the original docstring said "percent change", but the
+    value is :meth:`pandas.Series.pct_change` output, which is a fraction. A
+    threshold written as a human-readable percent (``>= 1.5`` meaning 1.5%) then
+    silently demands a 150% move and the condition never fires.
+
+    ``as_percent=True`` returns 6.17 for the same input, so a threshold can be
+    written in the unit a reader expects. The default is unchanged because
+    existing callers already compensate — see the note at
+    ``strategies/dag/mtf_trend_breakout_v2.py``, where someone hit this and
+    divided by 100 at the call site.
+    """
+    changed = ensure_series(oi).pct_change(periods=periods)
+    return changed * 100.0 if as_percent else changed
 
 
 def oi_price_divergence(price: pd.Series, oi: pd.Series, lookback: int = 20) -> pd.Series:
@@ -219,11 +234,35 @@ def funding_rate_state(
 ) -> pd.Series:
     """Categorise funding into ``bullish_squeeze`` / ``bearish_squeeze`` / ``neutral``.
 
-    Note: Binance returns funding as a fraction (e.g. 0.0001 == 1 bp);
-    we convert to bps. ``bullish_squeeze`` (high positive funding) means
-    longs are paying — over-extended longs, contrarian short bias.
+    **Units: pass the RAW RATIO.** Binance returns funding as a fraction
+    (0.0001 == 1 bp) and this function converts to bps itself; only the two
+    thresholds are expressed in bps. Handing it a pre-converted bps value
+    multiplies twice — 0.0001 becomes 10,000 bps — so every mildly positive
+    print reads as an extreme squeeze and the classifier stops discriminating
+    entirely. That failure is silent: the signature is Series-in / Series-out,
+    so nothing catches it except comparing the numbers.
+
+    Hence the guard below. A real funding ratio is bounded by the venue at a
+    fraction of a percent (Binance caps at ±0.75%, i.e. ±0.0075), so a value
+    above 1.0 is not a ratio under any market condition — it is bps that were
+    already converted. Raising is the kind outcome: a strategy in that state is
+    already emitting wrong signals, and stopping it beats letting it trade.
+
+    ``bullish_squeeze`` (high positive funding) means longs are paying —
+    over-extended longs, contrarian short bias.
     """
-    f = ensure_series(funding).astype(float) * 10_000.0  # to bps
+    f = ensure_series(funding).astype(float)
+    finite = f[f.notna()]
+    if len(finite) and float(finite.abs().max()) > 1.0:
+        raise ValueError(
+            "funding_rate_state expects the RAW RATIO (0.0001 == 1 bp) and "
+            "converts to bps itself, but the input reaches %.4g — a funding "
+            "ratio cannot exceed the venue cap of ~0.0075. This is almost "
+            "certainly a value that was already multiplied by 10,000; pass the "
+            "raw series instead. (Thresholds stay in bps.)"
+            % float(finite.abs().max())
+        )
+    f = f * 10_000.0  # to bps
     out = pd.Series("neutral", index=f.index)
     out = out.where(~(f >= high_threshold_bps), "bullish_squeeze")
     out = out.where(~(f <= low_threshold_bps), "bearish_squeeze")

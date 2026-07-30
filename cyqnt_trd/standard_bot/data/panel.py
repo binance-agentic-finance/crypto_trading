@@ -163,8 +163,18 @@ def to_panel(
                         | owner.isin({"", "MARKET", "NONE"}) | owner.isna()]
         if long.empty:
             continue
+        units = _declared_units(long)
         for name, series in _metric_columns(long, node=key).items():
-            panel[_unique(panel, name, node=key)] = _asof(series, axis, cutoffs)
+            column = _unique(panel, name, node=key)
+            panel[column] = _asof(series, axis, cutoffs)
+            if name in units:
+                # The unit is declared by the catalog and rides every MetricFrame
+                # row, then dies here: pivoting metric -> column keeps the value
+                # and drops everything beside it. A bare ``rate`` column says
+                # nothing about whether it is a ratio or bps, and that ambiguity
+                # is what makes a double conversion invisible. So the units come
+                # with the panel.
+                panel.attrs.setdefault("units", {})[column] = units[name]
 
     # ---- event frames: count per window, ending at each bar ------------------
     windows = dict(event_windows if event_windows is not None else _EVENT_WINDOWS)
@@ -238,6 +248,18 @@ def _owns(series, symbol: str):
     upper = series.astype(str).str.upper()
     wanted = {symbol, _base_token(symbol)}
     return upper.isin(wanted)
+
+
+def _declared_units(long) -> Dict[str, str]:
+    """{metric name: unit} for the metrics in a long-form frame, when declared."""
+    if "unit" not in long.columns or "metric" not in long.columns:
+        return {}
+    out: Dict[str, str] = {}
+    for name, group in long.groupby(long["metric"].astype(str), sort=False):
+        declared = group["unit"].dropna().astype(str)
+        if not declared.empty:
+            out[str(name)] = declared.iloc[0]
+    return out
 
 
 def _metric_columns(long, *, node: str) -> Dict[str, Any]:
