@@ -102,9 +102,21 @@ class RealtimePriceTracker:
         
         # 初始化 REST API 客户端（用于获取历史数据）
         if market_type == "futures":
+            # Credentials come from the environment ONLY. They used to be
+            # hardcoded as os.getenv() *defaults*, which meant a real production
+            # futures key/secret sat in this public repository and was used
+            # whenever the env vars were unset. Fail loudly instead.
+            api_key = os.getenv("API_KEY", "").strip()
+            api_secret = os.getenv("API_SECRET", "").strip()
+            if not api_key or not api_secret:
+                raise RuntimeError(
+                    "API_KEY / API_SECRET must be set in the environment. "
+                    "They are deliberately not defaulted in code — the previous "
+                    "hardcoded pair was exposed publicly and has to be rotated."
+                )
             self.rest_config = ConfigurationRestAPI(
-                api_key=os.getenv("API_KEY", "KB6hxLqPAvkV8DBJq6xY1tnyXR7bLxPbCQMX6zjUMwQbrujdfKlShgJ9uGQqPsrn"),
-                api_secret=os.getenv("API_SECRET", "Gv7l5ht1nyfl3Npw4q4zaT4FWPGCAOiSw8EldeSTXdQUQrsxLlE22Yi5ttoj9eaD"),
+                api_key=api_key,
+                api_secret=api_secret,
                 base_path=os.getenv(
                     "BASE_PATH", DERIVATIVES_TRADING_USDS_FUTURES_REST_API_PROD_URL
                 ),

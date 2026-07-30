@@ -25,9 +25,22 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# 默认API密钥（如果环境变量未设置则使用）
-DEFAULT_API_KEY = os.getenv("API_KEY", "KB6hxLqPAvkV8DBJq6xY1tnyXR7bLxPbCQMX6zjUMwQbrujdfKlShgJ9uGQqPsrn")
-DEFAULT_API_SECRET = os.getenv("API_SECRET", "Gv7l5ht1nyfl3Npw4q4zaT4FWPGCAOiSw8EldeSTXdQUQrsxLlE22Yi5ttoj9eaD")
+# API 憑證只從環境變數取,沒有預設值。
+# 這兩行原本把真實的正式環境合約金鑰當成 os.getenv 的 fallback,
+# 等於把可交易的金鑰放進公開 repo,且在環境變數未設時真的會被拿去用。
+def _require(name: str) -> str:
+    value = os.getenv(name, "").strip()
+    if not value:
+        raise RuntimeError(
+            f"{name} must be set in the environment; it is deliberately not "
+            "defaulted in code — the previous hardcoded pair was exposed "
+            "publicly and has to be rotated."
+        )
+    return value
+
+
+DEFAULT_API_KEY = _require("API_KEY")
+DEFAULT_API_SECRET = _require("API_SECRET")
 
 
 def get_spot_balance(asset: Optional[str] = None) -> Dict[str, Any]:

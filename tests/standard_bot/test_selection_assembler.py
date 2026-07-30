@@ -112,8 +112,10 @@ def test_run_selection_n1():
                           universe_df=_universe(), ticker_rank_df=_rank())
     assert len(cands) == 3
     by_sym = {c["symbol"]: c for c in cands}
-    assert by_sym["BTCUSDT"]["side"] == "long"
-    assert by_sym["ETHUSDT"]["side"] == "short"
+    # v2 names the per-candidate bias ``direction`` (SelectionCandidate.direction);
+    # the pre-v2 selection payload called the same field ``side``.
+    assert by_sym["BTCUSDT"]["direction"] == "long"
+    assert by_sym["ETHUSDT"]["direction"] == "short"
 
 
 def test_run_selection_n2_with_klines():

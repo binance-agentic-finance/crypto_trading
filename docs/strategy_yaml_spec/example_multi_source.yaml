@@ -1,0 +1,104 @@
+# =============================================================================
+# 範例 3 —— 多來源(OHLCV + 資金費率 + 未平倉量)
+# =============================================================================
+# 前兩個範例只用 K 線。這一個示範怎麼把「不是 OHLCV 的資料」接進策略:
+#
+#   data.derivatives:  → 掛上 funding_rate / funding_rate_bps / mark_price /
+#                        open_interest / open_interest_value / oi_change_bps
+#   data.liquidations: → 掛上 long_liq_notional_usd / short_liq_notional_usd /
+#                        net_liq_notional_usd / liq_imbalance_ratio ...
+#
+# 三個要點:
+#   1. 沒有宣告 data.derivatives 就引用 funding_rate_bps → validate 直接擋下來,
+#      並告訴你要加哪一段。不會讓你驗證過了才在跑的時候拿到 NaN。
+#   2. derivatives.* 這一類 block 吃的是「具名 Series」而不是整個 df,
+#      所以用 input: <欄位或前面算過的指標名>;要兩個 Series 就用 inputs: [a, b]。
+#   3. 指標可以串接:後面的指標可以用前面指標的「名字」當 input。
+#
+# 執行:
+#   驗證:  python -m cyqnt_trd.standard_bot.yaml_pipeline validate example_multi_source.yaml
+#   回測:  python -m cyqnt_trd.standard_bot.yaml_pipeline run example_multi_source.yaml
+# =============================================================================
+
+spec_version: "1.0"
+target: standard_bot
+
+strategy:
+  id: btc_multi_source
+  description: "BTC:EMA 金叉 + 資金費率為負(空方在付錢) + 未平倉量沒在暴衝 → 做多"
+
+run:
+  mode: backtest
+
+data:
+  symbol: BTCUSDT
+  market_type: futures                # 衍生品資料只有 futures 有
+  primary:
+    # repo 內的 parquet 只有 1m;要跑 1h 有兩條路:
+    #   (a) 放一份 1h parquet 進 data.source.dir,或
+    #   (b) 用 --engine event,它會依 source.storage_timeframe 自行 resample
+    #       (預設的向量化引擎不會 resample)
+    interval: "1m"
+    poll_interval: 3570
+  source:
+    type: historical_parquet
+    dir: data/mtf_90d
+  derivatives:                        # ← 資金費率 + 未平倉量
+    dir: data/derivatives_mvp_30d
+  # liquidations:                     # ← 清算(要用再打開)
+  #   dir: data/liquidations_mvp_live
+
+signals:
+  indicators:
+    ema_fast: { block: indicators.ema, input: close, params: { period: 60 } }
+    ema_slow: { block: indicators.ema, input: close, params: { period: 240 } }
+
+    # 吃 df 掛上來的 funding 欄位,回傳分類字串 Series
+    fund_state:
+      block: derivatives.funding_rate_state
+      input: funding_rate_bps
+      params: { high_threshold_bps: 1.0, low_threshold_bps: -1.0 }
+
+    # 吃 open_interest 欄位,回傳 12 根期間的變動百分比
+    oi_chg:
+      block: derivatives.oi_change_pct
+      input: open_interest
+      params: { periods: 12 }
+
+    # 指標串接:atr 先算,再餵給 regime 判斷波動位階
+    atr14:  { block: indicators.atr, input: df, params: { period: 14 } }
+    vol_hi: { block: regime.atr_above_percentile, input: atr14,
+              params: { window: 200, percentile: 0.8 } }
+
+  entry:
+    long:
+      all_of:
+        - { cond: conditions.ma_cross_above, args: [ema_fast, ema_slow] }
+        # 數字字面量原樣傳入(不會被包成 Series);名字則解析成 Series
+        - { cond: conditions.value_below,    args: [funding_rate_bps, 0.0] }
+        - { cond: conditions.value_below,    args: [oi_chg, 5.0] }
+        # 波動過高時不進場
+        - not: { cond: conditions.value_above, args: [vol_hi, 0.5] }
+    short:
+      all_of:
+        - { cond: conditions.ma_cross_below, args: [ema_fast, ema_slow] }
+        # 分類 Series 要用 state_equals,數值比較會直接丟 TypeError。
+        # 字串常數放 params ——「args 裡的字串」一律當成欄位/指標名解析。
+        - { cond: conditions.state_equals,   args: [fund_state],
+            params: { state: "bullish_squeeze" } }
+
+sizing:
+  size: 0.5
+
+risk:
+  exit:
+    type: atr_stop_tp
+    atr_period: 14
+    stop_mult: 2.0
+    tp_mult: 4.0
+    max_bars: 120
+  fees: { commission_bps: 4.0, slippage_bps: 2.0 }
+
+backtest:
+  initial_capital: 10000
+  execution_model: next_bar_open

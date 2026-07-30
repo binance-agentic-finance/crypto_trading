@@ -93,6 +93,11 @@ HtfSpec = Tuple[str, int]  # (htf_timeframe, sma_period)
 #           klines, as_of_ms, market_type) -> list[candidate dict]
 SelectionFn = Callable[..., List[Dict]]
 
+#: the one output contract. Declared here as a literal rather than imported at
+#: module scope so ``cyqnt_trd.blocks`` keeps importing without standard_bot;
+#: :func:`_assert_schema_version_matches` checks the two cannot drift.
+_SIGNAL_SCHEMA_VERSION = "cyqnt.signal/v2"
+
 
 @dataclass
 class _RegisteredStrategy:
@@ -784,7 +789,7 @@ class SelectionStrategyPlugin:
             _uuid.uuid5(ns, f"{snapshot.meta.snapshot_id}|{self.plugin_id}|selection|{as_of}")
         )
         return SignalEnvelope(
-            version=self.plugin_version,
+            version=_SIGNAL_SCHEMA_VERSION,
             signal_id=sig_id,
             kind=SignalKind.SELECTION,
             instrument_id=None,
@@ -792,11 +797,8 @@ class SelectionStrategyPlugin:
             strength=1.0,
             time_horizon="swing",
             valid_until=decision_as_of,
-            payload={
-                "candidates": candidates,
-                "as_of": as_of,
-                "universe_size": universe_size,
-            },
+            payload=self._v2_payload(
+                candidates, as_of=as_of, universe_size=universe_size, snapshot=snapshot),
             provenance=SignalProvenance(
                 plugin_id=self.plugin_id,
                 plugin_version=self.plugin_version,
@@ -804,6 +806,85 @@ class SelectionStrategyPlugin:
                 input_fingerprint=snapshot.meta.snapshot_id,
             ),
         )
+
+    def _v2_payload(self, candidates: List[Dict], *, as_of: int,
+                    universe_size: int, snapshot) -> Dict:
+        """The ranked basket as ``cyqnt.signal/v2``.
+
+        This used to be a three-key dict (``candidates`` / ``as_of`` /
+        ``universe_size``) stamped ``selection/v1``, while the StandardBot route
+        emitted the full 45-key v2 signal for the same job. "One output format"
+        was true of one of the two paths, so a consumer had to branch on which
+        route produced the basket — and the YAML route's baskets carried no
+        provenance, no data-quality and no ``auto_trade_eligible``, i.e. nothing
+        an executor could safety-check against.
+
+        ``intent`` is HOLD and ``market_scope`` is CROSS_SECTION: a ranking is not
+        itself an instruction to trade. Each candidate may carry its own plan in
+        ``candidates[].trade``; the basket as a whole does not.
+        """
+        from ..standard_bot.core import (  # type: ignore
+            DataQuality, Direction, MarketScope, PositionIntent, Provenance,
+            SelectionCandidate, StandardSignal,
+        )
+
+        rows = []
+        for position, row in enumerate(candidates, start=1):
+            raw = str(row.get("side") or row.get("direction") or "neutral").lower()
+            score = row.get("score")
+            rows.append(SelectionCandidate(
+                symbol=str(row.get("symbol") or row.get("instrument_id") or ""),
+                rank=int(row.get("rank") or position),
+                score=float(score) if score is not None else 0.0,
+                direction=(Direction.LONG if raw == "long"
+                           else Direction.SHORT if raw == "short" else Direction.NEUTRAL),
+                reason=str(row.get("reason") or ""),
+                features=dict(row.get("features") or {}),
+            ))
+
+        meta = getattr(snapshot, "meta", None)
+        statuses = {k: (v.value if hasattr(v, "value") else str(v))
+                    for k, v in (getattr(meta, "source_status", {}) or {}).items()}
+        quality = DataQuality.GOOD
+        if any(str(v).startswith("error") for v in statuses.values()):
+            quality = DataQuality.DEGRADED
+        if not rows:
+            # An empty basket with GOOD quality reads as "nothing qualified",
+            # which is a real answer only if the universe was actually read.
+            quality = DataQuality.GOOD if universe_size else DataQuality.INSUFFICIENT
+
+        signal = StandardSignal(
+            bot_id=self.plugin_id,
+            bot_version=self.plugin_version,
+            decision_time=int(as_of),
+            market_scope=MarketScope.CROSS_SECTION,
+            intent=PositionIntent.HOLD,
+            direction=Direction.NEUTRAL,
+            candidates=tuple(rows),
+            universe_size=int(universe_size),
+            # v2 bounds score to 0-100; a selection score is an unbounded factor
+            # value, so it is clamped here rather than raising inside the contract.
+            score=min(100.0, max(0.0, float(rows[0].score))) if rows else 0.0,
+            summary=("top %d of %d by the declared score" % (len(rows), universe_size)
+                     if rows else
+                     "no name passed the declared filters (universe=%d)" % universe_size),
+            reason_codes=(("cross_sectional_ranking",) if rows
+                          else ("empty_basket", "no_candidate_qualified")),
+            data_quality=quality,
+            source_status=statuses,
+            warnings=tuple(getattr(meta, "warnings", []) or []),
+            provenance=Provenance(
+                strategy_id=self.plugin_id,
+                strategy_version=self.plugin_version,
+                snapshot_id=str(getattr(meta, "snapshot_id", "") or ""),
+            ),
+        )
+        payload = signal.to_dict()
+        # ``as_of`` is what the pre-v2 readers keyed on; v2 calls the same number
+        # decision_time. Keeping it is one duplicated integer, not a second
+        # vocabulary, and it keeps existing selection consumers working.
+        payload["as_of"] = int(as_of)
+        return payload
 
     def _make_batch(self, snapshot, signals):
         import time as _time

@@ -47,6 +47,7 @@ TTL_SCANNER = 120
 TTL_PRO = 60
 TTL_ACCOUNT = 10  # balances/positions change quickly
 TTL_NEWS = 300  # Square news/social — upstream PIT cadence is ~30 min; 5 min is safe
+TTL_REGIME = 3600  # Fear&Greed / AHR999 — daily cadence upstream; 1h cache is safe
 
 _LOCK = threading.Lock()
 # {key: (DataFrame, expiry_epoch_float)}

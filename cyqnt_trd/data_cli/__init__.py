@@ -1,3 +1,7 @@
+# NOTE: internal-domain BigData endpoints (cyqnt_trd.data_cli.internal /
+# internal_frames) are deliberately NOT part of this public package: they
+# hardcode corporate-network hostnames. Inject them via a private config
+# with load_specs(), per the rest_source design.
 """
 binance-cli / binance-pro-cli subprocess wrappers — pandas DataFrame outputs.
 
@@ -30,15 +34,45 @@ from .scanner import full_market_scan, scan_with_filter
 # PUBLIC Binance Square news / social (vendored stdlib client)
 from .news import (
     fetch_news,
+    fetch_search,
     fetch_sentiment,
     fetch_ticker_rank,
     fetch_topic_trending,
     fetch_hot_post,
 )
 
+# PUBLIC regime / macro-state (stdlib urllib — alternative.me F&G + AHR999)
+from .regime import fetch_fear_greed, fetch_ahr999
+# Generic, configurable REST → typed DataFrame fetcher (no hardcoded endpoints;
+# point it at any JSON API/website via a RestSourceSpec or an external config).
+from .rest_source import (
+    fetch_rest,
+    register_spec,
+    get_spec,
+    load_specs,
+    list_specs,
+    RestSourceSpec,
+    FieldSpec,
+    EXAMPLE_SPECS,
+)
+# Ready-to-use PUBLIC source specs (real endpoints, backtestable) mapped to the
+# data sources the analysed user bots relied on most (funding / OI / long-short
+# / taker / fear&greed). Internal-only sources are NOT defined here — inject
+# them via a private config with load_specs($CYQNT_SOURCES_CONFIG).
+from .public_sources import (
+    PUBLIC_SOURCES,
+    register_public_sources,
+    SOURCE_TIERS,
+)
+
 # AI/workflow data (binance-pro-cli)
 from .pro import pro_indicators_fetch, pro_trade_signal_query, pro_trade_signal_rank
 from .workflow import workflow_leaderboard, workflow_token, workflow_analysis
+
+
+# INTERNAL-domain BigData endpoints (indicators API, bdp screening, futuresRadar,
+# movement, event/calendar, ETF, sector, ai-skill, portfolio). These hosts
+# resolve inside the corporate network.
 
 
 __all__ = [
@@ -75,10 +109,27 @@ __all__ = [
     "scan_with_filter",
     # news / social (PUBLIC Square)
     "fetch_news",
+    "fetch_search",
     "fetch_sentiment",
     "fetch_ticker_rank",
     "fetch_topic_trending",
     "fetch_hot_post",
+    # regime / macro-state (PUBLIC)
+    "fetch_fear_greed",
+    "fetch_ahr999",
+    # generic configurable REST fetcher
+    "fetch_rest",
+    "register_spec",
+    "get_spec",
+    "load_specs",
+    "list_specs",
+    "RestSourceSpec",
+    "FieldSpec",
+    "EXAMPLE_SPECS",
+    # ready-to-use public source specs
+    "PUBLIC_SOURCES",
+    "register_public_sources",
+    "SOURCE_TIERS",
     # AI signals (binance-pro-cli)
     "pro_indicators_fetch",
     "pro_trade_signal_query",

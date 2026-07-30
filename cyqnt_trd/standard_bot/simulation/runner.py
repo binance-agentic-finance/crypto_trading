@@ -95,7 +95,14 @@ class SnapshotBacktestRunner:
             nonlocal cash, position_qty, position_side, position_entry
             nonlocal position_exit_spec, position_entry_idx
             fill = base_px * (1.0 + _slip) if side == "long" else base_px * (1.0 - _slip)
-            size_frac = float((signal.payload or {}).get("size", 1.0))
+            # Tolerate a payload whose "size" this engine cannot interpret.
+            # cyqnt.signal/v2 carries a SizeSpec object here, and when its mode
+            # is not expressible as a fraction of equity the bridge sets it to
+            # None on purpose (see bot._engine_compat_payload) rather than
+            # guessing. Either way a non-numeric value must not crash the run.
+            _pl = signal.payload or {}
+            _raw_size = _pl.get("engine_size", _pl.get("size", 1.0))
+            size_frac = float(_raw_size) if isinstance(_raw_size, (int, float)) else 1.0
             qty = (cash * size_frac) / fill if fill > 0 else 0.0
             if qty <= 0:
                 return

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import os
 import time
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -71,6 +72,55 @@ def _read_factor_frame(path: str | Path) -> pd.DataFrame:
     return table.to_pandas().sort_values("timestamp", kind="stable").reset_index(drop=True)
 
 
+def _resolve_open_interest_path(
+    derivatives_root: str,
+    market_type: str,
+    instrument_id: str,
+    timeframe: str,
+) -> Optional[Path]:
+    """Open-interest parquet for *timeframe*, or the finest one available.
+
+    Open interest is stored per collection period, and the collector's period
+    need not equal the backtest's bar size — the shipped data is
+    ``open_interest_5m.parquet`` while specs are written on 1m and 1h bars.
+    Requiring an exact filename match meant those runs silently produced **no
+    open-interest column at all**: not an error, not a warning, just a strategy
+    that quietly stopped consulting open interest.
+
+    The merge downstream is ``merge_asof(direction="backward")``, which is
+    correct for any period finer than the bar, so falling back to the finest
+    available file is sound. It warns, because substituting data is exactly the
+    kind of thing that should never happen quietly.
+    """
+    exact = build_derivatives_path(
+        derivatives_root, market_type, instrument_id, "open_interest_%s" % timeframe
+    )
+    if exact.exists():
+        return exact
+
+    candidates = sorted(exact.parent.glob("open_interest_*.parquet"))
+    if not candidates:
+        return None
+    chosen = min(candidates, key=lambda p: _timeframe_seconds(p.stem.split("_")[-1]))
+    warnings.warn(
+        "open_interest_%s.parquet not found under %s; using %s instead. "
+        "It is merged as-of each bar close, so a finer period is safe — but a "
+        "coarser one lags." % (timeframe, exact.parent, chosen.name),
+        RuntimeWarning,
+        stacklevel=3,
+    )
+    return chosen
+
+
+def _timeframe_seconds(token: str) -> int:
+    """Seconds in a ``5m`` / ``1h`` / ``1d`` token; unknown sorts last."""
+    units = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
+    try:
+        return int(token[:-1]) * units[token[-1]]
+    except (ValueError, KeyError, IndexError):
+        return 1 << 30
+
+
 def enrich_market_frame_with_derivatives(
     frame: pd.DataFrame,
     *,
@@ -84,13 +134,10 @@ def enrich_market_frame_with_derivatives(
 
     enriched = frame.sort_values("close_time", kind="stable").reset_index(drop=True).copy()
 
-    open_interest_path = build_derivatives_path(
-        derivatives_root,
-        market_type,
-        instrument_id,
-        "open_interest_%s" % timeframe,
+    open_interest_path = _resolve_open_interest_path(
+        derivatives_root, market_type, instrument_id, timeframe
     )
-    if open_interest_path.exists():
+    if open_interest_path is not None and open_interest_path.exists():
         oi_frame = _read_factor_frame(open_interest_path)
         if not oi_frame.empty:
             oi_frame["open_interest"] = oi_frame["open_interest"].astype("float64")

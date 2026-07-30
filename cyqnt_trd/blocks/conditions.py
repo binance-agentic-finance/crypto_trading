@@ -79,6 +79,11 @@ __all__ = [
     "close_above",
     "close_below",
     "price_touch_or_cross",
+    # Generic comparators (source-agnostic)
+    "value_above",
+    "value_below",
+    "value_in_range",
+    "state_equals",
     # Bar shape
     "is_bullish_bar",
     "is_bearish_bar",
@@ -643,6 +648,44 @@ def price_touch_or_cross(
     if direction == "down":
         return (touched & (prev_close > level_s)).fillna(False).astype(bool)
     raise ValueError(f"direction must be 'any' / 'up' / 'down', got {direction!r}")
+
+
+# ---------------------------------------------------------------------------
+# Generic comparators
+# ---------------------------------------------------------------------------
+# Every other condition here is tied to one indicator: rsi_overbought knows it
+# is looking at RSI, macd_above_zero knows it is looking at MACD. That covers
+# price-derived series and nothing else, so a funding-rate, open-interest,
+# liquidation or news series could be COMPUTED and then not TESTED — there was
+# no way to say "this number is below that number". These four close that, and
+# they are deliberately about values rather than about any particular source.
+
+
+def value_above(series: SeriesLike, threshold: float) -> pd.Series:
+    """``series > threshold``, elementwise."""
+    return (ensure_series(series) > float(threshold)).fillna(False).astype(bool)
+
+
+def value_below(series: SeriesLike, threshold: float) -> pd.Series:
+    """``series < threshold``, elementwise."""
+    return (ensure_series(series) < float(threshold)).fillna(False).astype(bool)
+
+
+def value_in_range(series: SeriesLike, low: float, high: float) -> pd.Series:
+    """``low <= series <= high``, inclusive."""
+    s = ensure_series(series)
+    return ((s >= float(low)) & (s <= float(high))).fillna(False).astype(bool)
+
+
+def state_equals(series: pd.Series, state: str) -> pd.Series:
+    """``series == state`` for a categorical/state Series.
+
+    Several blocks classify rather than measure — ``derivatives.funding_rate_state``
+    yields ``bullish_squeeze`` / ``bearish_squeeze`` / ``neutral``, for instance.
+    Comparing those with the numeric conditions silently produces all-False, so
+    they get their own comparator.
+    """
+    return (pd.Series(series).astype("object") == state).fillna(False).astype(bool)
 
 
 # Re-export names that LLMs often expect in the `conditions` namespace

@@ -1,0 +1,842 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "cyqnt.signal/v2",
+  "title": "cyqnt standard bot signal (v2)",
+  "description": "One complete instruction or observation from a standard bot.",
+  "definitions": {
+    "Provenance": {
+      "type": "object",
+      "properties": {
+        "strategy_id": {
+          "type": "string"
+        },
+        "strategy_version": {
+          "type": "string"
+        },
+        "snapshot_id": {
+          "type": "string"
+        },
+        "config_hash": {
+          "type": "string"
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "trace_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "strategy_id"
+      ],
+      "description": "Provenance(strategy_id: 'str', strategy_version: 'str' = 'v1', snapshot_id: 'str' = '', config_hash: 'str' = '', inputs: 'Tuple[str, ...]' = (), run_id: 'str' = '', trace_id: 'str' = '')"
+    },
+    "EntrySpec": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "market",
+            "limit",
+            "stop",
+            "stop_limit",
+            "limit_maker"
+          ]
+        },
+        "price": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "zone": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "number"
+          }
+        },
+        "time_in_force": {
+          "type": "string"
+        },
+        "post_only": {
+          "type": "boolean"
+        }
+      },
+      "description": "How to get in (or, for a reduce/close, how to get out)."
+    },
+    "ExitPlan": {
+      "type": "object",
+      "properties": {
+        "stop_loss": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/StopSpec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "take_profit": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TakeProfitLeg"
+          }
+        },
+        "time_stop": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/TimeStop"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "exit_on_opposite_signal": {
+          "type": "boolean"
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "description": "Everything about how this position is meant to end. Carried on the signal so paper, live and backtest read the same plan, and so an executor that can place venue-side protective orders has the numbers to do it instead of relying on an in-process monitor."
+    },
+    "StopSpec": {
+      "type": "object",
+      "properties": {
+        "price": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "pct": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "atr_mult": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "atr_value": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "trailing": {
+          "type": "boolean"
+        },
+        "exchange_managed": {
+          "type": "boolean",
+          "description": "True when the stop is placed at the venue. When False the position is unprotected if the process dies."
+        }
+      },
+      "description": "Protective stop. Exactly one of price / pct / atr_mult should be set."
+    },
+    "TakeProfitLeg": {
+      "type": "object",
+      "properties": {
+        "close_pct": {
+          "type": "number"
+        },
+        "price": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "pct": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "atr_mult": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "atr_value": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "close_pct"
+      ],
+      "description": "One rung of a take-profit ladder."
+    },
+    "TimeStop": {
+      "type": "object",
+      "properties": {
+        "max_bars": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "max_seconds": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "description": "Close on elapsed time regardless of price."
+    },
+    "SizeSpec": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "quantity",
+            "quote_amount",
+            "equity_pct",
+            "risk_pct",
+            "position_pct"
+          ]
+        },
+        "value": {
+          "type": "number"
+        },
+        "leverage": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "max_notional_quote": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "reduce_only": {
+          "type": "boolean",
+          "description": "Derived from intent; an executor must honour it."
+        }
+      },
+      "description": "SizeSpec(mode: 'SizeMode' = <SizeMode.EQUITY_PCT: 'equity_pct'>, value: 'float' = 0.0, leverage: 'Optional[float]' = None, max_notional_quote: 'Optional[float]' = None, reduce_only: 'bool' = False)"
+    },
+    "RiskLimits": {
+      "type": "object",
+      "properties": {
+        "max_loss_quote": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "max_position_quote": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "max_leverage": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "liquidation_buffer_pct": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "daily_loss_cap_quote": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "description": "RiskLimits(max_loss_quote: 'Optional[float]' = None, max_position_quote: 'Optional[float]' = None, max_leverage: 'Optional[float]' = None, liquidation_buffer_pct: 'Optional[float]' = None, daily_loss_cap_quote: 'Optional[float]' = None)"
+    },
+    "Evidence": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string"
+        },
+        "observed": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "available_time": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "url": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "source"
+      ],
+      "description": "Evidence(source: 'str', observed: 'Dict[str, Any]' = <factory>, available_time: 'Optional[int]' = None, url: 'str' = '', note: 'str' = '')"
+    },
+    "SelectionCandidate": {
+      "type": "object",
+      "properties": {
+        "symbol": {
+          "type": "string"
+        },
+        "rank": {
+          "type": "integer"
+        },
+        "score": {
+          "type": "number",
+          "description": "0-100 strength."
+        },
+        "direction": {
+          "type": "string",
+          "enum": [
+            "long",
+            "short",
+            "neutral"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "features": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "trade": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/StandardSignal"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "symbol",
+        "rank",
+        "score"
+      ],
+      "description": "One row of a cross-sectional ranking."
+    },
+    "StandardSignal": {
+      "type": "object",
+      "properties": {
+        "bot_id": {
+          "type": "string"
+        },
+        "decision_time": {
+          "type": "integer",
+          "description": "epoch ms; equals the snapshot's decision_as_of. The bar/quote this decision was made on — not when it was sent."
+        },
+        "provenance": {
+          "$ref": "#/definitions/Provenance"
+        },
+        "signal_id": {
+          "type": "string"
+        },
+        "schema": {
+          "type": "string"
+        },
+        "bot_version": {
+          "type": "string"
+        },
+        "kind": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "trade",
+            "selection",
+            "alert",
+            "noop",
+            null
+          ]
+        },
+        "symbol": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "venue": {
+          "type": "string"
+        },
+        "product": {
+          "type": "string"
+        },
+        "base_asset": {
+          "type": "string"
+        },
+        "quote_asset": {
+          "type": "string"
+        },
+        "market_scope": {
+          "type": "string",
+          "enum": [
+            "single",
+            "cross_section",
+            "global"
+          ]
+        },
+        "intent": {
+          "type": "string",
+          "enum": [
+            "open_long",
+            "open_short",
+            "add_long",
+            "add_short",
+            "reduce_long",
+            "reduce_short",
+            "close_long",
+            "close_short",
+            "flip_to_long",
+            "flip_to_short",
+            "flat",
+            "hold"
+          ],
+          "description": "The position lifecycle instruction. close_long and open_short are DIFFERENT: one reduces existing exposure, the other creates new opposite exposure, and on spot only the first is possible."
+        },
+        "direction": {
+          "type": "string",
+          "enum": [
+            "long",
+            "short",
+            "neutral"
+          ]
+        },
+        "advisory_action": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "alert",
+            "watch",
+            "avoid",
+            "investigate",
+            null
+          ]
+        },
+        "score": {
+          "type": "number",
+          "description": "0-100 strength."
+        },
+        "confidence": {
+          "type": "number",
+          "description": "0-1 confidence in the evidence, independent of strength."
+        },
+        "entry": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/EntrySpec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "exit_plan": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ExitPlan"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "size": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SizeSpec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "risk": {
+          "$ref": "#/definitions/RiskLimits"
+        },
+        "time_horizon": {
+          "type": "string",
+          "enum": [
+            "scalp",
+            "intraday",
+            "swing",
+            "position"
+          ]
+        },
+        "horizon_seconds": {
+          "type": "integer"
+        },
+        "valid_until": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "topic": {
+          "type": "string"
+        },
+        "reason_codes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "summary": {
+          "type": "string"
+        },
+        "recommended_behavior": {
+          "type": "string"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Evidence"
+          }
+        },
+        "data_quality": {
+          "type": "string",
+          "enum": [
+            "good",
+            "degraded",
+            "insufficient"
+          ]
+        },
+        "source_status": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "candidates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SelectionCandidate"
+          },
+          "description": "Selection bots only: the ranked shortlist. A trade signal leaves this empty, and vice versa — the shape is the same."
+        },
+        "universe_size": {
+          "type": "integer"
+        },
+        "auto_trade_eligible": {
+          "type": "boolean"
+        },
+        "requires_confirmation": {
+          "type": "boolean"
+        },
+        "dedup_key": {
+          "type": "string",
+          "description": "Stable across re-emissions of the same decision, so a consumer can suppress duplicates. NOT an execution idempotency key: that is instance:node:event_ref and only the executor knows it."
+        }
+      },
+      "required": [
+        "bot_id",
+        "decision_time",
+        "provenance"
+      ],
+      "description": "One complete instruction or observation from a standard bot."
+    }
+  },
+  "type": "object",
+  "properties": {
+    "bot_id": {
+      "type": "string"
+    },
+    "decision_time": {
+      "type": "integer",
+      "description": "epoch ms; equals the snapshot's decision_as_of. The bar/quote this decision was made on — not when it was sent."
+    },
+    "provenance": {
+      "$ref": "#/definitions/Provenance"
+    },
+    "signal_id": {
+      "type": "string"
+    },
+    "schema": {
+      "const": "cyqnt.signal/v2"
+    },
+    "bot_version": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "trade",
+        "selection",
+        "alert"
+      ],
+      "description": "Which shape of answer this is, and the ONE field to switch on: trade fills entry/exit_plan/size, selection fills candidates/universe_size, alert fills advisory_action/summary. Derived from the payload, so it cannot disagree with the fields it labels. `noop` exists in the enum for v1 compatibility and is never emitted — `intent=hold` already says no-change."
+    },
+    "symbol": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "venue": {
+      "type": "string"
+    },
+    "product": {
+      "type": "string"
+    },
+    "base_asset": {
+      "type": "string"
+    },
+    "quote_asset": {
+      "type": "string"
+    },
+    "market_scope": {
+      "type": "string",
+      "enum": [
+        "single",
+        "cross_section",
+        "global"
+      ]
+    },
+    "intent": {
+      "type": "string",
+      "enum": [
+        "open_long",
+        "open_short",
+        "add_long",
+        "add_short",
+        "reduce_long",
+        "reduce_short",
+        "close_long",
+        "close_short",
+        "flip_to_long",
+        "flip_to_short",
+        "flat",
+        "hold"
+      ],
+      "description": "The position lifecycle instruction. close_long and open_short are DIFFERENT: one reduces existing exposure, the other creates new opposite exposure, and on spot only the first is possible."
+    },
+    "direction": {
+      "type": "string",
+      "enum": [
+        "long",
+        "short",
+        "neutral"
+      ]
+    },
+    "advisory_action": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "alert",
+        "watch",
+        "avoid",
+        "investigate",
+        null
+      ]
+    },
+    "score": {
+      "type": "number",
+      "description": "0-100 strength."
+    },
+    "confidence": {
+      "type": "number",
+      "description": "0-1 confidence in the evidence, independent of strength."
+    },
+    "entry": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/EntrySpec"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "exit_plan": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/ExitPlan"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "size": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/SizeSpec"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "risk": {
+      "$ref": "#/definitions/RiskLimits"
+    },
+    "time_horizon": {
+      "type": "string",
+      "enum": [
+        "scalp",
+        "intraday",
+        "swing",
+        "position"
+      ]
+    },
+    "horizon_seconds": {
+      "type": "integer"
+    },
+    "valid_until": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "topic": {
+      "type": "string"
+    },
+    "reason_codes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "summary": {
+      "type": "string"
+    },
+    "recommended_behavior": {
+      "type": "string"
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Evidence"
+      }
+    },
+    "data_quality": {
+      "type": "string",
+      "enum": [
+        "good",
+        "degraded",
+        "insufficient"
+      ]
+    },
+    "source_status": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "candidates": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/SelectionCandidate"
+      },
+      "description": "Selection bots only: the ranked shortlist. A trade signal leaves this empty, and vice versa — the shape is the same."
+    },
+    "universe_size": {
+      "type": "integer"
+    },
+    "auto_trade_eligible": {
+      "type": "boolean"
+    },
+    "requires_confirmation": {
+      "type": "boolean"
+    },
+    "dedup_key": {
+      "type": "string",
+      "description": "Stable across re-emissions of the same decision, so a consumer can suppress duplicates. NOT an execution idempotency key: that is instance:node:event_ref and only the executor knows it."
+    },
+    "target_side": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "flat",
+        "long",
+        "short",
+        null
+      ],
+      "description": "The side this signal moves TOWARD."
+    },
+    "closes_side": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "any",
+        "long",
+        "short",
+        null
+      ],
+      "description": "The side being reduced or closed."
+    },
+    "order_side": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "buy",
+        "sell",
+        null
+      ],
+      "description": "The exchange-level order side."
+    },
+    "reduce_only": {
+      "type": "boolean",
+      "description": "True when the instruction may only shrink an existing position. A property of the intent, never an independent claim — REDUCE_*, CLOSE_* and FLAT are reduce-only; everything else is not."
+    }
+  },
+  "required": [
+    "schema",
+    "kind",
+    "bot_id",
+    "decision_time",
+    "intent",
+    "provenance"
+  ]
+}

@@ -1,0 +1,127 @@
+{
+  "schema": "cyqnt.signal/v2",
+  "kind": "trade",
+  "bot_id": "sample_bot",
+  "bot_version": "v1",
+  "signal_id": "ba83c3b0-8376-59e3-aef4-6e6c0138c90b",
+  "decision_time": 1786000000000,
+  "symbol": "BTCUSDT",
+  "venue": "binance",
+  "product": "usd_m_perpetual",
+  "base_asset": "BTC",
+  "quote_asset": "USDT",
+  "market_scope": "single",
+  "intent": "open_long",
+  "target_side": "long",
+  "closes_side": null,
+  "order_side": "buy",
+  "reduce_only": false,
+  "direction": "long",
+  "advisory_action": null,
+  "score": 72.0,
+  "confidence": 0.71,
+  "entry": {
+    "type": "limit",
+    "price": 61300.0,
+    "zone": [
+      61200.0,
+      61400.0
+    ],
+    "time_in_force": "GTC",
+    "post_only": false
+  },
+  "exit_plan": {
+    "stop_loss": {
+      "price": null,
+      "pct": null,
+      "atr_mult": 2.0,
+      "atr_value": 480.0,
+      "trailing": true,
+      "exchange_managed": false
+    },
+    "take_profit": [
+      {
+        "close_pct": 0.5,
+        "price": null,
+        "pct": 0.03,
+        "atr_mult": null,
+        "atr_value": null
+      },
+      {
+        "close_pct": 0.5,
+        "price": null,
+        "pct": 0.06,
+        "atr_mult": null,
+        "atr_value": null
+      }
+    ],
+    "time_stop": {
+      "max_bars": 96,
+      "max_seconds": null
+    },
+    "exit_on_opposite_signal": true,
+    "note": "ATR trailing stop is evaluated in-process; place a venue STOP if the position must survive the daemon"
+  },
+  "size": {
+    "mode": "risk_pct",
+    "value": 0.01,
+    "leverage": 5,
+    "max_notional_quote": 2000.0,
+    "reduce_only": false
+  },
+  "risk": {
+    "max_loss_quote": null,
+    "max_position_quote": null,
+    "max_leverage": null,
+    "liquidation_buffer_pct": null,
+    "daily_loss_cap_quote": null
+  },
+  "time_horizon": "intraday",
+  "horizon_seconds": 14400,
+  "valid_until": 1786014400000,
+  "topic": "mtf_trend",
+  "reason_codes": [
+    "HTF_TREND_UP",
+    "MACD_GOLDEN_CROSS",
+    "ADX_TRENDING"
+  ],
+  "summary": "BTCUSDT 顺势做多：4h 趋势向上 + 1h MACD 金叉 + ADX 27",
+  "recommended_behavior": "限价区间挂单；ATR 止损随价上移。",
+  "evidence": [
+    {
+      "source": "data.klines",
+      "observed": {
+        "adx": 27.4,
+        "macd_hist": 41.2
+      },
+      "available_time": 1786000000000,
+      "url": "",
+      "note": ""
+    }
+  ],
+  "data_quality": "good",
+  "source_status": {
+    "klines": "ok",
+    "funding": "ok",
+    "contract_positions": "ok"
+  },
+  "warnings": [],
+  "candidates": [],
+  "universe_size": 0,
+  "auto_trade_eligible": false,
+  "requires_confirmation": true,
+  "dedup_key": "sample_bot:binance:usd_m_perpetual:BTCUSDT:open_long",
+  "provenance": {
+    "strategy_id": "sample_bot",
+    "strategy_version": "v1",
+    "snapshot_id": "0d2f…",
+    "config_hash": "",
+    "inputs": [
+      "klines",
+      "funding",
+      "contract_positions"
+    ],
+    "run_id": "",
+    "trace_id": ""
+  }
+}

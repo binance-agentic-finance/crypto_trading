@@ -19,6 +19,13 @@ from ..simulation import NumbaBacktestRunner
 def make_registry() -> SignalPluginRegistry:
     registry = SignalPluginRegistry()
     register_builtin_plugins(registry)
+    # Advisory/monitor bots are ordinary SignalPlugins (kind=ALERT), so they
+    # live in the same registry and are addressable by plugin_id from any
+    # entrypoint. They never reach an executor: build_intents only takes
+    # kind=TRADE, and every advisory payload carries auto_trade_eligible=false.
+    from ..advisory import register_advisory_bots
+
+    register_advisory_bots(registry)
     # Drain any block-strategy registrations queued via
     # ``cyqnt_trd.blocks.strategy.register(...)`` (typically by an
     # external --strategy-module imported earlier in main()).
@@ -30,6 +37,18 @@ def make_registry() -> SignalPluginRegistry:
         # blocks package not installed — fine, just skip
         pass
     return registry
+
+
+def build_advisory_pipeline(*, bot: str, config: dict | None = None) -> SignalPipelineSpec:
+    """Advisory sibling of :func:`build_strategy_pipeline`.
+
+    Validates the bot id and its config against the bot's own config dataclass
+    before anything is fetched, then returns the standard one-plugin chain.
+    """
+    from ..advisory import create_advisory_bot
+
+    create_advisory_bot(bot).normalize_config(dict(config or {}))
+    return SignalPipelineSpec(plugin_chain=[{"plugin_id": bot, "config": dict(config or {})}])
 
 
 def add_historical_data_arguments(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:

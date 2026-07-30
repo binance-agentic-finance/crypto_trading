@@ -1,0 +1,65 @@
+# =============================================================================
+# 範例 4 —— 選幣(cross-section)
+# =============================================================================
+# 前三個範例都是「單一標的、逐根 K 線」。這一個是另一種形狀:
+# 一次對整個幣種宇宙排名,輸出一籃候選,而不是某一根 K 的多空。
+#
+#   signals:   → 逐根評估一個標的      → kind=trade
+#   selection: → 一次評估整個宇宙      → kind=selection
+#   兩者互斥,一份 spec 只能是其中一種。
+#
+# 語法完全共用:selection 的 frame「一列是一個幣」而不是「一列是一根 K」,
+# 所以 features / long_when 用的是同一套 block 與同一套比較器。
+#
+# 執行:
+#   驗證:  python -m cyqnt_trd.standard_bot.yaml_pipeline validate example_selection.yaml
+#   跑一次:python -m cyqnt_trd.standard_bot.yaml_pipeline run example_selection.yaml
+#
+# 注意 run.mode:選幣是「一個時點對整個宇宙排名」,沒有逐根 K 的權益曲線,
+# 這個 repo 也沒有截面回測引擎。所以 run 會實際跑一次選幣、印出籃子並輸出
+# cyqnt.signal/v2,而不是回測 —— 它會明講這件事,不會給你一條 trades=0 的假回測。
+# =============================================================================
+
+spec_version: "1.0"
+target: standard_bot
+
+strategy:
+  id: news_buzz_selector
+  description: "流動性過濾後,依 Square 提及量排名,情緒偏多做多、偏空做空"
+
+run:
+  mode: backtest
+
+data:
+  symbol: BTCUSDT          # 選幣型仍需宣告一個代表標的(排程與計價用)
+  market_type: futures
+  primary:
+    interval: "1h"
+
+selection:
+  universe:                # 依序套用的 universe pipeline;每一步都回傳收窄後的 frame
+    - block: universe.filter_quote_volume
+      params: { min_quote_volume: 100000000 }
+    - block: universe.augment_with_news
+      with: [ticker_rank]  # 第二個位置參數:把 ticker_rank frame 餵進去
+
+  features:                # 逐幣的 Series,語法與 signals.indicators 完全相同。
+                           # 這裡的「rolling」是沿著幣種排名跑,不是沿著時間 ——
+                           # 同一個 block,不同的軸。
+    buzz_z:
+      block: indicators.rolling_zscore
+      input: news_mention_count
+      params: { period: 6 }
+
+  score: news_mention_count   # 依這個欄位由大到小排名(欄位或上面算出的 feature 都可以)
+  top_k: 5
+  min_score: 1.0
+
+  # 同一個資產的不同計價對算「一個名字」。Square 的提及量是按 base token 統計的,
+  # 所以同一個分數會 join 到 BTCUSDT / BTCUSDC 每一對上;不去重的話 top_k=5 會變成
+  # 「3 個資產佔 5 個位置」,BTC 與 SOL 各拿雙倍權重。同分時留成交額大的那一對。
+  # 要做 USDC/USDT 基差之類真的把計價對當不同標的的策略,才設 none。
+  dedupe_by: base_asset       # base_asset(預設) | none
+
+  long_when:  { cond: conditions.value_above, args: [news_bull_ratio, 0.55] }
+  short_when: { cond: conditions.value_below, args: [news_bull_ratio, 0.45] }

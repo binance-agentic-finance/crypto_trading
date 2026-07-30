@@ -71,13 +71,42 @@ def fetch_perpetual_universe(market_type: str = "futures") -> pd.DataFrame:
     return df.copy()
 
 
+def _with_symbol_column(tickers):
+    """Return a copy that definitely has a ``symbol`` column.
+
+    Universe tables reach these blocks two ways: straight off the Binance 24h
+    ticker endpoint (``symbol``) or out of an input bundle, where
+    ``RankFrame@1.0`` names it ``instrument_id``. Accepting only the former meant
+    the canonical shape could not be fed to its own blocks.
+    """
+    tickers = tickers.copy()
+    if "symbol" in tickers.columns:
+        return tickers
+    for alias in ("instrument_id", "ticker"):
+        if alias in tickers.columns:
+            tickers["symbol"] = tickers[alias]
+            return tickers
+    raise ValueError(
+        "DataFrame missing 'symbol' / 'instrument_id' column; got %s"
+        % list(tickers.columns))
+
+
 def filter_quote_volume(
     tickers: pd.DataFrame, min_quote_volume: float = 100_000_000.0
 ) -> pd.DataFrame:
-    """Keep symbols with 24h quote volume >= *min_quote_volume* (USDT)."""
-    if "quoteVolume" not in tickers.columns:
-        raise ValueError("DataFrame missing 'quoteVolume' column")
-    return tickers[tickers["quoteVolume"] >= float(min_quote_volume)].copy()
+    """Keep symbols with 24h quote volume >= *min_quote_volume* (USDT).
+
+    Accepts either the raw Binance ticker column ``quoteVolume`` or the
+    canonical ``quote_volume`` used by ``RankFrame@1.0``. A universe that came
+    through an input bundle is normalised to snake_case, and requiring only the
+    camelCase name meant the canonical shape could not be fed to its own blocks.
+    """
+    for column in ("quoteVolume", "quote_volume"):
+        if column in tickers.columns:
+            return tickers[tickers[column] >= float(min_quote_volume)].copy()
+    raise ValueError(
+        "DataFrame missing 'quoteVolume' / 'quote_volume' column; got %s"
+        % list(tickers.columns))
 
 
 def filter_change_pct(
@@ -175,9 +204,7 @@ def augment_with_news(
     :func:`cyqnt_trd.data_cli.fetch_ticker_rank`. A cache-miss / empty rank
     frame yields NaN columns rather than an error.
     """
-    tickers = tickers.copy()
-    if "symbol" not in tickers.columns:
-        raise ValueError("DataFrame missing 'symbol' column")
+    tickers = _with_symbol_column(tickers)
 
     if ticker_rank_df is None:
         from ..data_cli.news import fetch_ticker_rank
@@ -189,11 +216,41 @@ def augment_with_news(
         return tickers
 
     rank = ticker_rank_df.copy()
+    # Square's raw frame keys on ``ticker`` (a base token, "BTC"); a bundle's
+    # RankFrame@1.0 keys on ``instrument_id`` (a full symbol, "BTCUSDT"). Accept
+    # either and normalise to a base token so the join works from both sources.
+    if "ticker" not in rank.columns:
+        for alias in ("instrument_id", "symbol"):
+            if alias in rank.columns:
+                rank["ticker"] = rank[alias].map(
+                    lambda value: _news_base_token(str(value)))
+                break
+        else:
+            raise ValueError(
+                "ticker_rank_df missing 'ticker' / 'instrument_id' column; got %s"
+                % list(rank.columns))
     rank["ticker"] = rank["ticker"].astype(str).str.upper()
-    bull = rank["bullish_count"].astype(float)
-    bear = rank["bearish_count"].astype(float)
-    denom = bull + bear
-    rank["news_bull_ratio"] = (bull / denom).where(denom > 0, other=float("nan"))
+    for column in ("bullish_count", "bearish_count", "neutral_count",
+                   "mention_count", "unique_authors", "rank"):
+        if column not in rank.columns:
+            rank[column] = float("nan")
+    # Sentiment arrives two ways and only one of them was understood. Square's
+    # raw frame carries the counts; a bundle's RankFrame@1.0 — which is what
+    # build_input_bundle and news_feed's PIT frame emit — carries the ratio
+    # already computed, and no counts at all. Deriving solely from counts turned
+    # every canonical row into NaN, and a NaN ratio reads downstream as "not
+    # bullish", so a whole basket silently came back short.
+    supplied = next(
+        (column for column in ("news_bull_ratio", "bull_ratio") if column in rank.columns),
+        None,
+    )
+    if supplied is not None:
+        rank["news_bull_ratio"] = rank[supplied].astype(float)
+    else:
+        bull = rank["bullish_count"].astype(float)
+        bear = rank["bearish_count"].astype(float)
+        denom = bull + bear
+        rank["news_bull_ratio"] = (bull / denom).where(denom > 0, other=float("nan"))
     rank = rank.rename(columns={
         "rank": "news_mention_rank",
         "mention_count": "news_mention_count",

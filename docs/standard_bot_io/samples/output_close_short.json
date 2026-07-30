@@ -1,0 +1,73 @@
+{
+  "schema": "cyqnt.signal/v2",
+  "kind": "trade",
+  "bot_id": "sample_bot",
+  "bot_version": "v1",
+  "signal_id": "d9dd0ad4-2251-5639-8057-4672822b006b",
+  "decision_time": 1786000000000,
+  "symbol": "BTCUSDT",
+  "venue": "binance",
+  "product": "usd_m_perpetual",
+  "base_asset": "",
+  "quote_asset": "",
+  "market_scope": "single",
+  "intent": "close_short",
+  "target_side": "flat",
+  "closes_side": "short",
+  "order_side": "buy",
+  "reduce_only": true,
+  "direction": "neutral",
+  "advisory_action": null,
+  "score": 70.0,
+  "confidence": 0.8,
+  "entry": null,
+  "exit_plan": null,
+  "size": {
+    "mode": "position_pct",
+    "value": 1.0,
+    "leverage": null,
+    "max_notional_quote": null,
+    "reduce_only": true
+  },
+  "risk": {
+    "max_loss_quote": null,
+    "max_position_quote": null,
+    "max_leverage": null,
+    "liquidation_buffer_pct": null,
+    "daily_loss_cap_quote": null
+  },
+  "time_horizon": "intraday",
+  "horizon_seconds": 3600,
+  "valid_until": 1786003600000,
+  "topic": "funding_carry",
+  "reason_codes": [
+    "FUNDING_REGIME_UNSTABLE"
+  ],
+  "summary": "BTCUSDT 平掉套息空腿：资金费率符号翻转率 38%",
+  "recommended_behavior": "同步解除现货对冲腿，避免留下裸多。",
+  "evidence": [],
+  "data_quality": "good",
+  "source_status": {
+    "funding": "ok",
+    "contract_positions": "ok"
+  },
+  "warnings": [],
+  "candidates": [],
+  "universe_size": 0,
+  "auto_trade_eligible": false,
+  "requires_confirmation": true,
+  "dedup_key": "sample_bot:binance:usd_m_perpetual:BTCUSDT:close_short",
+  "provenance": {
+    "strategy_id": "sample_bot",
+    "strategy_version": "v1",
+    "snapshot_id": "0d2f…",
+    "config_hash": "",
+    "inputs": [
+      "klines",
+      "funding",
+      "contract_positions"
+    ],
+    "run_id": "",
+    "trace_id": ""
+  }
+}

@@ -204,8 +204,11 @@ def test_n1_selection(bots):
     cands = env.payload["candidates"]
     assert len(cands) == 3
     by_sym = {c["symbol"]: c for c in cands}
-    assert by_sym["BTCUSDT"]["side"] == "long"    # bull ratio 0.9
-    assert by_sym["ETHUSDT"]["side"] == "short"   # bull ratio ~0.29
+    # cyqnt.signal/v2 names the per-candidate bias ``direction``
+    # (SelectionCandidate.direction); the pre-v2 selection payload called the
+    # same field ``side``.
+    assert by_sym["BTCUSDT"]["direction"] == "long"    # bull ratio 0.9
+    assert by_sym["ETHUSDT"]["direction"] == "short"   # bull ratio ~0.29
     # ranked by score descending
     assert [c["rank"] for c in cands] == [1, 2, 3]
 
