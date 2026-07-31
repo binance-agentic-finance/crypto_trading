@@ -377,3 +377,66 @@ def _unique(panel, name: str, *, node: str = "") -> str:
     while "%s_%d" % (name, index) in panel.columns:
         index += 1
     return "%s_%d" % (name, index)
+
+# --------------------------------------------------------------------------- #
+# the same alignment, for a DataSnapshot instead of a bundle                   #
+# --------------------------------------------------------------------------- #
+
+
+def attach_frames_to_bars(bars, snapshot):
+    """Merge ``DataSnapshot.frames`` onto an existing bar DataFrame, as-of.
+
+    ``to_panel`` builds a panel from a bundle; this does the same alignment for
+    the object the block plugins actually receive. Without it a bundle could
+    carry funding, open interest, taker flow and news while ``make_signals(df)``
+    saw only OHLCV — the multi-source input existed and never reached the code
+    that was written to read it.
+
+    Alignment is on ``available_time``, not ``event_time``: a bar sees a reading
+    only if it was knowable by the time the bar closed. Existing columns are
+    never overwritten.
+    """
+    import pandas as pd
+
+    frames = getattr(snapshot, "frames", None) or {}
+    if bars is None or not len(bars) or not frames:
+        return bars
+
+    time_column = next((c for c in ("close_time", "timestamp", "open_time")
+                        if c in bars.columns), None)
+    if time_column is None:
+        return bars
+    axis = pd.to_datetime(bars[time_column], unit="ms", utc=True, errors="coerce")
+    if axis.isna().all():
+        axis = pd.to_datetime(bars[time_column], utc=True, errors="coerce")
+    if axis.isna().all():
+        return bars
+
+    instrument = ""
+    if "instrument_id" in bars.columns and len(bars):
+        instrument = str(bars["instrument_id"].iloc[0]).upper()
+
+    out = bars.copy()
+    index = pd.DatetimeIndex(axis)
+    for key, frame in frames.items():
+        rows = frame
+        if rows is None or not len(rows):
+            continue
+        long = rows if isinstance(rows, pd.DataFrame) else pd.DataFrame(rows)
+        if "metric" not in long.columns or "value" not in long.columns:
+            continue                       # only long-form metrics fold into bars
+        if "instrument_id" in long.columns and instrument:
+            owner = long["instrument_id"].astype(str).str.upper()
+            long = long[_owns(long["instrument_id"], instrument)
+                        | owner.isin({"", "MARKET", "NONE"}) | owner.isna()]
+        if long.empty:
+            continue
+        units = _declared_units(long)
+        for name, series in _metric_columns(long, node=key).items():
+            column = name if name not in out.columns else "%s.%s" % (key, name)
+            if column in out.columns:
+                continue                   # never overwrite what the bars carry
+            out[column] = _asof(series, index).values
+            if name in units:
+                out.attrs.setdefault("units", {})[column] = units[name]
+    return out

@@ -30,8 +30,15 @@
 - `to_panel(build_live_bundle(...))` —— 把所有來源攤平到 bar 時間軸,
   對齊用 `available_time`(一根 bar 只看得到它收盤時已可知的值)
 
-**欄位不存在時策略自動降級**,只用價格動能,不會靜默把缺值當成 0 ——
-缺一個讀數和讀到 0 是兩件事。
+**欄位不存在時不出手**。這裡不做降級,理由值得寫下來:降級版本會把三個
+條件當成「不參與否決」,四條剩一條,策略就變成「價格動了 1% 就進場」——
+實測同一段資料,有衍生品資料出 0 筆(費率 -0.57~+1.0 bps,離門檻很遠,
+沒有擁擠部位可逼),抽掉衍生品出 32 筆。**32 筆不是這支策略的訊號**,
+是另一支動能策略掛著同一個 BOT_ID 在下單。
+
+通則:**降級不可以放寬條件**。缺一個讀數不等於讀到 0,更不等於那個條件成立。
+論點需要四個來源互相矛盾才成立,少一個就驗證不了,那就不要出手 ——
+少一筆單的成本,遠低於用錯誤前提開的一筆單。
 
 誠實邊界
 --------
@@ -53,6 +60,10 @@ CONFIG = {
     "taker_ratio": 1.5,         # 主動買賣量比門檻
 }
 
+#: 論點需要的四個來源,缺一個就驗證不了 —— 對應 register(needs={"derivatives": True})。
+#: 這是「不出手」的判準,不是「降級」的判準:見模組 docstring。
+REQUIRED_COLUMNS = ("rate", "oi_value", "buy_vol", "sell_vol")
+
 
 def make_signals(df):
     """回傳 (long, short) 兩條對齊 df 的布林 Series。"""
@@ -61,45 +72,50 @@ def make_signals(df):
     c = CONFIG
     n = int(c["lookback"])
     close = df["close"]
+    nothing = pd.Series(False, index=df.index)
 
-    # ---- 1. 價格動能(一定有)-------------------------------------------
+    # ---- 0. 宣告的來源到了沒 --------------------------------------------
+    # 缺欄位時**不出手**。把缺席的條件當成「不參與否決」會讓四條剩一條,
+    # 出來的是另一支動能策略掛著這個 BOT_ID 在下單(實測 0 筆 → 32 筆)。
+    missing = [col for col in REQUIRED_COLUMNS if col not in df.columns]
+    if missing:
+        import warnings
+
+        warnings.warn(
+            "%s: 缺少 %s,不出手。這支的論點需要四個來源同時成立,"
+            "少一個就驗證不了 —— 少一筆單好過用錯誤前提開一筆單。"
+            "資料來源見模組 docstring(--derivatives-dir 或 live bundle)。"
+            % (BOT_ID, "/".join(missing)),
+            RuntimeWarning, stacklevel=2)
+        return nothing, nothing.copy()
+
+    # ---- 1. 價格動能 ------------------------------------------------------
     move_pct = (close / close.shift(n) - 1.0) * 100.0
     price_down = move_pct <= -float(c["move_pct"])
     price_up = move_pct >= float(c["move_pct"])
 
-    # ---- 2~4. 衍生品(有才用,缺就降級)---------------------------------
-    # 缺欄位時給「全 True」= 這個條件不參與否決,而不是給 False 把訊號殺光,
-    # 也不是給 0 假裝讀到了。
-    always = pd.Series(True, index=df.index)
+    # ---- 2. 資金費率:誰在付錢給誰 ---------------------------------------
+    # funding_rate_state 自己會把原始比率 ×10000 換成 bps,門檻才是 bps ——
+    # 傳已經換算過的值會乘兩次,任何微小正費率都變極端。
+    fstate = deriv.funding_rate_state(
+        df["rate"],
+        high_threshold_bps=float(c["funding_bps"]),
+        low_threshold_bps=-float(c["funding_bps"]),
+    )
+    shorts_crowded = fstate == "bearish_squeeze"   # 費率負 = 空方付錢
+    longs_crowded = fstate == "bullish_squeeze"    # 費率正 = 多方付錢
 
-    if "rate" in df.columns:
-        # funding_rate_state 自己會把原始比率 ×10000 換成 bps,
-        # 門檻才是 bps —— 傳已經換算過的值會乘兩次,任何微小正費率都變極端。
-        fstate = deriv.funding_rate_state(
-            df["rate"],
-            high_threshold_bps=float(c["funding_bps"]),
-            low_threshold_bps=-float(c["funding_bps"]),
-        )
-        shorts_crowded = fstate == "bearish_squeeze"   # 費率負 = 空方付錢
-        longs_crowded = fstate == "bullish_squeeze"    # 費率正 = 多方付錢
-    else:
-        shorts_crowded = longs_crowded = always
+    # ---- 3. 未平倉量:是新倉不是回補 -------------------------------------
+    # as_percent=True:CONFIG 的門檻是給人讀的百分比,所以明確要求同一個單位。
+    # 預設回的是 pct_change() 的小數(0.06 = 6%),把 1.5 拿去比等於要求 150%。
+    oi_change = deriv.oi_change_pct(df["oi_value"], periods=n, as_percent=True)
+    oi_building = oi_change >= float(c["oi_build_pct"])
 
-    if "oi_value" in df.columns:
-        # as_percent=True:CONFIG 的門檻是給人讀的百分比,所以明確要求同一個單位。
-        # 預設回的是 pct_change() 的小數(0.06 = 6%),把 1.5 拿去比等於要求 150%。
-        oi_change = deriv.oi_change_pct(df["oi_value"], periods=n, as_percent=True)
-        oi_building = oi_change >= float(c["oi_build_pct"])
-    else:
-        oi_building = always
-
-    if "buy_vol" in df.columns and "sell_vol" in df.columns:
-        tstate = deriv.taker_buy_sell_state(
-            df["buy_vol"], df["sell_vol"], threshold=float(c["taker_ratio"]))
-        selling_hard = tstate == "aggressive_sell"
-        buying_hard = tstate == "aggressive_buy"
-    else:
-        selling_hard = buying_hard = always
+    # ---- 4. 主動單方向 ----------------------------------------------------
+    tstate = deriv.taker_buy_sell_state(
+        df["buy_vol"], df["sell_vol"], threshold=float(c["taker_ratio"]))
+    selling_hard = tstate == "aggressive_sell"
+    buying_hard = tstate == "aggressive_buy"
 
     # ---- 組合:做多逼空 / 做空逼多 ---------------------------------------
     long = entry.all_of([price_down, shorts_crowded, oi_building, selling_hard])

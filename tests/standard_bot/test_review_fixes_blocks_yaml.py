@@ -283,3 +283,115 @@ def test_a_coin_quoted_in_btc_does_not_take_a_second_slot():
     bases = [c["features"]["base_asset"] for c in _select(0)]
     assert len(set(bases)) == len(bases), symbols
     assert "ETHBTC" not in symbols and "ETHUSDT" in symbols
+
+
+# --------------------------------------------------------------------------- #
+# 8. a block strategy must receive the whole snapshot, not just the bars       #
+# --------------------------------------------------------------------------- #
+
+
+def _snapshot_with_frames():
+    """A DataSnapshot carrying bars AND long-form metric frames."""
+    from cyqnt_trd.standard_bot.core import (
+        Bar, DataSnapshot, MarketBundle, SnapshotMeta)
+
+    hour = 3_600_000
+    t0 = 1_785_000_000_000
+    bars = [Bar(open=100.0 + i, high=101.0 + i, low=99.0 + i, close=100.0 + i,
+                volume=10.0, timestamp=t0 + i * hour, instrument_id="BTCUSDT",
+                timeframe="1h", confirmed=True,
+                extras={"open_time": t0 + (i - 1) * hour,
+                        "close_time": t0 + i * hour,
+                        "available_time": t0 + i * hour})
+            for i in range(30)]
+    funding = pd.DataFrame([
+        {"instrument_id": "BTCUSDT", "metric": "rate", "value": -0.0006,
+         "event_time": t0 + i * hour, "available_time": t0 + i * hour,
+         "unit": "ratio"} for i in range(30)])
+    oi = pd.DataFrame([
+        {"instrument_id": "BTCUSDT", "metric": "oi_value", "value": 1e9 + i * 1e7,
+         "event_time": t0 + i * hour, "available_time": t0 + i * hour,
+         "unit": "notional"} for i in range(30)])
+    return DataSnapshot(
+        version="mvp/v1",
+        market=MarketBundle(bars={MarketBundle.key("BTCUSDT", "1h"): bars}),
+        frames={"funding": funding, "open_interest": oi},
+        meta=SnapshotMeta(snapshot_id="s", assembled_at=t0 + 29 * hour,
+                          decision_as_of=t0 + 29 * hour))
+
+
+def test_make_signals_receives_the_non_price_frames():
+    """``BlockStrategyPlugin`` read ``snapshot.market.bars`` and nothing else, so
+    a strategy written to read funding / open interest silently degraded to a
+    price-only version of itself: no error, no warning, a different strategy
+    under the same id. The multi-source input existed and never reached the code
+    written to consume it."""
+    from types import SimpleNamespace
+
+    from cyqnt_trd.blocks import strategy as blocks_strategy
+
+    seen = {}
+
+    def spy(df):
+        seen["columns"] = list(df.columns)
+        return pd.Series(False, index=df.index), pd.Series(False, index=df.index)
+
+    plugin = blocks_strategy.build_plugin("frames_probe", spy)
+    plugin.run(_snapshot_with_frames(),
+               SimpleNamespace(instrument_id="BTCUSDT", timeframe="1h"))
+
+    columns = seen["columns"]
+    assert {"open", "high", "low", "close", "volume"} <= set(columns), "bars still there"
+    assert "rate" in columns, "funding must reach make_signals: %s" % columns
+    assert "oi_value" in columns, "open interest must reach make_signals"
+
+
+def test_a_frame_never_overwrites_a_column_the_bars_already_carry():
+    """HTF columns and spilled ``Bar.extras`` were computed for this instrument;
+    a frame merged on top of them would replace a specific value with a general
+    one."""
+    from types import SimpleNamespace
+
+    from cyqnt_trd.blocks import strategy as blocks_strategy
+
+    snapshot = _snapshot_with_frames()
+    # a frame that would collide with an OHLCV column
+    snapshot.frames["rogue"] = pd.DataFrame([
+        {"instrument_id": "BTCUSDT", "metric": "close", "value": -999.0,
+         "event_time": 1_785_000_000_000, "available_time": 1_785_000_000_000}])
+
+    seen = {}
+
+    def spy(df):
+        seen["close"] = list(df["close"])
+        return pd.Series(False, index=df.index), pd.Series(False, index=df.index)
+
+    plugin = blocks_strategy.build_plugin("collision_probe", spy)
+    plugin.run(snapshot, SimpleNamespace(instrument_id="BTCUSDT", timeframe="1h"))
+    assert -999.0 not in seen["close"], "the bar's own close must win"
+
+
+def test_a_malformed_frame_warns_instead_of_failing_silently():
+    """The bars are still correct, so a bad frame must not take the run down —
+    but it must not be silent either. Falling back to price-only without a word
+    is the exact failure this attachment exists to stop, and the fallback path
+    is the one place no happy-path test ever executes."""
+    import warnings
+    from types import SimpleNamespace
+
+    from cyqnt_trd.blocks import strategy as blocks_strategy
+
+    snapshot = _snapshot_with_frames()
+    snapshot.frames["broken"] = "not a frame at all"
+
+    def spy(df):
+        return pd.Series(False, index=df.index), pd.Series(False, index=df.index)
+
+    plugin = blocks_strategy.build_plugin("malformed_probe", spy)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        plugin.run(snapshot, SimpleNamespace(instrument_id="BTCUSDT", timeframe="1h"))
+
+    said = [str(w.message) for w in caught if "price only" in str(w.message)]
+    assert said, "the degradation must be announced, not swallowed"
+    assert "malformed_probe" in said[0], "and it must name the strategy: %s" % said[0]

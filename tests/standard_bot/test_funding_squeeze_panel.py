@@ -9,6 +9,8 @@
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pandas as pd
 
@@ -130,25 +132,55 @@ def test_a_flat_market_produces_nothing():
 
 
 # --------------------------------------------------------------------------- #
-# 降級                                                                          #
+# 缺資料時的行為:不出手,不降級                                                  #
 # --------------------------------------------------------------------------- #
 
 
-def test_it_still_runs_on_a_plain_ohlcv_frame():
-    """沒有衍生品欄位時只用價格動能,不會崩、也不會把缺值當成 0。"""
-    long, short = make_signals(_df(drift=-0.30))
-    assert isinstance(long, pd.Series) and long.dtype == bool
-    assert long.any(), "只剩價格條件時應該仍會進場"
+def test_a_plain_ohlcv_frame_produces_nothing_and_says_why():
+    """降級版本會把三個缺席條件當成「不參與否決」,四條剩一條,策略就變成
+    「價格動了 1% 就進場」—— 掛著同一個 BOT_ID 下單的另一支策略。
+
+    實測同一段 119 根 bar:有衍生品資料 0 筆(費率 -0.57~+1.0 bps,離 ±3 bps
+    門檻很遠),抽掉衍生品 32 筆。放寬條件的降級會製造訊號,不是保留訊號。"""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        long, short = make_signals(_df(drift=-0.30))
+
+    assert isinstance(long, pd.Series) and long.dtype == bool, "不可以崩"
+    assert not long.any() and not short.any(), "驗證不了論點就不出手"
+    said = [str(w.message) for w in caught if BOT_ID in str(w.message)]
+    assert said, "不出手必須講出來,靜默不出手和靜默亂出手一樣難查"
+    assert "rate" in said[0], "要指名缺哪些欄位:%s" % said[0]
 
 
-def test_a_missing_source_does_not_silently_become_zero():
-    """缺一個讀數 ≠ 讀到 0。缺 taker 欄位時該條件不參與否決,
-    而不是被當成「沒有主動賣壓」把訊號殺光。"""
+def test_one_missing_source_is_enough_to_stand_down():
+    """論點是「四個來源同時成立」。少一個就驗證不了 —— 缺 taker 欄位時
+    不可以把那個條件當成已通過,那會放寬進場條件而不是收緊。
+
+    缺一個讀數 ≠ 讀到 0,也 ≠ 那個條件成立。"""
     full = _crowded_short()
     without_taker = full.drop(columns=["buy_vol", "sell_vol"])
+
     long_full, _ = make_signals(full)
-    long_partial, _ = make_signals(without_taker)
-    assert long_full.any() and long_partial.any()
+    assert long_full.any(), "四源齊全且條件成立時必須進場,否則這測試沒有對照組"
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        long_partial, _ = make_signals(without_taker)
+    assert not long_partial.any(), "少一個來源就不出手"
+    assert any("buy_vol" in str(w.message) for w in caught), "要指名缺的是 taker 欄位"
+
+
+def test_signal_count_never_goes_up_when_a_source_is_removed():
+    """通則:降級不可以放寬條件。拿掉任何一個來源,訊號數只能持平或變少 ——
+    這是唯一能自動抓到「缺值被當成條件成立」的檢查。"""
+    full = _crowded_short()
+    baseline = int(make_signals(full)[0].sum())
+    for column_set in (["rate"], ["oi_value"], ["buy_vol", "sell_vol"]):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            got = int(make_signals(full.drop(columns=column_set))[0].sum())
+        assert got <= baseline, "拿掉 %s 反而多出訊號:%d > %d" % (column_set, got, baseline)
 
 
 def test_the_registered_plugin_declares_it_needs_derivatives():

@@ -408,7 +408,47 @@ class BlockStrategyPlugin:
         if self.htf_specs and not df.empty:
             df = self._attach_htf_columns(df, market, instrument_id)
 
+        # ---- non-price frames -> columns on the same bar clock ----
+        # Everything that is not OHLCV arrives in DataSnapshot.frames: funding,
+        # open interest, taker flow, news. This method used to read
+        # snapshot.market.bars and nothing else, so `make_signals(df)` received
+        # 13 price columns however many sources the snapshot carried — and a
+        # strategy written to read `rate` / `oi_value` degraded, silently, to a
+        # price-only version of itself. No error, no warning, just a different
+        # strategy under the same id.
+        if not df.empty and getattr(snapshot, "frames", None):
+            df = self._attach_frame_columns(df, snapshot)
+
         return df, str(instrument_id).upper(), str(timeframe)
+
+    def _attach_frame_columns(self, df: pd.DataFrame, snapshot) -> pd.DataFrame:
+        """Merge ``DataSnapshot.frames`` onto the bar index, as-of.
+
+        Same rule the panel uses: a bar may only see a reading whose
+        ``available_time`` is at or before its close. Aligning on ``event_time``
+        instead would put a value on a bar that closed before it was publishable.
+
+        Columns already present win — HTF columns and any spilled ``Bar.extras``
+        were computed for this instrument specifically, and a frame must not
+        overwrite them.
+        """
+        from ..standard_bot.data.panel import attach_frames_to_bars  # local: heavy
+
+        try:
+            return attach_frames_to_bars(df, snapshot)
+        except Exception as exc:
+            # A malformed frame must not take down a strategy that was working
+            # before the frames existed — the bars are still correct. But it
+            # must not be silent either: the strategy is about to run without
+            # the sources it declared, and that is the failure this whole
+            # method exists to stop.
+            import warnings as _warnings
+
+            _warnings.warn(
+                "%s: frames could not be attached, strategy runs on price only "
+                "(%s: %s)" % (self.plugin_id, type(exc).__name__, exc),
+                RuntimeWarning, stacklevel=2)
+            return df
 
     def _attach_htf_columns(self, df: pd.DataFrame, market, instrument_id: str) -> pd.DataFrame:
         from ..standard_bot.core import MarketBundle  # type: ignore
