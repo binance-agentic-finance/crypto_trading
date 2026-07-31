@@ -93,9 +93,13 @@ HtfSpec = Tuple[str, int]  # (htf_timeframe, sma_period)
 #           klines, as_of_ms, market_type) -> list[candidate dict]
 SelectionFn = Callable[..., List[Dict]]
 
-#: the one output contract. Declared here as a literal rather than imported at
-#: module scope so ``cyqnt_trd.blocks`` keeps importing without standard_bot;
-#: :func:`_assert_schema_version_matches` checks the two cannot drift.
+#: the one output contract. Declared as a literal rather than imported at module
+#: scope so ``cyqnt_trd.blocks`` keeps importing without standard_bot.
+#:
+#: The duplication is checked at test time, not by a runtime guard:
+#: ``tests/standard_bot/test_yaml_selection_runs_and_emits_v2.py`` asserts the
+#: emitted envelope carries the same version the contract declares, so the two
+#: cannot drift apart unnoticed.
 _SIGNAL_SCHEMA_VERSION = "cyqnt.signal/v2"
 
 
@@ -845,13 +849,18 @@ class SelectionStrategyPlugin:
         meta = getattr(snapshot, "meta", None)
         statuses = {k: (v.value if hasattr(v, "value") else str(v))
                     for k, v in (getattr(meta, "source_status", {}) or {}).items()}
+        # Quality only ever goes DOWN. An earlier version reassigned it in the
+        # empty-basket branch, which threw away the DEGRADED verdict just
+        # computed from source_status: with ticker_rank dead and a 300-name
+        # universe read fine, the payload said data_quality="good" beside
+        # "no name passed the declared filters" — blaming a strict filter for a
+        # dead feed, in the one field an executor safety-checks.
         quality = DataQuality.GOOD
         if any(str(v).startswith("error") for v in statuses.values()):
             quality = DataQuality.DEGRADED
-        if not rows:
-            # An empty basket with GOOD quality reads as "nothing qualified",
-            # which is a real answer only if the universe was actually read.
-            quality = DataQuality.GOOD if universe_size else DataQuality.INSUFFICIENT
+        if not rows and not universe_size:
+            # Nothing ranked and nothing to rank: this is not "none qualified".
+            quality = DataQuality.INSUFFICIENT
 
         signal = StandardSignal(
             bot_id=self.plugin_id,

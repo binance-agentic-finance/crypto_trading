@@ -78,14 +78,29 @@ def _with_symbol_column(tickers):
     ticker endpoint (``symbol``) or out of an input bundle, where
     ``RankFrame@1.0`` names it ``instrument_id``. Accepting only the former meant
     the canonical shape could not be fed to its own blocks.
+
+    ``ticker`` is deliberately NOT accepted. In Square's frames that column is a
+    BASE TOKEN (``BTC``), not an instrument, and every consumer downstream treats
+    ``symbol`` as something a venue can fill. Aliasing it produced candidates
+    named ``BTC`` with a fully-populated news_bull_ratio — no error anywhere,
+    because the base-token join succeeds precisely *because* the wrong column was
+    accepted — and a basket naming an instrument no exchange lists. It also makes
+    de-duplication by base asset a silent no-op, since ``_base_token('BTC')`` is
+    already ``'BTC'``.
     """
     tickers = tickers.copy()
     if "symbol" in tickers.columns:
         return tickers
-    for alias in ("instrument_id", "ticker"):
-        if alias in tickers.columns:
-            tickers["symbol"] = tickers[alias]
-            return tickers
+    if "instrument_id" in tickers.columns:
+        tickers["symbol"] = tickers["instrument_id"]
+        return tickers
+    if "ticker" in tickers.columns:
+        raise ValueError(
+            "this frame is keyed on 'ticker', which in a Square frame is a BASE "
+            "TOKEN (BTC), not a tradable instrument (BTCUSDT). Join it onto a "
+            "universe first — universe.augment_with_news does exactly that — "
+            "rather than renaming it to 'symbol', which would put an unfillable "
+            "instrument into the basket.")
     raise ValueError(
         "DataFrame missing 'symbol' / 'instrument_id' column; got %s"
         % list(tickers.columns))
