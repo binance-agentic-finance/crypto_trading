@@ -1,0 +1,644 @@
+<!DOCTYPE html><html lang='zh-Hant'><head><meta charset='utf-8'>
+<meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>統一輸入 → blocks → 統一輸出</title><style>
+*{box-sizing:border-box}
+body{font:15px/1.7 -apple-system,"PingFang TC","Noto Sans TC",sans-serif;margin:0;
+ background:#0e1117;color:#d7dee8}
+.wrap{max-width:1180px;margin:0 auto;padding:36px 28px 90px}
+h1{font-size:30px;margin:0 0 6px;color:#fff;letter-spacing:-.4px}
+h2{font-size:22px;margin:52px 0 14px;color:#fff;border-bottom:1px solid #232a35;
+ padding-bottom:9px}
+h3{font-size:17px;margin:30px 0 10px;color:#9fc6ff}
+h4{font-size:15px;margin:20px 0 8px;color:#c8d4e4}
+.sub{color:#8b98ab;margin:0 0 4px}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.9em;
+ background:#1a2130;padding:1px 5px;border-radius:4px;color:#a9d3ff}
+pre{background:#111722;border:1px solid #212a38;border-radius:9px;padding:14px 16px;
+ overflow:auto;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+ line-height:1.55;color:#c5d3e5;max-height:520px}
+pre.sm{font-size:11.5px;max-height:340px}
+table{border-collapse:collapse;width:100%;margin:12px 0;font-size:13.5px}
+th,td{border:1px solid #232c3a;padding:7px 10px;text-align:left;vertical-align:top}
+th{background:#161d29;color:#9fc6ff;font-weight:600}
+.lead{background:#132033;border-left:3px solid #4a90e2;padding:13px 17px;
+ border-radius:0 8px 8px 0;margin:14px 0}
+.ok{background:#12241a;border-left:3px solid #35c46a;padding:13px 17px;
+ border-radius:0 8px 8px 0;margin:14px 0}
+.warn{background:#2a2113;border-left:3px solid #e0a33a;padding:13px 17px;
+ border-radius:0 8px 8px 0;margin:14px 0}
+.bad{background:#2a1618;border-left:3px solid #e05a5a;padding:13px 17px;
+ border-radius:0 8px 8px 0;margin:14px 0}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:900px){.g2{grid-template-columns:1fr}}
+.muted{color:#7f8c9f;font-size:13px}
+.tag{display:inline-block;font-size:11px;padding:2px 8px;border-radius:99px;
+ margin-right:6px;font-weight:600}
+.t-off{background:#173a25;color:#6ee79b}
+.t-net{background:#3a3117;color:#f0c46a}
+.t-vpn{background:#3a1a1d;color:#ff8f8f}
+.flow{background:#111722;border:1px solid #212a38;border-radius:9px;padding:20px;
+ font-family:ui-monospace,Menlo,monospace;font-size:12.5px;line-height:1.8;
+ color:#c5d3e5;overflow:auto}
+a{color:#79b8ff}
+.big{font-size:26px;color:#fff;font-weight:600}
+ul{padding-left:22px}li{margin:5px 0}
+</style></head><body><div class='wrap'>
+<h1>一份 JSON 進,一種訊號出</h1>
+<p class='sub'>統一輸入 <code>cyqnt.input/v1</code> → blocks 組策略 → 統一輸出 <code>cyqnt.signal/v2</code></p>
+<p class='muted'>本頁所有數字都是實跑抓的(<code>docs/gen_report_html.py</code>)。I/O 規格全文見 <a href='https://confluence.toolsfdg.net/pages/viewpage.action?pageId=599595686'>Confluence 599595686</a>。</p>
+<div class='lead'><span class='big'>核心一句話</span><br><b>一次取數變成一份 JSON,用積木組出策略,輸出一種格式</b> —— 交易和選幣共用同一份 schema,消費端只認一個 <code>kind</code> 欄位。</div>
+<h2>0. 全流程</h2>
+<div class='flow'>①  取數                      ②  組策略               ③  出訊號                ④  消費
+──────────────────────────────────────────────────────────────────────────────────
+K 線            ┐                                      ┌─ kind=trade       ┌→ 回測    ✅
+funding / OI    ┤                                      │                   │
+清算            ┤→   一份 JSON      →   blocks 積木  →  ┼─ kind=selection  ┼→ paper   ✅
+新聞 / 熱度     ┤   cyqnt.input/v1      (310 個函式)    │                   │
+選幣宇宙        ┤                                      └─ kind=alert       └→ live    ⚠️
+內網 BigData    ┘                                        cyqnt.signal/v2
+
+     ▲ 一個決策時點                ▲ YAML 或 Python          ▲ 交易與選幣同一格式
+       所有來源                      不寫程式也能組             消費端只認 kind 一個欄位
+       PIT 只 gate 一次</div>
+<h2>1. 輸入 —— 一個時間點、所有來源、一份 JSON</h2>
+<p>格式 <code>cyqnt.input/v1</code>,契約檔 <code>strategies/_standard/input.schema.v1.json</code>。兩個產生器吐出<b>完全相同的 envelope</b>,所以 paper 讀到的檔案形狀和回測一模一樣:</p>
+<table><tr><th>產生器</th><th>用途</th></tr><tr><td><code>build_live_bundle()</code></td><td>打 API 取即時資料(paper / live)</td></tr><tr><td><code>build_input_bundle()</code></td><td>讀本地檔(回測 / 回放)</td></tr></table>
+<h3>1.1 三個設計不變量</h3>
+<ul>
+<li><b>一個時鐘</b> —— 每一列在寫進 JSON 前都過 <code>available_time &lt;= decision_time</code>。
+ 只 gate 一次,下游不可能再讀到未來。<code>event_time</code>(事情何時發生)與
+ <code>available_time</code>(我們何時才可能知道)是<b>兩個不同欄位</b>,混為一談就是
+ walk-forward 偷看未來的來源。</li>
+<li><b>一套詞彙</b> —— funding / OI / 清算 / 任何內網數值,全部落成同一種
+ <code>MetricFrame</code>:<code>(instrument_id, metric, value, event_time, available_time)</code>。
+ 策略讀三個來源用<b>同一個存取函式</b>,<b>加第四個來源不用改管線</b>。</li>
+<li><b>一個窗</b> —— 每條序列只留最新 N 筆。同一份 bundle 從 1.7 MB 降到
+ 161,343 bytes,<b>策略輸出完全不變</b>。</li>
+</ul>
+<h3>1.2 骨架(真實產出,rows 收起來)</h3>
+<pre class="">{
+ &quot;schema&quot;: &quot;cyqnt.input/v1&quot;,
+ &quot;snapshot_id&quot;: &quot;e7904858-a31d-5b85-841f-4219d5409a02&quot;,
+ &quot;decision_time&quot;: 1776322799999,
+ &quot;market_type&quot;: &quot;futures&quot;,
+ &quot;instruments&quot;: [
+  &quot;BTCUSDT&quot;
+ ],
+ &quot;primary_timeframe&quot;: &quot;1h&quot;,
+ &quot;source_status&quot;: {
+  &quot;klines&quot;: &quot;ok&quot;,
+  &quot;funding&quot;: &quot;ok&quot;,
+  &quot;open_interest&quot;: &quot;ok&quot;,
+  &quot;news&quot;: &quot;ok&quot;,
+  &quot;ticker_rank&quot;: &quot;ok&quot;,
+  &quot;universe&quot;: &quot;ok&quot;
+ },
+ &quot;warnings&quot;: [
+  &quot;open_interest_1h.parquet not found; used open_interest_5m.parquet instead&quot;
+ ],
+ &quot;positions&quot;: {},
+ &quot;equity&quot;: null,
+ &quot;frames&quot;: {
+  &quot;klines&quot;: &quot;{ shape: BarFrame@1.0, rows: [ … 300 列 … ] }&quot;,
+  &quot;funding&quot;: &quot;{ shape: MetricFrame@1.0, rows: [ … 126 列 … ] }&quot;,
+  &quot;open_interest&quot;: &quot;{ shape: MetricFrame@1.0, rows: [ … 480 列 … ] }&quot;,
+  &quot;news&quot;: &quot;{ shape: EventFrame@1.0, rows: [ … 1 列 … ] }&quot;,
+  &quot;ticker_rank&quot;: &quot;{ shape: RankFrame@1.0, rows: [ … 2 列 … ] }&quot;,
+  &quot;universe&quot;: &quot;{ shape: RankFrame@1.0, rows: [ … 2 列 … ] }&quot;
+ }
+}</pre>
+<p class='muted'><code>source_status</code> 涵蓋<b>每一個宣告過的節點</b>(含讀失敗的),所以「沒讀到」和「讀到但是空的」分得出來 —— 缺料會降級但不會靜默。</p>
+<h3>1.3 這一份實際有什麼</h3>
+<table><tr><th>frame</th><th>標準形狀</th><th>列數</th><th>狀態</th></tr><tr><td><code>klines</code></td><td><code>BarFrame@1.0</code></td><td align=right>300</td><td>ok</td></tr><tr><td><code>funding</code></td><td><code>MetricFrame@1.0</code></td><td align=right>126</td><td>ok</td></tr><tr><td><code>open_interest</code></td><td><code>MetricFrame@1.0</code></td><td align=right>480</td><td>ok</td></tr><tr><td><code>news</code></td><td><code>EventFrame@1.0</code></td><td align=right>1</td><td>ok</td></tr><tr><td><code>ticker_rank</code></td><td><code>RankFrame@1.0</code></td><td align=right>2</td><td>ok</td></tr><tr><td><code>universe</code></td><td><code>RankFrame@1.0</code></td><td align=right>2</td><td>ok</td></tr></table>
+<p class='muted'>共 161,343 bytes。7 種標準形狀:BarFrame / MetricFrame / PanelFrame / EventFrame / RankFrame / PositionFrame / BookFrame。</p>
+<h3>1.4 每個 frame 一列真實資料</h3>
+<p class='muted'>「這是格式」沒有看到值就等於沒說。</p>
+<pre class="sm">{
+ &quot;klines&quot;: {
+  &quot;instrument_id&quot;: &quot;BTCUSDT&quot;,
+  &quot;timeframe&quot;: &quot;1h&quot;,
+  &quot;open_time&quot;: 1776319200000,
+  &quot;close_time&quot;: 1776322799999,
+  &quot;open&quot;: 75006.0,
+  &quot;high&quot;: 75079.1,
+  &quot;low&quot;: 74801.8,
+  &quot;close&quot;: 74985.9,
+  &quot;volume&quot;: 2797.0740000000014,
+  &quot;quote_volume&quot;: 209611109.58799997,
+  &quot;confirmed&quot;: true,
+  &quot;available_time&quot;: 1776322799999
+ },
+ &quot;funding&quot;: {
+  &quot;event_time&quot;: 1776297600013,
+  &quot;available_time&quot;: 1776297600013,
+  &quot;instrument_id&quot;: &quot;BTCUSDT&quot;,
+  &quot;metric&quot;: &quot;mark_price&quot;,
+  &quot;value&quot;: 74776.2
+ },
+ &quot;open_interest&quot;: {
+  &quot;event_time&quot;: 1776322500000,
+  &quot;available_time&quot;: 1776322500000,
+  &quot;instrument_id&quot;: &quot;BTCUSDT&quot;,
+  &quot;metric&quot;: &quot;open_interest_value&quot;,
+  &quot;value&quot;: 7454766621.173
+ },
+ &quot;news&quot;: {
+  &quot;event_id&quot;: &quot;n1&quot;,
+  &quot;event_time&quot;: 1776319199999,
+  &quot;available_time&quot;: 1776319299999,
+  &quot;source_id&quot;: &quot;square&quot;,
+  &quot;topic&quot;: &quot;etf_inflow&quot;,
+  &quot;instrument_id&quot;: &quot;BTCUSDT&quot;,
+  &quot;title&quot;: &quot;ETF net inflow hits 30d high&quot;,
+  &quot;urgency&quot;: &quot;high&quot;
+ },
+ &quot;ticker_rank&quot;: {
+  &quot;instrument_id&quot;: &quot;ETHUSDT&quot;,
+  &quot;available_time&quot;: 1776322799999,
+  &quot;rank&quot;: 2,
+  &quot;score&quot;: 32.0,
+  &quot;mention_count&quot;: 80,
+  &quot;bull_ratio&quot;: 0.25
+ },
+ &quot;universe&quot;: {
+  &quot;instrument_id&quot;: &quot;ETHUSDT&quot;,
+  &quot;available_time&quot;: 1776322799999,
+  &quot;quote_volume&quot;: 300000000.0
+ }
+}</pre>
+<h2>2. 組策略 —— blocks 積木,YAML 不寫程式</h2>
+<p><code>blocks/</code> 有 <b>365 個純函式</b>(指標、條件、衍生品、新聞、選幣、風控…),策略就是這些積木的組合。YAML 可觸及 <b>342 / 365</b> 個。</p>
+<h3>2.1 交易策略(多來源)</h3>
+<pre class=""># =============================================================================
+# 範例 3 —— 多來源(OHLCV + 資金費率 + 未平倉量)
+# =============================================================================
+# 前兩個範例只用 K 線。這一個示範怎麼把「不是 OHLCV 的資料」接進策略:
+#
+#   data.derivatives:  → 掛上 funding_rate / funding_rate_bps / mark_price /
+#                        open_interest / open_interest_value / oi_change_bps
+#   data.liquidations: → 掛上 long_liq_notional_usd / short_liq_notional_usd /
+#                        net_liq_notional_usd / liq_imbalance_ratio ...
+#
+# 三個要點:
+#   1. 沒有宣告 data.derivatives 就引用 funding_rate_bps → validate 直接擋下來,
+#      並告訴你要加哪一段。不會讓你驗證過了才在跑的時候拿到 NaN。
+#   2. derivatives.* 這一類 block 吃的是「具名 Series」而不是整個 df,
+#      所以用 input: &lt;欄位或前面算過的指標名&gt;;要兩個 Series 就用 inputs: [a, b]。
+#   3. 指標可以串接:後面的指標可以用前面指標的「名字」當 input。
+#
+# 執行:
+#   驗證:  python -m cyqnt_trd.standard_bot.yaml_pipeline validate example_multi_source.yaml
+#   回測:  python -m cyqnt_trd.standard_bot.yaml_pipeline run example_multi_source.yaml
+# =============================================================================
+
+spec_version: &quot;1.0&quot;
+target: standard_bot
+
+strategy:
+  id: btc_multi_source
+  description: &quot;BTC:EMA 金叉 + 資金費率為負(空方在付錢) + 未平倉量沒在暴衝 → 做多&quot;
+
+run:
+  mode: backtest
+
+data:
+  symbol: BTCUSDT
+  market_type: futures                # 衍生品資料只有 futures 有
+  primary:
+    # repo 內的 parquet 只有 1m;要跑 1h 有兩條路:
+    #   (a) 放一份 1h parquet 進 data.source.dir,或
+    #   (b) 用 --engine event,它會依 source.storage_timeframe 自行 resample
+    #       (預設的向量化引擎不會 resample)
+    interval: &quot;1m&quot;
+    poll_interval: 3570
+  source:
+    type: historical_parquet
+    dir: data/mtf_90d
+  derivatives:                        # ← 資金費率 + 未平倉量
+    dir: data/derivatives_mvp_30d
+  # liquidations:                     # ← 清算(要用再打開)
+  #   dir: data/liquidations_mvp_live
+
+signals:
+  indicators:
+    ema_fast: { block: indicators.ema, input: close, params: { period: 60 } }
+    ema_slow: { block: indicators.ema, input: close, params: { period: 240 } }
+
+    # 吃 df 掛上來的 funding 欄位,回傳分類字串 Series
+    fund_state:
+      block: derivatives.funding_rate_state
+      input: funding_rate_bps
+      params: { high_threshold_bps: 1.0, low_threshold_bps: -1.0 }
+
+    # 吃 open_interest 欄位,回傳 12 根期間的變動百分比
+    oi_chg:
+      block: derivatives.oi_change_pct
+      input: open_interest
+      params: { periods: 12 }
+
+    # 指標串接:atr 先算,再餵給 regime 判斷波動位階
+    atr14:  { block: indicators.atr, input: df, params: { period: 14 } }
+    vol_hi: { block: regime.atr_above_percentile, input: atr14,
+              params: { window: 200, percentile: 0.8 } }
+
+  entry:
+    long:
+      all_of:
+        - { cond: conditions.ma_cross_above, args: [ema_fast, ema_slow] }
+        # 數字字面量原樣傳入(不會被包成 Series);名字則解析成 Series
+        - { cond: conditions.value_below,    args: [funding_rate_bps, 0.0] }
+        - { cond: conditions.value_below,    args: [oi_chg, 5.0] }
+        # 波動過高時不進場
+        - not: { cond: conditions.value_above, args: [vol_hi, 0.5] }
+    short:
+      all_of:
+        - { cond: conditions.ma_cross_below, args: [ema_fast, ema_slow] }
+        # 分類 Series 要用 state_equals,數值比較會直接丟 TypeError。
+        # 字串常數放 params ——「args 裡的字串」一律當成欄位/指標名解析。
+        - { cond: conditions.state_equals,   args: [fund_state],
+            params: { state: &quot;bullish_squeeze&quot; } }
+
+sizing:
+  size: 0.5
+
+risk:
+  exit:
+    type: atr_stop_tp
+    atr_period: 14
+    stop_mult: 2.0
+    tp_mult: 4.0
+    max_bars: 120
+  fees: { commission_bps: 4.0, slippage_bps: 2.0 }
+
+backtest:
+  initial_capital: 10000
+  execution_model: next_bar_open</pre>
+<div class='ok'><b>validate:</b> 通過 —— 靜態檢查 + 用合成資料實跑一次</div>
+<p><b>兩道保護:</b></p><ul><li>沒宣告 <code>data.derivatives</code> 就引用 <code>funding_rate_bps</code> → <b>validate 直接擋</b>,並告訴你要加哪一段。不會驗證過了才在跑的時候拿到空值</li><li><code>validate</code> 會<b>用合成資料實跑一次</b>,抓出參數名錯、型別錯、arity 錯。過了 validate 就是結構上可跑</li></ul>
+<h4>實跑結果(真實資料)</h4>
+<pre class="">資料來源: parquet(1m.parquet)+derivatives(+6)
+K 線:     129,599 根
+掛上的衍生品欄位: oi_timestamp, open_interest, open_interest_value, oi_change_bps, funding_timestamp, funding_rate, funding_rate_bps
+funding 有值的根數: 30,234</pre>
+<div class='ok'><b>反事實檢查 —— 多源資料真的在起作用</b><br>只留 EMA 交叉 → <b>345</b> 個做多訊號;加上 funding + OI 條件 → <b>36</b> 個。<b>濾掉 309 個(89.6%)</b>。資料不是掛在那裡好看的。</div>
+<h3>2.2 選幣策略(截面)</h3>
+<p><code>signals:</code> 逐根評估一個標的 → <code>kind=trade</code>;<code>selection:</code> 一次評估整個宇宙 → <code>kind=selection</code>。<b>兩者互斥</b>,一份 spec 只能是其中一種。</p>
+<pre class=""># =============================================================================
+# 範例 4 —— 選幣(cross-section)
+# =============================================================================
+# 前三個範例都是「單一標的、逐根 K 線」。這一個是另一種形狀:
+# 一次對整個幣種宇宙排名,輸出一籃候選,而不是某一根 K 的多空。
+#
+#   signals:   → 逐根評估一個標的      → kind=trade
+#   selection: → 一次評估整個宇宙      → kind=selection
+#   兩者互斥,一份 spec 只能是其中一種。
+#
+# 語法完全共用:selection 的 frame「一列是一個幣」而不是「一列是一根 K」,
+# 所以 features / long_when 用的是同一套 block 與同一套比較器。
+#
+# 執行:
+#   驗證:  python -m cyqnt_trd.standard_bot.yaml_pipeline validate example_selection.yaml
+#   跑一次:python -m cyqnt_trd.standard_bot.yaml_pipeline run example_selection.yaml
+#
+# 注意 run.mode:選幣是「一個時點對整個宇宙排名」,沒有逐根 K 的權益曲線,
+# 這個 repo 也沒有截面回測引擎。所以 run 會實際跑一次選幣、印出籃子並輸出
+# cyqnt.signal/v2,而不是回測 —— 它會明講這件事,不會給你一條 trades=0 的假回測。
+# =============================================================================
+
+spec_version: &quot;1.0&quot;
+target: standard_bot
+
+strategy:
+  id: news_buzz_selector
+  description: &quot;流動性過濾後,依 Square 提及量排名,情緒偏多做多、偏空做空&quot;
+
+run:
+  mode: backtest
+
+data:
+  symbol: BTCUSDT          # 選幣型仍需宣告一個代表標的(排程與計價用)
+  market_type: futures
+  primary:
+    interval: &quot;1h&quot;
+
+selection:
+  universe:                # 依序套用的 universe pipeline;每一步都回傳收窄後的 frame
+    - block: universe.filter_quote_volume
+      params: { min_quote_volume: 100000000 }
+    - block: universe.augment_with_news
+      with: [ticker_rank]  # 第二個位置參數:把 ticker_rank frame 餵進去
+
+  features:                # 逐幣的 Series,語法與 signals.indicators 完全相同。
+                           # 這裡的「rolling」是沿著幣種排名跑,不是沿著時間 ——
+                           # 同一個 block,不同的軸。
+    buzz_z:
+      block: indicators.rolling_zscore
+      input: news_mention_count
+      params: { period: 6 }
+
+  score: news_mention_count   # 依這個欄位由大到小排名(欄位或上面算出的 feature 都可以)
+  top_k: 5
+  min_score: 1.0
+
+  # 同一個資產的不同計價對算「一個名字」。Square 的提及量是按 base token 統計的,
+  # 所以同一個分數會 join 到 BTCUSDT / BTCUSDC 每一對上;不去重的話 top_k=5 會變成
+  # 「3 個資產佔 5 個位置」,BTC 與 SOL 各拿雙倍權重。同分時留成交額大的那一對。
+  # 要做 USDC/USDT 基差之類真的把計價對當不同標的的策略,才設 none。
+  dedupe_by: base_asset       # base_asset(預設) | none
+
+  long_when:  { cond: conditions.value_above, args: [news_bull_ratio, 0.55] }
+  short_when: { cond: conditions.value_below, args: [news_bull_ratio, 0.45] }</pre>
+<div class='ok'><b>validate:</b> 通過</div>
+<h4>實跑結果</h4>
+<table><tr><th>rank</th><th>標的</th><th>方向</th><th>score</th></tr><tr><td align=right>1</td><td><code>BTCUSDT</code></td><td>long</td><td align=right>512</td></tr><tr><td align=right>2</td><td><code>ETHUSDT</code></td><td>short</td><td align=right>388</td></tr><tr><td align=right>3</td><td><code>SOLUSDT</code></td><td>long</td><td align=right>240</td></tr><tr><td align=right>4</td><td><code>XRPUSDT</code></td><td>short</td><td align=right>120</td></tr></table>
+<p class='muted'>語法完全共用 —— selection 的 frame「一列是一個幣」而不是「一列是一根 K」,所以同一套 block、同一套比較器都能用。<code>rolling_zscore</code> 沿著幣種排名跑,同一個 block、不同的軸。</p>
+<h2>3. 輸出 —— 交易與選幣同一格式</h2>
+<div class='ok'><b>頂層 key 完全相同:42 個,差集為零 ✅</b><br>消費端只解析一套 schema,<b>switch <code>kind</code> 一個欄位</b>。</div>
+<table><tr><th><code>kind</code></th><th>主要填</th><th>意思</th></tr><tr><td><code>trade</code></td><td><code>entry</code> / <code>exit_plan</code> / <code>size</code></td><td>對某個標的的指令</td></tr><tr><td><code>selection</code></td><td><code>candidates</code> / <code>universe_size</code></td><td>一籃排名後的候選</td></tr><tr><td><code>alert</code></td><td><code>advisory_action</code> / <code>summary</code></td><td>觀察,不自動執行</td></tr></table>
+<div class='g2'>
+<div><h4>交易型(實跑)</h4><pre class="sm">{
+ &quot;schema&quot;: &quot;cyqnt.signal/v2&quot;,
+ &quot;kind&quot;: &quot;trade&quot;,
+ &quot;bot_id&quot;: &quot;multi_source_reference&quot;,
+ &quot;symbol&quot;: &quot;BTCUSDT&quot;,
+ &quot;intent&quot;: &quot;open_long&quot;,
+ &quot;target_side&quot;: &quot;long&quot;,
+ &quot;order_side&quot;: &quot;buy&quot;,
+ &quot;market_scope&quot;: &quot;single&quot;,
+ &quot;score&quot;: 50.0,
+ &quot;universe_size&quot;: 0
+}</pre></div>
+<div><h4>選幣型(實跑)</h4><pre class="sm">{
+ &quot;schema&quot;: &quot;cyqnt.signal/v2&quot;,
+ &quot;kind&quot;: &quot;selection&quot;,
+ &quot;bot_id&quot;: &quot;blocks_news_rank&quot;,
+ &quot;symbol&quot;: null,
+ &quot;intent&quot;: &quot;hold&quot;,
+ &quot;target_side&quot;: null,
+ &quot;order_side&quot;: null,
+ &quot;market_scope&quot;: &quot;cross_section&quot;,
+ &quot;score&quot;: 96.0,
+ &quot;universe_size&quot;: 2
+}</pre></div>
+</div>
+<h3>3.1 兩個關鍵欄位</h3>
+<p><b><code>intent</code> —— 12 種值</b>,明確區分「平多」和「開空」,執行層不用猜:</p>
+<pre class="">open_long  open_short  add_long  add_short  reduce_long  reduce_short  close_long  close_short  flip_to_long  flip_to_short  flat  hold</pre>
+<p class='muted'>而且<b>沒宣告讀過部位的策略不准發平倉指令</b> —— 框架直接丟 <code>CapabilityError</code>。理由很直接:那些指令都在斷言「現在有一個部位」,而一支從沒讀過部位的策略是在猜。</p>
+<p><b><code>exit_plan</code></b> —— 停損、分批停利、移動停損、時間停損,<b>跟著訊號一起走</b>,不是只活在某個 daemon 的記憶體裡。</p>
+<h3>3.2 交易型完整輸出</h3>
+<pre class="">{
+ &quot;schema&quot;: &quot;cyqnt.signal/v2&quot;,
+ &quot;kind&quot;: &quot;trade&quot;,
+ &quot;bot_id&quot;: &quot;multi_source_reference&quot;,
+ &quot;bot_version&quot;: &quot;v1&quot;,
+ &quot;signal_id&quot;: &quot;280b4108-eb91-5048-bc9a-c12dac4cfb70&quot;,
+ &quot;decision_time&quot;: 1776322799999,
+ &quot;symbol&quot;: &quot;BTCUSDT&quot;,
+ &quot;venue&quot;: &quot;binance&quot;,
+ &quot;product&quot;: &quot;usd_m_perpetual&quot;,
+ &quot;base_asset&quot;: &quot;&quot;,
+ &quot;quote_asset&quot;: &quot;&quot;,
+ &quot;market_scope&quot;: &quot;single&quot;,
+ &quot;intent&quot;: &quot;open_long&quot;,
+ &quot;target_side&quot;: &quot;long&quot;,
+ &quot;closes_side&quot;: null,
+ &quot;order_side&quot;: &quot;buy&quot;,
+ &quot;reduce_only&quot;: false,
+ &quot;direction&quot;: &quot;long&quot;,
+ &quot;advisory_action&quot;: null,
+ &quot;score&quot;: 50.0,
+ &quot;confidence&quot;: 0.5,
+ &quot;entry&quot;: {
+  &quot;type&quot;: &quot;market&quot;,
+  &quot;price&quot;: 74985.9,
+  &quot;zone&quot;: null,
+  &quot;time_in_force&quot;: &quot;GTC&quot;,
+  &quot;post_only&quot;: false
+ },
+ &quot;exit_plan&quot;: {
+  &quot;stop_loss&quot;: {
+   &quot;price&quot;: null,
+   &quot;pct&quot;: null,
+   &quot;atr_mult&quot;: 2.0,
+   &quot;atr_value&quot;: 454.85428354185905,
+   &quot;trailing&quot;: false,
+   &quot;exchange_managed&quot;: false
+  },
+  &quot;take_profit&quot;: [
+   {
+    &quot;close_pct&quot;: 1.0,
+    &quot;price&quot;: null,
+    &quot;pct&quot;: null,
+    &quot;atr_mult&quot;: 3.0,
+    &quot;atr_value&quot;: 454.85428354185905
+   }
+  ],
+  &quot;time_stop&quot;: {
+   &quot;max_bars&quot;: 48,
+   &quot;max_seconds&quot;: null
+  },
+  &quot;exit_on_opposite_signal&quot;: true,
+  &quot;note&quot;: &quot;&quot;
+ },
+ &quot;size&quot;: {
+  &quot;mode&quot;: &quot;risk_pct&quot;,
+  &quot;value&quot;: 0.01,
+  &quot;leverage&quot;: null,
+  &quot;max_notional_quote&quot;: null,
+  &quot;reduce_only&quot;: false
+ },
+ &quot;risk&quot;: {
+  &quot;max_loss_quote&quot;: null,
+  &quot;max_position_quote&quot;: null,
+  &quot;max_leverage&quot;: null,
+  &quot;liquidation_buffer_pct&quot;: null,
+  &quot;daily_loss_cap_quote&quot;: null
+ },
+ &quot;time_horizon&quot;: &quot;intraday&quot;,
+ &quot;horizon_seconds&quot;: 3600,
+ &quot;valid_until&quot;: 1776326399999,
+ &quot;topic&quot;: &quot;&quot;,
+ &quot;reason_codes&quot;: [
+  &quot;ema_trend_up&quot;,
+  &quot;funding_missing&quot;,
+  &quot;oi_missing&quot;
+ ],
+ &quot;summary&quot;: &quot;Long trend, funding_missing, oi_missing&quot;,
+ &quot;recommended_behavior&quot;: &quot;&quot;,
+ &quot;evidence&quot;: [
+  {
+   &quot;source&quot;: &quot;klines&quot;,
+   &quot;observed&quot;: {
+    &quot;ema_fast&quot;: 74630.37,
+    &quot;ema_slow&quot;: 74059.9,
+    &quot;close&quot;: 74985.9
+   },
+   &quot;available_time&quot;: null,
+   &quot;url&quot;: &quot;&quot;,
+   &quot;note&quot;: &quot;&quot;
+  }
+ ],
+ &quot;data_quality&quot;: &quot;insufficient&quot;,
+ &quot;source_status&quot;: {},
+ &quot;warnings&quot;: [],
+ &quot;candidates&quot;: [],
+ &quot;universe_size&quot;: 0,
+ &quot;auto_trade_eligible&quot;: false,
+ &quot;requires_confirmation&quot;: true,
+ &quot;dedup_key&quot;: &quot;multi_source_reference:binance:usd_m_perpetual:BTCUSDT:open_long&quot;,
+ &quot;provenance&quot;: {
+  &quot;strategy_id&quot;: &quot;multi_source_reference&quot;,
+  &quot;strategy_version&quot;: &quot;v1&quot;,
+  &quot;snapshot_id&quot;: &quot;&quot;,
+  &quot;config_hash&quot;: &quot;BTCUSDT|1h&quot;,
+  &quot;inputs&quot;: [
+   &quot;klines&quot;,
+   &quot;funding&quot;,
+   &quot;open_interest&quot;,
+   &quot;news&quot;
+  ],
+  &quot;run_id&quot;: &quot;&quot;,
+  &quot;trace_id&quot;: &quot;&quot;
+ }
+}</pre>
+<h3>3.3 選幣型完整輸出</h3>
+<p class='muted'>注意頂層 key 與上面<b>逐一相同</b>,只是 <code>entry/exit_plan/size</code> 為 <code>null</code>,結果放在 <code>candidates</code>。</p>
+<pre class="">{
+ &quot;schema&quot;: &quot;cyqnt.signal/v2&quot;,
+ &quot;kind&quot;: &quot;selection&quot;,
+ &quot;bot_id&quot;: &quot;blocks_news_rank&quot;,
+ &quot;bot_version&quot;: &quot;v1&quot;,
+ &quot;signal_id&quot;: &quot;040f8669-e364-524e-8e3f-d9943fa2e611&quot;,
+ &quot;decision_time&quot;: 1776322799999,
+ &quot;symbol&quot;: null,
+ &quot;venue&quot;: &quot;binance&quot;,
+ &quot;product&quot;: &quot;usd_m_perpetual&quot;,
+ &quot;base_asset&quot;: &quot;&quot;,
+ &quot;quote_asset&quot;: &quot;&quot;,
+ &quot;market_scope&quot;: &quot;cross_section&quot;,
+ &quot;intent&quot;: &quot;hold&quot;,
+ &quot;target_side&quot;: null,
+ &quot;closes_side&quot;: null,
+ &quot;order_side&quot;: null,
+ &quot;reduce_only&quot;: false,
+ &quot;direction&quot;: &quot;neutral&quot;,
+ &quot;advisory_action&quot;: null,
+ &quot;score&quot;: 96.0,
+ &quot;confidence&quot;: 0.0,
+ &quot;entry&quot;: null,
+ &quot;exit_plan&quot;: null,
+ &quot;size&quot;: null,
+ &quot;risk&quot;: {
+  &quot;max_loss_quote&quot;: null,
+  &quot;max_position_quote&quot;: null,
+  &quot;max_leverage&quot;: null,
+  &quot;liquidation_buffer_pct&quot;: null,
+  &quot;daily_loss_cap_quote&quot;: null
+ },
+ &quot;time_horizon&quot;: &quot;intraday&quot;,
+ &quot;horizon_seconds&quot;: 3600,
+ &quot;valid_until&quot;: 1776326399999,
+ &quot;topic&quot;: &quot;&quot;,
+ &quot;reason_codes&quot;: [
+  &quot;news_mentions&quot;,
+  &quot;sentiment_skew&quot;
+ ],
+ &quot;summary&quot;: &quot;Top 2 by Square mentions x sentiment skew&quot;,
+ &quot;recommended_behavior&quot;: &quot;&quot;,
+ &quot;evidence&quot;: [],
+ &quot;data_quality&quot;: &quot;insufficient&quot;,
+ &quot;source_status&quot;: {},
+ &quot;warnings&quot;: [],
+ &quot;candidates&quot;: [
+  {
+   &quot;symbol&quot;: &quot;BTCUSDT&quot;,
+   &quot;rank&quot;: 1,
+   &quot;score&quot;: 96.0,
+   &quot;direction&quot;: &quot;long&quot;,
+   &quot;reason&quot;: &quot;mentions 120, bullish ratio 0.90&quot;,
+   &quot;features&quot;: {
+    &quot;news_mention_count&quot;: 120.0,
+    &quot;news_bull_ratio&quot;: 0.9
+   },
+   &quot;trade&quot;: null
+  },
+  {
+   &quot;symbol&quot;: &quot;ETHUSDT&quot;,
+   &quot;rank&quot;: 2,
+   &quot;score&quot;: 40.0,
+   &quot;direction&quot;: &quot;short&quot;,
+   &quot;reason&quot;: &quot;mentions 80, bullish ratio 0.25&quot;,
+   &quot;features&quot;: {
+    &quot;news_mention_count&quot;: 80.0,
+    &quot;news_bull_ratio&quot;: 0.25
+   },
+   &quot;trade&quot;: null
+  }
+ ],
+ &quot;universe_size&quot;: 2,
+ &quot;auto_trade_eligible&quot;: false,
+ &quot;requires_confirmation&quot;: true,
+ &quot;dedup_key&quot;: &quot;blocks_news_rank:binance:usd_m_perpetual:GLOBAL:hold&quot;,
+ &quot;provenance&quot;: {
+  &quot;strategy_id&quot;: &quot;blocks_news_rank&quot;,
+  &quot;strategy_version&quot;: &quot;v1&quot;,
+  &quot;snapshot_id&quot;: &quot;&quot;,
+  &quot;config_hash&quot;: &quot;&quot;,
+  &quot;inputs&quot;: [
+   &quot;universe&quot;,
+   &quot;ticker_rank&quot;
+  ],
+  &quot;run_id&quot;: &quot;&quot;,
+  &quot;trace_id&quot;: &quot;&quot;
+ }
+}</pre>
+<h2>4. 現場 Demo</h2>
+<div class='warn'><b>先看標籤再決定要不要在台上跑。</b><br><span class='tag t-off'>離線可靠</span>不需要網路,一定會過。<span class='tag t-net'>需外網</span>抓 Binance 公開 API。<span class='tag t-vpn'>需 VPN</span>打內網端點,<b>沒 VPN 一定失敗</b>。</div>
+<h3>Demo 1 &nbsp;<span class='tag t-off'>離線可靠</span> 四個範例全部驗證</h3>
+<pre class="">cd ~/Dev/crypto_trading-main
+
+# 四個範例,全部靜態檢查 + 用合成資料實跑一次
+for f in docs/strategy_yaml_spec/example_*.yaml; do
+  .venv-standard-bot/bin/python -m cyqnt_trd.standard_bot.yaml_pipeline validate $f
+done</pre>
+<p class='muted'>會印四行 <code>OK: spec '…' is valid and dry-ran successfully</code>。重點是 validate <b>真的跑了一次</b>,不只是檢查欄位。</p>
+<h3>Demo 2 &nbsp;<span class='tag t-off'>離線可靠</span> 多源策略回測</h3>
+<pre class=""># 多源策略,吃本地 parquet,完全離線
+.venv-standard-bot/bin/python -m cyqnt_trd.standard_bot.yaml_pipeline \
+    run docs/strategy_yaml_spec/example_multi_source.yaml</pre>
+<p class='muted'>讀本地 parquet。會印出 <code>data=parquet(1m.parquet)+derivatives(+6)</code> 與報酬 / Sharpe / 交易筆數,並<b>誠實警告</b>衍生品資料只覆蓋部分回測期間。</p>
+<h3>Demo 3 &nbsp;<span class='tag t-off'>離線可靠</span> 選幣</h3>
+<pre class=""># 選幣:用固定資料,不打 API(當場 demo 最可靠的版本)
+.venv-standard-bot/bin/python - &lt;&lt;&#x27;PY&#x27;
+import pandas as pd
+from cyqnt_trd.standard_bot.yaml_pipeline.spec import load_spec
+from cyqnt_trd.standard_bot.yaml_pipeline.interpreter import build_selection_fn
+
+spec = load_spec(&quot;docs/strategy_yaml_spec/example_selection.yaml&quot;)
+syms = [&quot;BTCUSDT&quot;,&quot;ETHUSDT&quot;,&quot;SOLUSDT&quot;,&quot;BNBUSDT&quot;,&quot;XRPUSDT&quot;,&quot;DOGEUSDT&quot;]
+uni  = pd.DataFrame({&quot;symbol&quot;: syms, &quot;quoteVolume&quot;:[9e8,7e8,4e8,3e8,2e8,1.2e8],
+                     &quot;available_time&quot;:[0]*6})
+rank = pd.DataFrame({&quot;symbol&quot;: syms, &quot;rank&quot;: list(range(1,7)),
+                     &quot;mention_count&quot;:[512,388,240,175,120,96],
+                     &quot;bull_ratio&quot;:[0.81,0.31,0.62,0.50,0.28,0.71],
+                     &quot;available_time&quot;:[0]*6})
+for c in build_selection_fn(spec)(uni, rank):
+    print(&quot;  #%d %-9s %-6s score=%.0f&quot; % (c[&quot;rank&quot;], c[&quot;symbol&quot;], c[&quot;side&quot;], c[&quot;score&quot;]))
+PY</pre>
+<p class='muted'>刻意用固定資料。走 CLI 的 <code>run</code> 會打即時 Square API,cache 冷的時候會回 <code>ticker_rank: empty</code> → 沒有候選,不適合當場 demo。</p>
+<h3>Demo 4 &nbsp;<span class='tag t-net'>需外網</span><span class='tag t-vpn'>LLM 那半需 VPN</span> 自然語言 → YAML → 回測(網頁)</h3>
+<pre class="">PYTHONPATH=~/Dev/crypto_trading-main \
+  ~/Dev/crypto_trading-main/.venv-standard-bot/bin/python \
+  docs/strategy_yaml_spec/demo/server.py
+# 開 http://127.0.0.1:8799</pre>
+<p>網頁有兩半,<b>可以分開 demo</b>:</p>
+<table><tr><th>半</th><th>需要什麼</th><th>狀態</th></tr><tr><td><b>回測</b>(貼 YAML 進去直接跑)</td><td>外網抓 K 線</td><td>✅ 實測 HTTP 200、1000 根 K、真實指標</td></tr><tr><td><b>NL → YAML</b>(打你的 LiteLLM)</td><td><b>VPN</b> + API key</td><td>⚠️ 端點在內網,沒 VPN 會出 <code>TypeError: Load failed</code></td></tr></table>
+<div class='bad'><b>Demo 備案(強烈建議先準備)</b><br>如果現場沒有 VPN,<b>NL → YAML 那一步一定失敗</b>。做法:先在有 VPN 的環境把一句話轉出來的 YAML 存好,現場<b>直接貼進回測框</b>,講「這份 YAML 是模型從這句話生的」,再按回測。流程完整、風險為零。</div>
+<p class='muted'>API Base / Key / Model 是在瀏覽器表單填的,存在 localStorage,<b>不在 repo 裡</b>(內網主機名刻意不寫進程式碼)。</p>
+<h2>5. 現況與缺口</h2>
+<table><tr><th>項目</th><th>狀態</th></tr><tr><td>統一輸入格式定義 + PIT 閘門</td><td>✅</td></tr><tr><td>YAML 可觸及全部 blocks</td><td>✅ 342 / 365 個函式</td></tr><tr><td>YAML 交易策略</td><td>✅ 實跑 129,599 根真實 K 線</td></tr><tr><td>YAML 選幣策略</td><td>✅</td></tr><tr><td>多源資料(funding / OI / 新聞)進策略</td><td>✅ 實測濾掉 90% 的訊號</td></tr><tr><td>統一輸出 v2(交易 + 選幣同格式)</td><td>✅ 42 個 key 相同</td></tr><tr><td>回測 / paper</td><td>✅</td></tr><tr><td><b>輸入 bundle 接進 runtime</b></td><td>🔧 進行中</td></tr><tr><td><b>live 下單</b></td><td>⚠️ 執行層還沒接 v2</td></tr></table>
+<div class='warn'><b>被問到還缺什麼,最誠實的答案</b><br><b>live 執行層還在吃舊格式</b>(成交記錄而非訊號),所以停損目前只在程式內模擬,<b>沒有掛到交易所</b>。<code>ExitPlan.exchange_managed</code> 這個欄位就是為此留的,但還沒有實作。這是上真錢前必須補的一環。</div>
+<h2>附錄:檔案在哪</h2>
+<table><tr><th>要找什麼</th><th>檔案</th></tr><tr><td>I/O 規格全文</td><td><a href='https://confluence.toolsfdg.net/pages/viewpage.action?pageId=599595686'>Confluence 599595686</a></td></tr><tr><td>輸入契約檔</td><td><code>strategies/_standard/input.schema.v1.json</code></td></tr><tr><td>輸出契約檔</td><td><code>strategies/_standard/signal.schema.v2.json</code></td></tr><tr><td>輸入產生器</td><td><code>cyqnt_trd/standard_bot/data/input_bundle.py</code> / <code>live_bundle.py</code></td></tr><tr><td>輸出契約(dataclass)</td><td><code>cyqnt_trd/standard_bot/core/signal_contract.py</code></td></tr><tr><td>YAML 解譯器</td><td><code>cyqnt_trd/standard_bot/yaml_pipeline/</code></td></tr><tr><td>blocks 函式庫</td><td><code>cyqnt_trd/blocks/</code>(365 個函式)</td></tr><tr><td>NL → YAML demo</td><td><code>docs/strategy_yaml_spec/demo/server.py</code>(port 8799)</td></tr><tr><td>範例 YAML</td><td><code>docs/strategy_yaml_spec/example_*.yaml</code></td></tr></table>
+</div></body></html>
