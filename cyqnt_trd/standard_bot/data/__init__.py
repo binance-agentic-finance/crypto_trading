@@ -36,6 +36,7 @@ from .advisory_assembler import build_advisory_snapshot, run_advisory
 
 __all__ = [
     "build_live_bundle",
+    "build_live_snapshot",
     "to_panel",
     "AlignmentPolicy",
     "aggregate_force_order_records",
@@ -81,4 +82,5 @@ __all__ = [
 # cyqnt_trd.blocks consumes. Imported lazily-friendly at the bottom so the
 # package keeps importing without pandas present.
 from .live_bundle import build_live_bundle  # noqa: E402
+from .live_snapshot import build_live_snapshot  # noqa: E402
 from .panel import to_panel  # noqa: E402

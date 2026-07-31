@@ -93,9 +93,13 @@ HtfSpec = Tuple[str, int]  # (htf_timeframe, sma_period)
 #           klines, as_of_ms, market_type) -> list[candidate dict]
 SelectionFn = Callable[..., List[Dict]]
 
-#: the one output contract. Declared here as a literal rather than imported at
-#: module scope so ``cyqnt_trd.blocks`` keeps importing without standard_bot;
-#: :func:`_assert_schema_version_matches` checks the two cannot drift.
+#: the one output contract. Declared as a literal rather than imported at module
+#: scope so ``cyqnt_trd.blocks`` keeps importing without standard_bot.
+#:
+#: The duplication is checked at test time, not by a runtime guard:
+#: ``tests/standard_bot/test_yaml_selection_runs_and_emits_v2.py`` asserts the
+#: emitted envelope carries the same version the contract declares, so the two
+#: cannot drift apart unnoticed.
 _SIGNAL_SCHEMA_VERSION = "cyqnt.signal/v2"
 
 
@@ -404,7 +408,47 @@ class BlockStrategyPlugin:
         if self.htf_specs and not df.empty:
             df = self._attach_htf_columns(df, market, instrument_id)
 
+        # ---- non-price frames -> columns on the same bar clock ----
+        # Everything that is not OHLCV arrives in DataSnapshot.frames: funding,
+        # open interest, taker flow, news. This method used to read
+        # snapshot.market.bars and nothing else, so `make_signals(df)` received
+        # 13 price columns however many sources the snapshot carried — and a
+        # strategy written to read `rate` / `oi_value` degraded, silently, to a
+        # price-only version of itself. No error, no warning, just a different
+        # strategy under the same id.
+        if not df.empty and getattr(snapshot, "frames", None):
+            df = self._attach_frame_columns(df, snapshot)
+
         return df, str(instrument_id).upper(), str(timeframe)
+
+    def _attach_frame_columns(self, df: pd.DataFrame, snapshot) -> pd.DataFrame:
+        """Merge ``DataSnapshot.frames`` onto the bar index, as-of.
+
+        Same rule the panel uses: a bar may only see a reading whose
+        ``available_time`` is at or before its close. Aligning on ``event_time``
+        instead would put a value on a bar that closed before it was publishable.
+
+        Columns already present win — HTF columns and any spilled ``Bar.extras``
+        were computed for this instrument specifically, and a frame must not
+        overwrite them.
+        """
+        from ..standard_bot.data.panel import attach_frames_to_bars  # local: heavy
+
+        try:
+            return attach_frames_to_bars(df, snapshot)
+        except Exception as exc:
+            # A malformed frame must not take down a strategy that was working
+            # before the frames existed — the bars are still correct. But it
+            # must not be silent either: the strategy is about to run without
+            # the sources it declared, and that is the failure this whole
+            # method exists to stop.
+            import warnings as _warnings
+
+            _warnings.warn(
+                "%s: frames could not be attached, strategy runs on price only "
+                "(%s: %s)" % (self.plugin_id, type(exc).__name__, exc),
+                RuntimeWarning, stacklevel=2)
+            return df
 
     def _attach_htf_columns(self, df: pd.DataFrame, market, instrument_id: str) -> pd.DataFrame:
         from ..standard_bot.core import MarketBundle  # type: ignore
@@ -845,13 +889,18 @@ class SelectionStrategyPlugin:
         meta = getattr(snapshot, "meta", None)
         statuses = {k: (v.value if hasattr(v, "value") else str(v))
                     for k, v in (getattr(meta, "source_status", {}) or {}).items()}
+        # Quality only ever goes DOWN. An earlier version reassigned it in the
+        # empty-basket branch, which threw away the DEGRADED verdict just
+        # computed from source_status: with ticker_rank dead and a 300-name
+        # universe read fine, the payload said data_quality="good" beside
+        # "no name passed the declared filters" — blaming a strict filter for a
+        # dead feed, in the one field an executor safety-checks.
         quality = DataQuality.GOOD
         if any(str(v).startswith("error") for v in statuses.values()):
             quality = DataQuality.DEGRADED
-        if not rows:
-            # An empty basket with GOOD quality reads as "nothing qualified",
-            # which is a real answer only if the universe was actually read.
-            quality = DataQuality.GOOD if universe_size else DataQuality.INSUFFICIENT
+        if not rows and not universe_size:
+            # Nothing ranked and nothing to rank: this is not "none qualified".
+            quality = DataQuality.INSUFFICIENT
 
         signal = StandardSignal(
             bot_id=self.plugin_id,

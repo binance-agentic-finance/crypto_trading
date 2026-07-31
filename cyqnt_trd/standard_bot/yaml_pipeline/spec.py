@@ -314,8 +314,19 @@ def validate_spec(spec: Dict[str, Any]) -> Tuple[List[str], List[str]]:
     if selection is not None and signals:
         err("a spec is either a trade strategy (signals:) or a selection "
             "strategy (selection:), not both — they emit different signal kinds")
-    if selection is None and not entry.get("long") and not entry.get("short"):
+    # ``isinstance``, matching every other selection check in this file. Using
+    # ``is None`` here meant a non-None non-dict ``selection:`` — the classic
+    # mis-indentation that makes it a YAML scalar — skipped this check AND the
+    # isinstance branch in register_from_yaml, so a spec with no signals at all
+    # validated clean and was registered as a TRADE strategy whose make_signals
+    # returns all-False. It then backtested to a spotless trades=0.
+    if not isinstance(selection, dict) and not entry.get("long") \
+            and not entry.get("short"):
         err("signals.entry must define at least one of long / short")
+    if selection is not None and not isinstance(selection, dict):
+        err("selection: must be a mapping, got %s — a scalar here is usually a "
+            "mis-indented block, and it would otherwise be registered as a trade "
+            "strategy that can never fire" % type(selection).__name__)
 
     # ---- exit / risk ----
     exit_cfg = (spec.get("risk") or {}).get("exit")

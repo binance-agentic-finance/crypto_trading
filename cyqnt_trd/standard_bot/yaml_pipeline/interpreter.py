@@ -52,6 +52,27 @@ DENIED_NAMESPACES = {
 #: is evaluated once per validate and once per backtest run, so a fetching block
 #: would turn a dry-run into a burst of REST calls and make a backtest depend on
 #: live data. Declare what you want under ``data:`` instead — that fetches once.
+#:
+#: Keyed on the bare function name, not on ``data.``: the fetchers are not all in
+#: that module. ``universe.fetch_perpetual_universe`` is a live REST call and was
+#: reachable, so ``validate`` on a frontend-supplied spec fired outbound requests
+#: — verbatim the harm this list exists to prevent.
+DENIED_FUNCTION_NAMES = {
+    "fetch_klines": "performs a REST call; declare the source under `data:` instead",
+    "fetch_24h_tickers": "performs a REST call; declare the source under `data:` instead",
+    "fetch_perpetual_universe":
+        "performs a REST call; the universe arrives via DataSnapshot.universe",
+    "load_pit_index": "reads a caller-supplied path off disk",
+}
+
+#: Blocks that fetch ONLY when their optional source argument is absent. They are
+#: allowed, but the spec has to supply the source with ``with: [...]`` — see
+#: :func:`_refuse_implicit_fetch`.
+FETCHES_WITHOUT_SOURCE = {
+    "universe.augment_with_news": "ticker_rank",
+    "universe.augment_with_funding": "funding",
+}
+
 DENIED_PREFIXES = {
     "data.fetch_": "performs a REST call; declare the source under `data:` instead",
 }
@@ -92,6 +113,20 @@ def resolve_block(ref: str) -> Callable[..., Any]:
         raise SpecError(
             f"namespace {namespace!r} is not available to a spec: "
             f"{DENIED_NAMESPACES[namespace]}"
+        )
+    if namespace.startswith("_"):
+        # ``__init__`` re-exports register(), whose __module__ is
+        # cyqnt_trd.blocks.strategy — so it passed every later check and merely
+        # validating a spec could mutate the process-wide plugin registry, which
+        # is exactly what denying the `strategy` namespace exists to stop.
+        raise SpecError(
+            f"namespace {namespace!r} is not a block module; a spec dispatches "
+            f"into {block_namespaces()}"
+        )
+    if fn_name in DENIED_FUNCTION_NAMES:
+        raise SpecError(
+            f"block {ref!r} is not available to a spec: "
+            f"{DENIED_FUNCTION_NAMES[fn_name]}"
         )
     for prefix, reason in DENIED_PREFIXES.items():
         if ref.startswith(prefix):
@@ -380,6 +415,24 @@ DEDUPE_MODES = ("base_asset", "none")
 UNIVERSE_STEP_KEYS = frozenset({"block", "params", "with"})
 
 
+def _refuse_implicit_fetch(step: Dict[str, Any]) -> None:
+    """A universe step that would fetch its own source must be given one.
+
+    ``augment_with_news(tickers, ticker_rank_df=None)`` falls back to a live
+    Square call when the second argument is absent. That turns ``validate`` —
+    which dry-runs the compiled selection — into outbound REST traffic on a
+    frontend-supplied spec, and makes a backtest depend on today's data. The
+    block stays available; the spec just has to say where the source comes from.
+    """
+    ref = step.get("block")
+    needed = FETCHES_WITHOUT_SOURCE.get(ref)
+    if needed and not (step.get("with") or []):
+        raise SpecError(
+            "universe step %r fetches %s itself when no source is given, which "
+            "would make validate hit the network and a backtest read live data. "
+            "Declare the source: `with: [%s]`." % (ref, needed, needed))
+
+
 def build_selection_fn(spec: Dict[str, Any]) -> Callable[..., List[Dict[str, Any]]]:
     """Compile a ``selection:`` section into ``blocks.strategy``'s selection_fn.
 
@@ -425,6 +478,7 @@ def build_selection_fn(spec: Dict[str, Any]) -> Callable[..., List[Dict[str, Any
         extras = {"ticker_rank": ticker_rank_df, "universe": universe_df}
 
         for step in steps:
+            _refuse_implicit_fetch(step)
             fn = resolve_block(step["block"])
             args = [frame] + [extras.get(name) for name in (step.get("with") or [])]
             try:
@@ -479,7 +533,13 @@ def build_selection_fn(spec: Dict[str, Any]) -> Callable[..., List[Dict[str, Any
             # tie-break, not the score. Order by turnover for it: keeping
             # ETHUSDC over ETHUSDT because it happened to appear first in the
             # response is an arbitrary choice about where the order will fill.
-            from cyqnt_trd.blocks.news_features import _base_token
+            # The SAME base-token function the news join uses. They diverged:
+            # news_features._base_token strips only fiat quotes, so ETHBTC and
+            # SOLBNB kept their full symbol while universe.augment_with_news had
+            # already given them the per-token buzz score via news_feed.base_token
+            # — the dedupe then failed to collapse exactly the pairs it exists
+            # for, and a top-5 came back as three assets in five slots.
+            from cyqnt_trd.blocks.news_feed import base_token as _base_token
 
             volume_column = next(
                 (c for c in ("quoteVolume", "quote_volume", "volume_quote")
@@ -513,9 +573,18 @@ def build_selection_fn(spec: Dict[str, Any]) -> Callable[..., List[Dict[str, Any
                 for name, value in frame.loc[index, feature_columns].items()
                 if pd.notna(value)
             }
-            features.update({name: float(series.get(index, float("nan")))
-                             for name, series in env.items()
-                             if pd.notna(series.get(index, None))})
+            # Mirror the frame-column branch above: a computed feature can be
+            # categorical (derivatives.funding_rate_state yields
+            # "bullish_squeeze"), and a bare float() turned that into
+            # "ValueError: could not convert string to float" naming neither the
+            # feature nor the block — for exactly the values conditions.state_equals
+            # was added to compare.
+            for name, series in env.items():
+                value = series.get(index, None)
+                if value is None or pd.isna(value):
+                    continue
+                features[name] = (float(value) if isinstance(value, (int, float))
+                                  and not isinstance(value, bool) else str(value))
             kept.append({"symbol": row["symbol"], "score": round(float(row["score"]), 6),
                          "side": side, "features": features})
 

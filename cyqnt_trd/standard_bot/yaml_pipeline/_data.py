@@ -104,17 +104,26 @@ def _warn_on_partial_coverage(df, key: str, gained: list) -> None:
     """
     if not len(df):
         return
-    best = max(df[column].notna().sum() for column in gained)
-    covered = best / len(df)
+    # WORST column, not best. Taking max() let one saturated column hide every
+    # other: funding history goes back years while openInterestHist is capped at
+    # ~30 days, so any real derivatives spec has a column at 100% and the OI leg
+    # could sit at 57% with no warning at all — precisely the case the docstring
+    # above describes.
+    per_column = {column: int(df[column].notna().sum()) for column in gained}
+    worst_column = min(per_column, key=per_column.get)
+    worst = per_column[worst_column]
+    covered = worst / len(df)
     if covered >= 0.99:
         return
     warnings.warn(
-        "data.%s covers %.1f%% of the bars (%s of %s). On the remaining bars its "
+        "data.%s covers %.1f%% of the bars (%s of %s; thinnest column: %s). On "
+        "the remaining bars its "
         "columns are NaN, so every condition reading them is False and the "
         "strategy cannot act there — the headline return is computed over a "
         "window it was partly unable to trade. Narrow the backtest range to the "
         "period the data covers, or extend the data."
-        % (key, covered * 100, format(best, ","), format(len(df), ",")),
+        % (key, covered * 100, format(worst, ","), format(len(df), ","),
+           worst_column),
         RuntimeWarning, stacklevel=3,
     )
 

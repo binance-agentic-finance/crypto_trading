@@ -264,6 +264,34 @@ def _run_backtest_event(spec: Dict[str, Any], args: argparse.Namespace) -> int:
         sys.argv = old
 
 
+def _warn_paper_drops_declared_data(spec: Dict[str, Any]) -> None:
+    """Say so when paper/live cannot supply data the backtest had.
+
+    ``_extra_data_argv`` feeds ``--derivatives-dir`` / ``--liquidations-dir``
+    into the backtest, but ``mvp_paper_daemon`` defines neither flag, so those
+    columns simply do not exist in paper or live. A spec reading
+    ``funding_rate`` / ``open_interest`` then backtests against real values and
+    runs against nothing — same strategy id, two different strategies, and the
+    only symptom is that it stops trading.
+    """
+    declared = [key for key in declared_sections(spec) if key != "primary"]
+    if not declared:
+        return
+    print(
+        "  WARNING: this spec declares %s, and mvp_paper_daemon has no flag for "
+        "it — those columns will be ABSENT in paper/live while the backtest had "
+        "them. Conditions reading them evaluate False, so the strategy silently "
+        "becomes a different one. Verify the paper run produces the trades the "
+        "backtest did before trusting it." % ", ".join("data.%s" % k for k in declared))
+    # Say how to check, not just that something is wrong. This command fetches the
+    # same sections live and prints how many columns the strategy actually
+    # receives — the one number that separates "attached" from "running on price
+    # alone", which is otherwise invisible until the trades stop appearing.
+    print(
+        "  CHECK:   python -m cyqnt_trd.standard_bot.entrypoints.mvp_input_bundle "
+        "--sections %s --strategy %s" % (",".join(declared), spec["strategy"]["id"]))
+
+
 def _paper_command(spec: Dict[str, Any]) -> List[str]:
     symbol, interval, market_type, _cb, _sb = _common_run_fields(spec)
     sid = spec["strategy"]["id"]
@@ -294,6 +322,7 @@ def _run_paper(spec: Dict[str, Any], args: argparse.Namespace) -> int:
     cmd = _paper_command(spec)
     abspath = os.path.abspath(args.spec)
     print("[yaml_pipeline] paper trade daemon command:")
+    _warn_paper_drops_declared_data(spec)
     print(f"  CYQNT_YAML_SPEC={abspath} \\")
     print("  " + " ".join(cmd))
     print("  這是模擬交易，尚未動用真實資金。")
@@ -343,10 +372,25 @@ def cmd_run(args: argparse.Namespace) -> int:
         return 1
 
     mode = (spec.get("run") or {}).get("mode")
-    # Dispatch on the SHAPE of the spec first, then the mode. Dispatching on mode
-    # alone sent every selection spec into the per-bar backtest, which has no
-    # universe to rank and reported a clean trades=0.
+    # Shape AND mode, not shape alone. Dispatching on mode alone sent every
+    # selection spec into the per-bar backtest, which has no universe to rank and
+    # reported a clean trades=0. But dispatching on shape alone is worse: a
+    # selection spec declaring ``mode: live`` then printed a basket and exited 0
+    # — no daemon, no executor, no warning — and the operator believes live is
+    # running. A single-shot evaluation may only stand in for a backtest, which
+    # a cross-sectional selector genuinely has no engine for; it may never stand
+    # in for execution.
     if isinstance(spec.get("selection"), dict):
+        if mode in ("paper", "live"):
+            print(
+                "run.mode=%s is not supported for a selection spec: there is no "
+                "resolver turning ranked candidates into per-symbol orders "
+                "(build_intents only accepts kind=trade), so nothing would be "
+                "executed and this command would exit 0 while doing nothing.\n"
+                "  Use run.mode=backtest to evaluate one decision point and emit "
+                "the cyqnt.signal/v2 basket, then hand that basket to whatever "
+                "places the orders." % mode)
+            return 1
         return _run_selection(spec, args)
     if mode == "backtest":
         if getattr(args, "engine", "vectorized") == "event":

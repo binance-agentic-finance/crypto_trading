@@ -2,10 +2,22 @@
 
 策略邏輯
 --------
-1. 流動性過濾:24h 成交額 < 1 億 USDT 的直接剔除(選出來也吃不下)
+1. 流動性過濾:剔除真正沒有量的灰塵(預設 24h 成交額 < 100 萬 USDT)
 2. 掛上 Square 熱度:提及量、多空情緒比
 3. 依提及量由大到小排名,取前 K 名
 4. 方向由情緒決定:多空比 ≥ 0.55 做多、≤ 0.45 做空,中間不表態
+5. 每個候選標上流動性等級,稀薄的照樣選出來但講明白
+
+門檻要放多低
+------------
+選幣的價值有一大半在「還沒起量的幣」—— **熱度先於流動性出現**,等 24h
+成交額到了一億,消息面的 edge 通常也沒了。實測全市場 726 檔,1 億的門檻
+只留下 50 檔(7%),那等於把這個場景整個關掉。
+
+所以預設放到 100 萬(留 549 檔),設 0 則完全不過濾。代價不是隱藏而是標示:
+每個候選帶 ``liquidity_tier``(deep / normal / thin / micro)與實際成交額,
+`reason` 也會直接寫「部位請縮小」。**開放稀薄的標的可以,讓下游以為那些吃得下
+量不行** —— 一個 24h 成交 20 萬的幣,籃子權重照大型幣給就是滑價災難。
 
 介面
 ----
@@ -35,7 +47,19 @@ from cyqnt_trd.blocks import strategy as strat, universe as U
 BOT_ID = "news_buzz_selector"
 
 CONFIG = {
-    "min_quote_volume": 1e8,    # 24h 成交額下限(USDT)
+    # 24h 成交額下限(USDT)。設 0 完全不過濾。
+    #
+    # 這個門檻決定「你在找什麼」。實測全市場 726 檔的分布:
+    #   1 億   → 留 50 檔(7%)    只剩巨型幣,早期幣種全被擋掉
+    #   1000 萬 → 留 176 檔(24%)
+    #   100 萬  → 留 549 檔(76%)  預設:排除真正的灰塵,其餘都看得到
+    #   0      → 留 726 檔(100%) 連 24h 成交 34 USDT 的都進來
+    #
+    # 預設放寬到 100 萬,因為「還沒起量的幣」正是新聞選幣最有價值的場景 ——
+    # 熱度先於流動性出現,等成交額到了一億,消息面的 edge 通常也沒了。
+    # 代價寫在下面的 liquidity_tier:開放稀薄的標的可以,讓下游以為
+    # 那些吃得下量不行。
+    "min_quote_volume": 1e6,
     "top_k": 5,
     "min_mentions": 100,        # 提及量太少的排名沒有意義
     "long_ratio": 0.55,         # 多空比 ≥ 這個值做多
@@ -43,16 +67,25 @@ CONFIG = {
     "dedupe_by_base_asset": True,
 }
 
-#: 常見計價幣,用來把 BTCUSDT / BTCUSDC 收斂成 BTC
-_QUOTES = ("USDT", "USDC", "FDUSD", "TUSD", "BUSD", "USD")
+#: 把交易對收斂成 base asset,用的是**新聞 join 用的同一個函式**。
+#:
+#: 自己寫一份只剝法幣計價的版本會漏掉幣本位對:``ETHBTC`` 會保留全名、躲過
+#: 去重,於是 ``ETHUSDT`` 和 ``ETHBTC`` 同時進榜 —— 兩個位置押同一個資產。
+#: 這個函式必須和 ``universe.augment_with_news`` 貼分數時用的完全一致,
+#: 否則去重就是在拆一個它看不懂的 join。
+from cyqnt_trd.blocks.news_feed import base_token as _base_asset
+
+#: 24h 成交額 -> 流動性等級。門檻取自實測分布(見 CONFIG)。
+#: 這不是過濾,是標籤 —— 候選照樣進籃子,但下游看得到它有多薄,
+#: 才能據此縮小部位,或當成觀察名單而不是下單名單。
+LIQUIDITY_TIERS = ((1e8, "deep"), (1e7, "normal"), (1e6, "thin"), (0.0, "micro"))
 
 
-def _base_asset(symbol: str) -> str:
-    value = str(symbol).upper()
-    for quote in _QUOTES:
-        if value.endswith(quote) and len(value) > len(quote):
-            return value[: -len(quote)]
-    return value
+def _liquidity_tier(quote_volume: float) -> str:
+    for floor, label in LIQUIDITY_TIERS:
+        if quote_volume >= floor:
+            return label
+    return "micro"
 
 
 def selection_fn(universe_df, ticker_rank_df=None, **_):
@@ -101,18 +134,21 @@ def selection_fn(universe_df, ticker_rank_df=None, **_):
             side = "neutral"
 
         mentions = int(row["news_mention_count"])
+        volume = float(row.get("quoteVolume") or row.get("quote_volume") or 0.0)
+        tier = _liquidity_tier(volume)
+        note = "" if tier in ("deep", "normal") else ";流動性 %s(24h %.2g USDT),部位請縮小" % (tier, volume)
         cands.append({
             "symbol": str(row["symbol"]).upper(),
             "rank": rank,
             "score": round(float(mentions), 2),
             "side": side,
-            "reason": ("提及量 %d、多空比 %s" % (
-                mentions, "無資料" if ratio is None else "%.2f" % ratio)),
+            "reason": ("提及量 %d、多空比 %s%s" % (
+                mentions, "無資料" if ratio is None else "%.2f" % ratio, note)),
             "features": {
                 "news_mention_count": mentions,
                 "news_bull_ratio": None if ratio is None else round(ratio, 3),
-                "quote_volume": float(row.get("quoteVolume")
-                                      or row.get("quote_volume") or 0.0),
+                "quote_volume": volume,
+                "liquidity_tier": tier,
                 "base_asset": _base_asset(row["symbol"]),
             },
         })
