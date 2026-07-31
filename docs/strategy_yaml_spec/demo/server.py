@@ -312,6 +312,210 @@ def run_backtest(yaml_text: str) -> dict:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# 馬上抓資料 / 產生訊號 / 選幣
+# ---------------------------------------------------------------------------
+
+
+def fetch_live_bundle(symbol: str, interval: str, limit: int = 300) -> dict:
+    """Fetch every catalog node live and return one ``cyqnt.input/v1`` dict.
+
+    This is the input half of the demo. It matters that it is ONE call producing
+    ONE artifact: the same ``build_live_bundle`` that paper/live uses, gated once
+    on ``available_time``, with a status for every source it was asked for —
+    including the ones that came back empty.
+    """
+    import time
+
+    from cyqnt_trd.standard_bot.data.live_bundle import build_live_bundle
+
+    started = time.time()
+    bundle = build_live_bundle(symbol=symbol.upper(), interval=interval, limit=limit)
+    elapsed = time.time() - started
+
+    raw = json.dumps(bundle, ensure_ascii=False, separators=(",", ":"))
+    frames = bundle.get("frames") or {}
+
+    # Skeleton = everything except the rows, so the shape is readable at a glance.
+    skeleton = {k: v for k, v in bundle.items() if k != "frames"}
+    skeleton["frames"] = {
+        key: "{ shape: %s, rows: [ … %d 列 … ] }" % (spec.get("shape"), len(spec.get("rows") or []))
+        for key, spec in frames.items()
+    }
+
+    table = [
+        {"node": key,
+         "shape": spec.get("shape"),
+         "rows": len(spec.get("rows") or []),
+         "status": str((bundle.get("source_status") or {}).get(key, "")),
+         # one real row — "here is the format" says nothing without a value in it
+         "sample": (spec.get("rows") or [None])[-1]}
+        for key, spec in frames.items()
+    ]
+    # Sources that were asked for and produced no frame at all still belong in the
+    # report: "not fetched" and "fetched and empty" are different failures.
+    for key, status in (bundle.get("source_status") or {}).items():
+        if key not in frames:
+            table.append({"node": key, "shape": "-", "rows": 0,
+                          "status": str(status), "sample": None})
+
+    return {
+        "ok": True,
+        "schema": bundle.get("schema"),
+        "decision_time": bundle.get("decision_time"),
+        "decision_time_basis": bundle.get("decision_time_basis"),
+        "symbol": symbol.upper(), "interval": interval,
+        "elapsed_sec": round(elapsed, 2),
+        "bytes": len(raw.encode("utf-8")),
+        "node_count": len(bundle.get("source_status") or {}),
+        "row_total": sum(len(s.get("rows") or []) for s in frames.values()),
+        "warnings": bundle.get("warnings") or [],
+        "skeleton": skeleton,
+        "table": sorted(table, key=lambda r: -r["rows"]),
+    }
+
+
+def _spec_from_yaml(yaml_text: str):
+    """Parse + validate, returning ``(spec, error_payload)``."""
+    spec = yaml.safe_load(yaml_text)
+    if not isinstance(spec, dict):
+        return None, {"ok": False, "error": "YAML 不是有效的 mapping"}
+    errors, warnings = validate_spec(spec)
+    if errors:
+        return None, {"ok": False, "error": "spec 驗證失敗",
+                      "errors": errors, "warnings": warnings}
+    return spec, None
+
+
+def _row_count(frame) -> int:
+    """Rows in a frame that may be None. ``len()`` only, never truthiness."""
+    return 0 if frame is None else int(len(frame))
+
+
+def _snapshot(*, market=None, universe=None, as_of: int):
+    from cyqnt_trd.standard_bot.core import DataSnapshot, SnapshotMeta
+
+    return DataSnapshot(
+        version="demo/v1", market=market, universe=universe,
+        meta=SnapshotMeta(snapshot_id="demo-%d" % as_of, assembled_at=as_of,
+                          decision_as_of=as_of, partial_ok=True),
+    )
+
+
+def make_signal(yaml_text: str) -> dict:
+    """YAML → the latest ``cyqnt.signal/v2`` signal.
+
+    The backtest answers "would this have made money". This answers "what does
+    the strategy say RIGHT NOW, in the format a consumer receives" — which is the
+    part of the contract a downstream team actually has to implement against.
+    """
+    spec, bad = _spec_from_yaml(yaml_text)
+    if bad:
+        return bad
+    if isinstance(spec.get("selection"), dict):
+        return {"ok": False, "error": "這是選幣 spec,請用下面的『執行選幣』"}
+
+    from cyqnt_trd.blocks import data as blocks_data
+    from cyqnt_trd.blocks import strategy as blocks_strategy
+    from cyqnt_trd.standard_bot.adapter import envelope_to_signal
+    from cyqnt_trd.standard_bot.core import MarketBundle
+
+    data = spec.get("data") or {}
+    symbol = str(data["symbol"]).upper()
+    interval = str((data.get("primary") or {})["interval"])
+    market_type = data.get("market_type", "futures")
+
+    df, source = fetch_klines(symbol, interval, market_type)
+    bars = blocks_data.df_to_bars(df, instrument_id=symbol, timeframe=interval)
+    as_of = int(bars[-1].timestamp)
+
+    # build_plugin, not register: a demo click must not mutate the process-wide
+    # registry, and repeated clicks would pile up registrations.
+    plugin = blocks_strategy.build_plugin(
+        spec["strategy"]["id"], build_make_signals(spec),
+        exit_cfg=(spec.get("risk") or {}).get("exit"),
+        size=float((spec.get("sizing") or {}).get("size", 1.0)),
+    )
+    market = MarketBundle(bars={MarketBundle.key(symbol, interval): bars})
+    result = plugin.step(_snapshot(market=market, as_of=as_of), {},
+                         {"instrument_id": symbol, "timeframe": interval})
+    envelopes = getattr(result, "signals", result) or []
+    if not envelopes:
+        return {"ok": True, "signal": None, "source": source, "bars": len(df),
+                "as_of": as_of,
+                "note": "最後一根沒有觸發訊號 —— 這是正常結果,不是錯誤。"
+                        "策略大多數時間應該是不動作的。"}
+    signal = envelope_to_signal(envelopes[-1])
+    return {"ok": True, "source": source, "bars": len(df), "as_of": as_of,
+            "envelope_version": envelopes[-1].version,
+            "signal": signal.to_dict(), "key_count": len(signal.to_dict())}
+
+
+def run_selection(yaml_text: str) -> dict:
+    """Selection YAML → live universe → ranked basket → one v2 signal.
+
+    Deliberately the same output schema as :func:`make_signal`: a consumer parses
+    one contract and branches on ``kind``.
+    """
+    spec, bad = _spec_from_yaml(yaml_text)
+    if bad:
+        return bad
+    if not isinstance(spec.get("selection"), dict):
+        return {"ok": False, "error": "這不是選幣 spec(缺 selection:),請用上面的『產生訊號』"}
+
+    import time
+
+    from cyqnt_trd.blocks import strategy as blocks_strategy
+    from cyqnt_trd.standard_bot.adapter import envelope_to_signal
+    from cyqnt_trd.standard_bot.core import UniverseBundle
+    from cyqnt_trd.standard_bot.runtime import data as data_runtime
+    from cyqnt_trd.standard_bot.yaml_pipeline.interpreter import build_selection_fn
+
+    market_type = (spec.get("data") or {}).get("market_type", "futures")
+    started = time.time()
+    status, frames = {}, {}
+    with data_runtime.session() as session:
+        as_of = session.as_of_ms
+        for node, params in (("universe", {"market_type": market_type}),
+                             ("ticker_rank", {"window": "24h", "limit": 50})):
+            try:
+                frames[node] = session.call(node, **params)
+                status[node] = "ok" if len(frames[node]) else "empty"
+            except data_runtime.DataUnavailable as exc:
+                frames[node] = None
+                status[node] = "error: %s" % exc.reason
+    elapsed = time.time() - started
+
+    plugin = blocks_strategy.build_selection_plugin(
+        spec["strategy"]["id"], build_selection_fn(spec), market_type=market_type)
+    universe = UniverseBundle(as_of=as_of, universe=frames.get("universe"),
+                              ticker_rank=frames.get("ticker_rank"))
+    result = plugin.step(_snapshot(universe=universe, as_of=as_of), {},
+                         {"market_type": market_type})
+    envelope = (getattr(result, "signals", result) or [None])[0]
+    if envelope is None:
+        return {"ok": False, "error": "選幣沒有產出 envelope", "status": status}
+
+    payload = envelope.payload or {}
+    candidates = payload.get("candidates") or []
+    out = {"ok": True, "status": status, "as_of": as_of,
+           "elapsed_sec": round(elapsed, 2),
+           "universe_size": payload.get("universe_size"),
+           # `df or []` asks a DataFrame for its truth value, which raises.
+           "universe_rows": _row_count(frames.get("universe")),
+           "rank_rows": _row_count(frames.get("ticker_rank")),
+           "candidates": candidates,
+           "envelope_version": envelope.version}
+    if not candidates:
+        out["note"] = ("篩選後沒有候選。常見原因:ticker_rank 回空(Square 快取冷)"
+                       "或門檻設太嚴。這是真實結果,不是程式錯誤。")
+        return out
+    signal = envelope_to_signal(envelope)
+    out["signal"] = signal.to_dict()
+    out["key_count"] = len(signal.to_dict())
+    return out
+
+
 class Handler(BaseHTTPRequestHandler):
     def _send(self, code, payload, ctype="application/json"):
         body = payload if isinstance(payload, bytes) else json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -335,6 +539,15 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, html.encode("utf-8"), ctype="text/html")
         if self.path == "/api/schema":
             return self._send(200, {"schema": SCHEMA_PATH.read_text(encoding="utf-8")})
+        if self.path.startswith("/api/example"):
+            name = "example_selection.yaml"
+            if "kind=trade" in self.path:
+                name = "example_multi_source.yaml"
+            path = SPEC_DIR / name
+            if not path.exists():
+                return self._send(404, {"ok": False, "error": "找不到 %s" % name})
+            return self._send(200, {"ok": True, "name": name,
+                                    "yaml": path.read_text(encoding="utf-8")})
         return self._send(404, {"error": "not found"})
 
     def do_POST(self):
@@ -357,6 +570,17 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == "/api/backtest":
                 b = self._read_json()
                 return self._send(200, run_backtest(b.get("yaml", "")))
+            if self.path == "/api/fetch":
+                b = self._read_json()
+                return self._send(200, fetch_live_bundle(
+                    b.get("symbol", "BTCUSDT"), b.get("interval", "1h"),
+                    int(b.get("limit", 300))))
+            if self.path == "/api/signal":
+                b = self._read_json()
+                return self._send(200, make_signal(b.get("yaml", "")))
+            if self.path == "/api/selection":
+                b = self._read_json()
+                return self._send(200, run_selection(b.get("yaml", "")))
             return self._send(404, {"ok": False, "error": "not found"})
         except Exception as exc:
             sys.stderr.write(traceback.format_exc())

@@ -48,6 +48,11 @@
   .err{color:var(--red);font-size:12.5px;white-space:pre-wrap}
   canvas{width:100%;height:340px;background:#0b1120;border:1px solid var(--line);border-radius:10px;margin-top:6px}
   .flowmsg{color:var(--muted);font-size:12px;margin-top:8px;min-height:16px}
+  table.tbl{border-collapse:collapse;width:100%;margin:8px 0;font-size:12.5px}
+  table.tbl th,table.tbl td{border:1px solid var(--line);padding:5px 9px;text-align:left}
+  table.tbl th{background:#101a30;color:#9fc6ff;font-weight:600}
+  table.tbl td.n{text-align:right;font-family:"SF Mono",ui-monospace,Menlo,monospace}
+  .st-ok{color:var(--green)}.st-empty{color:var(--amber)}.st-err{color:var(--red)}
 </style>
 </head>
 <body>
@@ -66,9 +71,35 @@
     <div class="hint">會組成 <span class="mono">{Base}/chat/completions</span>;key 只送到本機後端,不外流。設定存在瀏覽器 localStorage。</div>
   </div>
 
-  <!-- 2. 自然語言 -->
+  <!-- 2. 馬上抓資料 -->
   <div class="card">
-    <h2><span class="num">2</span> 用自然語言描述你的策略</h2>
+    <h2><span class="num">2</span> 馬上抓資料 → 一份 <span class="mono">cyqnt.input/v1</span></h2>
+    <div class="hint" style="margin-bottom:6px">
+      同一個 <span class="mono">build_live_bundle()</span> 就是 paper / live 在用的那一個。
+      一次呼叫把所有來源抓成 <b>一份 JSON</b>,PIT 只 gate 一次
+      (<span class="mono">available_time &lt;= decision_time</span>),
+      每個宣告過的節點都有狀態 —— 含回空的。
+    </div>
+    <div class="row">
+      <div><label>標的</label><input id="fSymbol" value="BTCUSDT" class="mono"></div>
+      <div><label>週期</label><input id="fInterval" value="1h" class="mono"></div>
+      <div><label>K 線根數</label><input id="fLimit" value="300" class="mono"></div>
+    </div>
+    <button id="btnFetch" onclick="fetchData()">抓取即時資料 ⚡</button>
+    <span id="fetchBadge"></span>
+    <div class="flowmsg" id="fetchMsg"></div>
+    <div id="fetchOut" style="display:none">
+      <div class="metrics" id="fetchMetrics"></div>
+      <table class="tbl" id="fetchTable"></table>
+      <details><summary>看 JSON 骨架(rows 收起來)</summary><pre id="fetchSkeleton" class="mono"></pre></details>
+      <details><summary>看每個來源的一列真實資料</summary><pre id="fetchSamples" class="mono"></pre></details>
+      <div class="hint" id="fetchWarn" style="margin-top:8px"></div>
+    </div>
+  </div>
+
+  <!-- 3. 自然語言 -->
+  <div class="card">
+    <h2><span class="num">3</span> 用自然語言描述你的策略</h2>
     <textarea id="nl" rows="3" placeholder="例:BTC 1h,EMA12 上穿 EMA26 做多、下穿做空,RSI 過熱(>75)時不追多,停損 2% 停利 4%,最多持有 4 天。"></textarea>
     <button id="btnConvert" onclick="convert()">轉換成 YAML →</button>
     <span id="convBadge"></span>
@@ -76,18 +107,52 @@
     <details><summary>看轉換用的 schema(LLM 依這份規格輸出)</summary><pre id="schemaBox" class="mono">載入中…</pre></details>
   </div>
 
-  <!-- 3. YAML -->
+  <!-- 4. YAML -->
   <div class="card">
-    <h2><span class="num">3</span> 產生的 YAML(可手動修改)</h2>
+    <h2><span class="num">4</span> 產生的 YAML(可手動修改)</h2>
     <textarea id="yaml" rows="16" class="mono" placeholder="按上面「轉換成 YAML」後會出現在這裡,你也可以直接貼/改。"></textarea>
     <button id="btnRun" onclick="backtest()">執行回測 ▶</button>
+    <button id="btnSignal" class="sec" onclick="signal()">產生訊號(現在該做什麼)→</button>
+    <button id="btnLoadTrade" class="sec" onclick="loadExample('trade')">載入多源範例</button>
     <span id="runBadge"></span>
     <div class="flowmsg" id="runMsg"></div>
   </div>
 
-  <!-- 4. 結果 -->
+  <!-- 5. 策略輸出訊號 -->
+  <div class="card" id="signalCard" style="display:none">
+    <h2><span class="num">5</span> 策略輸出 <span class="mono">cyqnt.signal/v2</span>
+      <span id="sigMeta" class="hint" style="margin-left:6px"></span></h2>
+    <div class="hint" style="margin-bottom:8px">
+      回測回答「這樣做過去賺不賺錢」;<b>這裡回答「策略現在說要做什麼」</b> ——
+      而且是下游系統實際會收到的格式。
+    </div>
+    <div class="metrics" id="sigMetrics"></div>
+    <pre id="sigJson" class="mono"></pre>
+  </div>
+
+  <!-- 6. 選幣 -->
+  <div class="card">
+    <h2><span class="num">6</span> 選幣(截面)—— 同一份 schema,不同的 <span class="mono">kind</span></h2>
+    <div class="hint" style="margin-bottom:6px">
+      <span class="mono">signals:</span> 逐根評估一個標的 → <span class="mono">kind=trade</span>;
+      <span class="mono">selection:</span> 一次評估整個宇宙 → <span class="mono">kind=selection</span>。
+      兩者<b>頂層欄位完全相同</b>,消費端只認 <span class="mono">kind</span> 一個欄位。
+    </div>
+    <textarea id="selYaml" rows="14" class="mono" placeholder="按「載入選幣範例」帶入,或自己貼一份含 selection: 的 spec。"></textarea>
+    <button id="btnLoadSel" class="sec" onclick="loadExample('selection')">載入選幣範例</button>
+    <button id="btnSel" onclick="selection()">執行選幣(抓即時宇宙)▶</button>
+    <span id="selBadge"></span>
+    <div class="flowmsg" id="selMsg"></div>
+    <div id="selOut" style="display:none">
+      <div class="metrics" id="selMetrics"></div>
+      <table class="tbl" id="selTable"></table>
+      <details><summary>看完整輸出 JSON(<span class="mono">kind=selection</span>)</summary><pre id="selJson" class="mono"></pre></details>
+    </div>
+  </div>
+
+  <!-- 7. 回測結果 -->
   <div class="card" id="resultCard" style="display:none">
-    <h2><span class="num">4</span> 回測結果 <span id="resMeta" class="hint" style="margin-left:6px"></span></h2>
+    <h2><span class="num">7</span> 回測結果 <span id="resMeta" class="hint" style="margin-left:6px"></span></h2>
     <div class="metrics" id="metrics"></div>
     <div class="legend">
       <span><span class="dot" style="background:var(--accent)"></span> 策略權益</span>
@@ -146,6 +211,115 @@ async function backtest(){
     renderResult(d);
   }catch(e){ $("runMsg").innerHTML='<span class="err">'+e+'</span>'; }
   finally{ $("btnRun").disabled=false; }
+}
+
+// ---------- 馬上抓資料 ----------
+function num(x){return (x==null)?"–":Number(x).toLocaleString();}
+function stCls(s){s=String(s||"");return s==="ok"?"st-ok":(s==="empty"?"st-empty":"st-err");}
+
+async function fetchData(){
+  $("btnFetch").disabled=true; $("fetchBadge").innerHTML="";
+  $("fetchMsg").textContent="正在打所有資料來源…(第一次約 15-25 秒,每個節點都是真的 API 呼叫)";
+  try{
+    const r = await fetch("/api/fetch",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({symbol:$("fSymbol").value.trim(), interval:$("fInterval").value.trim(),
+                           limit:parseInt($("fLimit").value)||300})});
+    const d = await r.json();
+    if(!d.ok){ setBadge($("fetchBadge"),false,"失敗");
+      $("fetchMsg").innerHTML='<span class="err">'+(d.error||"")+'</span>'; return; }
+    setBadge($("fetchBadge"),true,"完成"); $("fetchMsg").textContent="";
+    $("fetchOut").style.display="block";
+    $("fetchMetrics").innerHTML = [
+      ["資料來源數", num(d.node_count)],
+      ["總列數", num(d.row_total)],
+      ["JSON 大小", num(Math.round(d.bytes/1024))+" KB"],
+      ["耗時", d.elapsed_sec+" 秒"],
+    ].map(c=>`<div class="metric"><div class="k">${c[0]}</div><div class="v">${c[1]}</div></div>`).join("");
+    $("fetchTable").innerHTML =
+      "<tr><th>來源節點</th><th>標準形狀</th><th>列數</th><th>狀態</th></tr>" +
+      d.table.map(row=>`<tr><td class="mono">${row.node}</td><td class="mono">${row.shape}</td>`+
+        `<td class="n">${num(row.rows)}</td><td class="${stCls(row.status)}">${row.status}</td></tr>`).join("");
+    $("fetchSkeleton").textContent = JSON.stringify(d.skeleton,null,1);
+    const samples={}; d.table.forEach(r=>{ if(r.sample) samples[r.node]=r.sample; });
+    $("fetchSamples").textContent = JSON.stringify(samples,null,1);
+    $("fetchWarn").innerHTML = (d.warnings&&d.warnings.length)
+      ? "<b>warnings("+d.warnings.length+"):</b><br>• "+d.warnings.join("<br>• ")
+      : "沒有 warning。";
+  }catch(e){ $("fetchMsg").innerHTML='<span class="err">'+e+'</span>'; }
+  finally{ $("btnFetch").disabled=false; }
+}
+
+// ---------- 載入範例 ----------
+async function loadExample(kind){
+  try{
+    const r = await fetch("/api/example?kind="+kind);
+    const d = await r.json();
+    if(!d.ok){ alert(d.error||"載入失敗"); return; }
+    (kind==="selection" ? $("selYaml") : $("yaml")).value = d.yaml;
+  }catch(e){ alert(e); }
+}
+
+// ---------- 策略輸出訊號 ----------
+async function signal(){
+  const y = $("yaml").value.trim();
+  if(!y){ $("runMsg").innerHTML='<span class="err">沒有 YAML</span>'; return; }
+  $("btnSignal").disabled=true; $("runBadge").innerHTML=""; $("runMsg").textContent="抓行情 + 產生訊號…";
+  try{
+    const r = await fetch("/api/signal",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({yaml:y})});
+    const d = await r.json();
+    if(!d.ok){ setBadge($("runBadge"),false,"失敗");
+      $("runMsg").innerHTML='<span class="err">'+(d.error||"")+(d.errors?("\n- "+d.errors.join("\n- ")):"")+'</span>';
+      return; }
+    setBadge($("runBadge"),true,"完成"); $("runMsg").textContent="";
+    $("signalCard").style.display="block";
+    $("sigMeta").textContent = `${d.bars} 根 · 來源 ${d.source} · envelope ${d.envelope_version}`;
+    if(!d.signal){
+      $("sigMetrics").innerHTML="";
+      $("sigJson").textContent = d.note || "(最後一根沒有訊號)";
+      return;
+    }
+    const s=d.signal;
+    $("sigMetrics").innerHTML = [
+      ["kind", s.kind], ["intent", s.intent],
+      ["標的", s.symbol||"–"], ["欄位數", d.key_count],
+    ].map(c=>`<div class="metric"><div class="k">${c[0]}</div><div class="v" style="font-size:15px">${c[1]}</div></div>`).join("");
+    $("sigJson").textContent = JSON.stringify(s,null,1);
+  }catch(e){ $("runMsg").innerHTML='<span class="err">'+e+'</span>'; }
+  finally{ $("btnSignal").disabled=false; }
+}
+
+// ---------- 選幣 ----------
+async function selection(){
+  const y = $("selYaml").value.trim();
+  if(!y){ $("selMsg").innerHTML='<span class="err">沒有選幣 YAML(可按「載入選幣範例」)</span>'; return; }
+  $("btnSel").disabled=true; $("selBadge").innerHTML=""; $("selMsg").textContent="抓即時宇宙 + Square 熱度…";
+  try{
+    const r = await fetch("/api/selection",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({yaml:y})});
+    const d = await r.json();
+    if(!d.ok){ setBadge($("selBadge"),false,"失敗");
+      $("selMsg").innerHTML='<span class="err">'+(d.error||"")+(d.errors?("\n- "+d.errors.join("\n- ")):"")+'</span>';
+      return; }
+    setBadge($("selBadge"),true,"完成"); $("selMsg").textContent="";
+    $("selOut").style.display="block";
+    $("selMetrics").innerHTML = [
+      ["宇宙大小", num(d.universe_rows)+" 檔"],
+      ["熱度資料", num(d.rank_rows)+" 列"],
+      ["候選", num((d.candidates||[]).length)+" 檔"],
+      ["耗時", d.elapsed_sec+" 秒"],
+    ].map(c=>`<div class="metric"><div class="k">${c[0]}</div><div class="v">${c[1]}</div></div>`).join("");
+    const cs = d.candidates||[];
+    $("selTable").innerHTML = cs.length
+      ? "<tr><th>#</th><th>標的</th><th>方向</th><th>score</th><th>理由</th></tr>" +
+        cs.map(c=>`<tr><td class="n">${c.rank}</td><td class="mono">${c.symbol}</td>`+
+          `<td>${c.direction||c.side||"–"}</td><td class="n">${Number(c.score).toLocaleString()}</td>`+
+          `<td class="hint">${c.reason||""}</td></tr>`).join("")
+      : "";
+    $("selJson").textContent = d.signal ? JSON.stringify(d.signal,null,1) : (d.note||"(無候選)");
+    if(!cs.length) $("selMsg").innerHTML='<span class="badge b-warn">'+(d.note||"無候選")+'</span>';
+  }catch(e){ $("selMsg").innerHTML='<span class="err">'+e+'</span>'; }
+  finally{ $("btnSel").disabled=false; }
 }
 
 function pct(x){return (x*100).toFixed(2)+"%";}
