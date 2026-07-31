@@ -283,6 +283,13 @@ def _warn_paper_drops_declared_data(spec: Dict[str, Any]) -> None:
         "them. Conditions reading them evaluate False, so the strategy silently "
         "becomes a different one. Verify the paper run produces the trades the "
         "backtest did before trusting it." % ", ".join("data.%s" % k for k in declared))
+    # Say how to check, not just that something is wrong. This command fetches the
+    # same sections live and prints how many columns the strategy actually
+    # receives — the one number that separates "attached" from "running on price
+    # alone", which is otherwise invisible until the trades stop appearing.
+    print(
+        "  CHECK:   python -m cyqnt_trd.standard_bot.entrypoints.mvp_input_bundle "
+        "--sections %s --strategy %s" % (",".join(declared), spec["strategy"]["id"]))
 
 
 def _paper_command(spec: Dict[str, Any]) -> List[str]:
