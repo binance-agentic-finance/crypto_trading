@@ -214,3 +214,72 @@ def test_coverage_warns_on_the_thinnest_column_not_the_best():
     with pytest.warns(RuntimeWarning, match="open_interest"):
         _warn_on_partial_coverage(frame, "derivatives",
                                   ["funding_rate_bps", "open_interest"])
+
+
+# --------------------------------------------------------------------------- #
+# 7. the liquidity filter decides WHAT YOU ARE LOOKING FOR                     #
+# --------------------------------------------------------------------------- #
+
+
+def _selector_universe():
+    """A universe spanning four orders of magnitude of turnover."""
+    return pd.DataFrame({
+        "symbol": ["BTCUSDT", "ETHUSDT", "ETHBTC", "BABYUSDT", "DUSTUSDT"],
+        "quoteVolume": [8.3e9, 6.0e9, 34.0, 2.0e6, 1.2e5],
+    })
+
+
+def _selector_rank():
+    return pd.DataFrame({
+        "ticker": ["BTC", "ETH", "BABY", "DUST"],
+        "mention_count": [900, 800, 700, 600],
+        "bullish_count": [80, 80, 80, 80], "bearish_count": [20, 20, 20, 20],
+        "neutral_count": [0, 0, 0, 0], "unique_authors": [50, 40, 30, 20],
+        "rank": [1, 2, 3, 4]})
+
+
+def _select(min_quote_volume, top_k=5):
+    import cyqnt_trd.strategies.news_buzz_selector as SEL
+
+    saved = dict(SEL.CONFIG)
+    try:
+        SEL.CONFIG["min_quote_volume"] = min_quote_volume
+        SEL.CONFIG["top_k"] = top_k
+        SEL.CONFIG["min_mentions"] = 1
+        return SEL.selection_fn(_selector_universe(), _selector_rank())
+    finally:
+        SEL.CONFIG.clear()
+        SEL.CONFIG.update(saved)
+
+
+def test_a_thin_name_is_reachable_and_labelled_not_hidden():
+    """Buzz precedes liquidity: a 100M floor keeps 7% of the market and shuts the
+    whole early-coin case off. So thin names are selectable — and every candidate
+    carries the turnover it actually has, because a basket weight sized for a
+    mega cap is a slippage disaster on a 2M name."""
+    candidates = {c["symbol"]: c for c in _select(1e6)}
+    assert "BABYUSDT" in candidates, "a 2M-turnover name must be reachable"
+    baby = candidates["BABYUSDT"]
+    assert baby["features"]["liquidity_tier"] == "thin"
+    assert baby["features"]["quote_volume"] == 2.0e6
+    assert "部位請縮小" in baby["reason"], "the thinness has to be stated, not implied"
+
+    deep = candidates["BTCUSDT"]
+    assert deep["features"]["liquidity_tier"] == "deep"
+    assert "部位請縮小" not in deep["reason"]
+
+
+def test_the_floor_still_excludes_dust():
+    assert "DUSTUSDT" not in {c["symbol"] for c in _select(1e6)}
+    assert "DUSTUSDT" in {c["symbol"] for c in _select(0)}, "0 means no filter"
+
+
+def test_a_coin_quoted_in_btc_does_not_take_a_second_slot():
+    """``ETHBTC`` carries ETH's per-token buzz. A base-asset function that strips
+    only fiat quotes leaves it as ``ETHBTC``, so it survives de-duplication and
+    the basket puts two slots on one asset — and the BTC-quoted leg is the
+    illiquid one."""
+    symbols = [c["symbol"] for c in _select(0)]
+    bases = [c["features"]["base_asset"] for c in _select(0)]
+    assert len(set(bases)) == len(bases), symbols
+    assert "ETHBTC" not in symbols and "ETHUSDT" in symbols
