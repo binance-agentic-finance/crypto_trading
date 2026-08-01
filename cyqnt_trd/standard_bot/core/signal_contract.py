@@ -721,6 +721,165 @@ class StandardSignal:
 
     # ---- serialisation ----
 
+    @classmethod
+    def from_dict(cls, payload: Dict[str, Any]) -> "StandardSignal":
+        """Rebuild the complete v2 object without dropping consumer fields.
+
+        Transport adapters used to reconstruct only the execution subset of a
+        v2 payload.  A replay therefore lost evidence, risk limits, source
+        status, account/provenance ids and the safety flags even though the JSON
+        claimed to be ``cyqnt.signal/v2``.  Deserialisation belongs beside the
+        contract so every caller uses the same, lossless interpretation.
+        """
+
+        if not isinstance(payload, dict):
+            raise TypeError("StandardSignal.from_dict expects a mapping")
+        if payload.get("schema") not in (None, SCHEMA_VERSION):
+            raise ValueError("not a %s payload: schema=%r" %
+                             (SCHEMA_VERSION, payload.get("schema")))
+
+        def enum(enum_cls, value, default):
+            try:
+                return enum_cls(value)
+            except (TypeError, ValueError):
+                return default
+
+        raw_entry = payload.get("entry")
+        entry = None
+        if isinstance(raw_entry, dict):
+            entry = EntrySpec(
+                type=enum(EntryType, raw_entry.get("type"), EntryType.MARKET),
+                price=raw_entry.get("price"),
+                zone=tuple(raw_entry["zone"]) if raw_entry.get("zone") else None,
+                time_in_force=str(raw_entry.get("time_in_force") or "GTC"),
+                post_only=bool(raw_entry.get("post_only", False)),
+            )
+
+        raw_size = payload.get("size")
+        size = None
+        if isinstance(raw_size, dict):
+            size = SizeSpec(
+                mode=enum(SizeMode, raw_size.get("mode"), SizeMode.EQUITY_PCT),
+                value=float(raw_size.get("value") or 0.0),
+                leverage=raw_size.get("leverage"),
+                max_notional_quote=raw_size.get("max_notional_quote"),
+                reduce_only=bool(raw_size.get("reduce_only", False)),
+            )
+
+        raw_exit = payload.get("exit_plan")
+        exit_plan = None
+        if isinstance(raw_exit, dict):
+            raw_stop = raw_exit.get("stop_loss")
+            stop = (StopSpec(**{
+                key: value for key, value in raw_stop.items()
+                if key in StopSpec.__dataclass_fields__
+            }) if isinstance(raw_stop, dict) else None)
+            take_profit = tuple(
+                TakeProfitLeg(**{
+                    key: value for key, value in leg.items()
+                    if key in TakeProfitLeg.__dataclass_fields__
+                })
+                for leg in (raw_exit.get("take_profit") or ())
+                if isinstance(leg, dict)
+            )
+            raw_time = raw_exit.get("time_stop")
+            time_stop = (TimeStop(**{
+                key: value for key, value in raw_time.items()
+                if key in TimeStop.__dataclass_fields__
+            }) if isinstance(raw_time, dict) else None)
+            exit_plan = ExitPlan(
+                stop_loss=stop,
+                take_profit=take_profit,
+                time_stop=time_stop,
+                exit_on_opposite_signal=bool(
+                    raw_exit.get("exit_on_opposite_signal", True)),
+                note=str(raw_exit.get("note") or ""),
+            )
+
+        raw_risk = payload.get("risk") or {}
+        risk = RiskLimits(**{
+            key: value for key, value in raw_risk.items()
+            if key in RiskLimits.__dataclass_fields__
+        }) if isinstance(raw_risk, dict) else RiskLimits()
+
+        evidence = tuple(
+            Evidence(**{
+                key: value for key, value in item.items()
+                if key in Evidence.__dataclass_fields__
+            })
+            for item in (payload.get("evidence") or ())
+            if isinstance(item, dict)
+        )
+        candidates = tuple(
+            SelectionCandidate(
+                symbol=str(item.get("symbol") or ""),
+                rank=int(item.get("rank") or 0),
+                score=float(item.get("score") or 0.0),
+                direction=enum(Direction, item.get("direction"), Direction.NEUTRAL),
+                reason=str(item.get("reason") or ""),
+                features=dict(item.get("features") or {}),
+                trade=(cls.from_dict(item["trade"])
+                       if isinstance(item.get("trade"), dict) else None),
+            )
+            for item in (payload.get("candidates") or ())
+            if isinstance(item, dict)
+        )
+        raw_provenance = payload.get("provenance") or {}
+        provenance = Provenance(
+            strategy_id=str(raw_provenance.get("strategy_id")
+                            or payload.get("bot_id") or ""),
+            strategy_version=str(raw_provenance.get("strategy_version") or "v1"),
+            snapshot_id=str(raw_provenance.get("snapshot_id") or ""),
+            config_hash=str(raw_provenance.get("config_hash") or ""),
+            inputs=tuple(raw_provenance.get("inputs") or ()),
+            run_id=str(raw_provenance.get("run_id") or ""),
+            trace_id=str(raw_provenance.get("trace_id") or ""),
+        )
+        raw_kind = payload.get("kind")
+        return cls(
+            bot_id=str(payload.get("bot_id") or ""),
+            decision_time=int(payload.get("decision_time") or 0),
+            provenance=provenance,
+            signal_id=str(payload.get("signal_id") or ""),
+            schema=str(payload.get("schema") or SCHEMA_VERSION),
+            bot_version=str(payload.get("bot_version") or "v1"),
+            kind=enum(SignalKind, raw_kind, None) if raw_kind else None,
+            symbol=payload.get("symbol"),
+            venue=str(payload.get("venue") or "binance"),
+            product=str(payload.get("product") or "usd_m_perpetual"),
+            base_asset=str(payload.get("base_asset") or ""),
+            quote_asset=str(payload.get("quote_asset") or ""),
+            market_scope=enum(MarketScope, payload.get("market_scope"),
+                              MarketScope.SINGLE),
+            intent=enum(PositionIntent, payload.get("intent"), PositionIntent.HOLD),
+            direction=enum(Direction, payload.get("direction"), Direction.NEUTRAL),
+            advisory_action=(enum(AdvisoryAction, payload.get("advisory_action"), None)
+                             if payload.get("advisory_action") else None),
+            score=float(payload.get("score") or 0.0),
+            confidence=float(payload.get("confidence") or 0.0),
+            entry=entry,
+            exit_plan=exit_plan,
+            size=size,
+            risk=risk,
+            time_horizon=enum(TimeHorizon, payload.get("time_horizon"),
+                              TimeHorizon.INTRADAY),
+            horizon_seconds=int(payload.get("horizon_seconds") or 3600),
+            valid_until=payload.get("valid_until"),
+            topic=str(payload.get("topic") or ""),
+            reason_codes=tuple(payload.get("reason_codes") or ()),
+            summary=str(payload.get("summary") or ""),
+            recommended_behavior=str(payload.get("recommended_behavior") or ""),
+            evidence=evidence,
+            data_quality=enum(DataQuality, payload.get("data_quality"), DataQuality.GOOD),
+            source_status=dict(payload.get("source_status") or {}),
+            warnings=tuple(payload.get("warnings") or ()),
+            candidates=candidates,
+            universe_size=int(payload.get("universe_size") or 0),
+            auto_trade_eligible=bool(payload.get("auto_trade_eligible", False)),
+            requires_confirmation=bool(payload.get("requires_confirmation", True)),
+            dedup_key=str(payload.get("dedup_key") or ""),
+        )
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "schema": self.schema,

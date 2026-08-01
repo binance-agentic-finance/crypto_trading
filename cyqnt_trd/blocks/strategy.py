@@ -814,6 +814,7 @@ class SelectionStrategyPlugin:
                 self.selection_fn(
                     ub.universe,
                     ub.ticker_rank,
+                    frames=dict(getattr(snapshot, "frames", {}) or {}),
                     ticker_rank_prev=ub.ticker_rank_prev,
                     klines=ub.klines,
                     as_of_ms=as_of,

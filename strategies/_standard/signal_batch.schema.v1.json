@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cyqnt.local/schema/signal_batch.schema.v1.json",
+  "title": "cyqnt.signal-batch/v1",
+  "description": "One strategy decision. Zero, one, or many cyqnt.signal/v2 records share one input snapshot.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "strategy_id",
+    "decision_time",
+    "snapshot_id",
+    "source_status",
+    "warnings",
+    "signal_count",
+    "signals"
+  ],
+  "properties": {
+    "schema": {"const": "cyqnt.signal-batch/v1"},
+    "strategy_id": {"type": "string", "minLength": 1},
+    "decision_time": {"type": "integer", "minimum": 0},
+    "snapshot_id": {"type": "string"},
+    "run_id": {"type": "string"},
+    "trace_id": {"type": "string"},
+    "source_status": {
+      "type": "object",
+      "additionalProperties": {"type": "string"}
+    },
+    "warnings": {"type": "array", "items": {"type": "string"}},
+    "signal_count": {"type": "integer", "minimum": 0},
+    "signals": {
+      "type": "array",
+      "items": {"$ref": "signal.schema.v2.json"}
+    }
+  }
+}

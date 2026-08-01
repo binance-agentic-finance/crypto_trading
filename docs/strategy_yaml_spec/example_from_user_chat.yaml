@@ -1,0 +1,135 @@
+# =============================================================================
+# 範例 5 —— 從「真實用戶對話」轉出來的選幣 spec(端到端示範)
+# =============================================================================
+# 來源:2026-05-17 與 2026-05-18 兩天重複出現的同一則選幣需求(取自內部對話需求分析,
+#         primary_intent=COIN_SELECTION)。**以下為條件摘要,非用戶逐字原文**:
+#
+#   想找做空候選,掃 Binance 合約:
+#     - 排除 BTC / ETH / SOL / XRP、TradFi 標的、USDC 計價對
+#     - 24 小時成交額 > 200 萬美元
+#     - 散戶多空比偏多 > 60%
+#     - Supertrend(10,3) 在 H4 / H1 / M15 三個時框於近 2 小時內同時偏空
+#
+# 這是 COIN_SELECTION 需求裡結構最完整的一種:條件已經被列成清單,
+# 只差一個能執行它的東西。以下是逐條轉換結果 —— **包含轉不出來的部分**。
+#
+# 用戶條件                      對映                                        結果
+# ---------------------------------------------------------------------------
+# 24h 成交額 > $2m             universe.filter_quote_volume 2e6            ✅ 完全對應
+# 排除 BTC/ETH/SOL/XRP      universe.exclude_symbols                    ✅ 完全對應
+# (含 usdc pair)               同上,逐一列名                              🟡 只能列名
+# 找做空候選                    short_when + top_losers                     ✅ 完全對應
+# Supertrend 三時框偏空  universe.top_losers(24h 跌幅前 30)         🟡 粗代理
+#                              + short_when: 24h 跌幅 > 2%
+# 散戶多空比偏多 > 60%  —                                           ❌ 無法表達
+# 排除 TradFi             —                                           ❌ 無法表達
+#
+# 排名邏輯:在「跌幅前 30 名」裡依 24h 成交額由大到小排 —— 同樣弱勢的幣,
+# 流動性大的才是能真正進出的做空標的,小幣跌 20% 但沒量是接不到的。
+#
+# 執行:
+#   python -m cyqnt_trd.standard_bot.yaml_pipeline validate docs/strategy_yaml_spec/example_from_user_chat.yaml
+#   python -m cyqnt_trd.standard_bot.yaml_pipeline run      docs/strategy_yaml_spec/example_from_user_chat.yaml
+#
+# 2026-08-01 實跑結果(真實 Binance 宇宙 727 檔):
+#   universe=727 output=cyqnt.signal/v2 kind=selection data_quality=good
+#   #1 SNDKUSDT #2 SOXLUSDT #3 MUUSDT #4 SKHYUSDT #5 KORUUSDT  全部 short
+#   驗證:5 檔都真的跌 7.2~9.6%(跌幅前 30 門檻 -7.09%),依成交額由大到小排序無誤。
+#   **但 5 檔全是 TradFi 永續(SanDisk / 半導體 ETF / 美光 / SK海力士 / 韓股 ETF)——
+#   正是用戶明講要排除的那一類。** 管線是對的,詞彙不夠;見缺口 #3。
+# =============================================================================
+
+spec_version: "1.0"
+target: standard_bot
+
+strategy:
+  id: user_short_candidate_screen
+  description: "做空候選篩選:排除主流幣、24h 成交額 > $2m、24h 明顯弱勢,依流動性排名"
+
+run:
+  mode: backtest        # 選幣是單一時點決策;run 會實跑一次選幣並明講「這不是回測」
+
+data:
+  symbol: BTCUSDT       # 選幣型仍需宣告代表標的(排程與計價用),不參與排名
+  market_type: futures
+  primary:
+    interval: "1h"
+
+selection:
+  universe:
+    # 1) 需求:24 小時成交額 > 200 萬美元
+    - block: universe.filter_quote_volume
+      params: { min_quote_volume: 2000000 }
+
+    # 2) 需求:排除 BTC / ETH / SOL / XRP 與 USDC 計價對
+    #    只能逐一列名 —— 沒有「排除主流幣」或「排除某計價幣」的語意級 block(見缺口 #3)
+    - block: universe.exclude_symbols
+      params:
+        symbols: [BTCUSDT, ETHUSDT, SOLUSDT, XRPUSDT,
+                  BTCUSDC, ETHUSDC, SOLUSDC, XRPUSDC]
+
+    # 3) 需求:Supertrend(10,3) 在 H4 / H1 / M15 同時偏空
+    #    Supertrend 是逐幣的時間序列指標;選幣層的 frame 一列是一個幣、沒有 K 線,
+    #    **無法表達**(見缺口 #2)。這裡用「24h 跌幅前 30 名」當下跌趨勢的粗代理。
+    - block: universe.top_losers
+      params: { n: 30 }
+
+  # 在這 30 個弱勢幣裡依成交額由大到小排名(score 一律 descending)。
+  score: quoteVolume
+  top_k: 5
+
+  # 同一資產的 USDT / USDC 對只留成交額大的那一個,避免 top_k 被同一個賭注佔兩格
+  dedupe_by: base_asset
+
+  # 用戶只要做空候選,所以只宣告 short_when。
+  # 沒有 long_when 時,不滿足 short_when 的列會被丟棄,不會變成 neutral 混進籃子。
+  # 門檻 -2%:top_losers 只保證「相對最弱」,大盤平靜時第 30 名可能只跌 0.3%,
+  # 那不是弱勢,是雜訊 —— 這條是絕對值的下限。
+  short_when: { cond: conditions.value_below, args: [priceChangePercent, -2.0] }
+
+# =============================================================================
+# 這次轉換暴露的缺口(照影響大小排序)
+# =============================================================================
+# 1. 【已修:universe.augment_with_funding 可由 YAML 使用】
+#    正確寫法是 `with: [funding]`。runtime 會把 cyqnt.input/v1 的跨幣別 funding
+#    frame 傳給 block；validate 使用合成 frame,不會觸網。live 端則以
+#    funding_snapshot 一次抓全市場,但仍以 logical key `funding` 寫入 bundle。
+#    單一 BTC 的歷史 funding 不可冒充截面,coverage 防線會直接拒絕。
+#    注意:selection.score 目前固定由高到低；「最負 funding」仍需新增 ascending
+#    排名規格,不能把本範例的跌幅代理悄悄說成等價。
+#
+# 2. 【逐幣時序指標無法進入選幣】影響最大的一個。用戶要的 Supertrend 多時框共振,
+#    在 signals: 那條路做得到(單一標的逐根 K),但 selection: 的 frame 沒有 K 線。
+#    「先掃全市場、再對每個候選跑技術指標」是選幣對話裡最常見的形狀,現在只能用
+#    24h 漲跌幅粗略代理。建議補 universe.augment_with_indicator:對每個候選抓 K 線、
+#    算指標、把結果 join 回截面 frame。
+#
+# 3. 【無法排除 TradFi / 無法按板塊篩選】**這次實跑就是被這個缺口毀掉的**:
+#    跌幅前 30 名裡 TradFi 只有 5 檔,但它們的成交額比加密幣大 1~2 個數量級
+#    (1.3e9~6.1e9 vs 5e7~9.4e8),用成交額排序時直接獨佔全部 5 個名額。
+#    若能排除 TradFi,正確的籃子應該是:SNXXUSDT / MMTUSDT / MUUUSDT / AAVEUSDT / BEUSDT。
+#
+#    好消息:Binance 官方就有這些欄位,一次 GET /fapi/v1/exchangeInfo 就拿得到 ——
+#      contractType     : PERPETUAL | TRADIFI_PERPETUAL
+#      underlyingType   : COIN(698) | EQUITY(131) | COMMODITY(8) | HK_EQUITY(6)
+#                         | KR_EQUITY(3) | INDEX(3) | PREMARKET(2)
+#      underlyingSubType: ['TradFi'](147) | ['DeFi'](153) | ['Alpha'](76)
+#                         | ['Infrastructure'](70) | ['AI'](68) | ['Layer-1'](64) | ['Meme'](55) ...
+#
+#    建議補一個 universe.augment_with_contract_meta(join 上述三欄)+
+#    universe.filter_underlying_type / universe.filter_sub_type。
+#    這一個 block 同時解掉四種在真實對話裡高頻出現的條件(以 13,983 筆選幣對話計):
+#      板塊/賽道 478 筆(3.4%)· 市值大小 707 筆(5.1%)· Alpha 幣 351 筆(2.5%)
+#      · 排除/指定 TradFi 或美股 414 筆(3.0%)
+#    另外 UniverseFilter 類別上已有 filter_quote_suffix,但沒匯出成 module-level
+#    函式,YAML 用不到("排除 USDC 計價對" 因此只能逐一列名)—— 順手一起匯出。
+#
+# 4. 【score 只能 descending】做空篩選最直覺的寫法是「跌幅由大到小」= priceChangePercent
+#    升冪,現在得繞路(先 top_losers 收窄、再換一個天生 descending 的欄位當 score)。
+#    加一個 selection.order: asc|desc 就能直述。
+#
+# 5. 【多空比 / 持倉量沒有 universe 層的 block】Binance 有
+#    futures/data/globalLongShortAccountRatio,blocks.universe 沒有對應函式。
+#    建議補 augment_with_long_short_ratio 與 augment_with_open_interest ——
+#    這兩個在選幣對話裡出現頻率很高。
+# =============================================================================

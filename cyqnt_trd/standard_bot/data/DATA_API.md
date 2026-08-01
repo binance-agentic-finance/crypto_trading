@@ -58,6 +58,7 @@ funding   = data.funding(symbol="BTCUSDT", limit=500)
 | `data.fear_greed` | R E | `BACKTESTABLE` | public_binance |
 | `data.funding` | D A N | `BACKTESTABLE` | public_binance |
 | `data.funding_current` | D A | `FORWARD_ONLY` | public_binance |
+| `data.funding_snapshot` | D L P | `FORWARD_ONLY` | public_binance |
 | `data.funding_widget` | D A | `FORWARD_ONLY` | internal_http |
 | `data.futures_radar` | D | `FORWARD_ONLY` | internal_http |
 | `data.hot_coin` | R S | `FORWARD_ONLY` | internal_http |
@@ -244,6 +245,19 @@ Perpetual funding rate history — the cost of the crowded side.
 |---|---|---|---|---|
 | `symbol` | `str` | yes |  | e.g. BTCUSDT |
 | `limit` | `int` | no | `500` | settlements |
+
+### `data.funding_snapshot`
+
+Current funding-rate snapshot across every USDM perpetual; this is the cross-section a funding-based SELECTION strategy joins.
+
+- **availability**: `FORWARD_ONLY` — snapshot only — no replayable history; collect forward
+- **source**: public Binance (`api`/`fapi`/`data-api.binance.vision`) or `alternative.me`
+- **endpoint**: fapi.binance.com/fapi/v1/premiumIndex (all symbols)
+- **returns**: `pd.DataFrame` — one current row per perpetual symbol · columns: `symbol`, `lastFundingRate`, `markPrice`, `indexPrice`, `time`
+- **⚠️ PIT hazard**: Current all-market snapshot only; capture it forward. It must not be replayed as historical funding at earlier decision times.
+- **note**: Transport-only node. Live YAML selection stores it under the logical bundle key `funding`; the existing `funding` node remains the single-symbol settlement history used by trade strategies.
+
+_(no parameters)_
 
 ### `data.funding_current`
 
@@ -1094,4 +1108,4 @@ Per-period, per-coin realised/unrealised PnL and risk slices.
 - A failed fetch raises `data.DataUnavailable`; `data.collect([...])` degrades
   instead, returning the frames it got plus the per-node status.
 
-_66 nodes: 6 BACKTESTABLE, 21 SEMI, 30 FORWARD_ONLY, 9 EXTERNAL_PENDING._
+_67 nodes: 6 BACKTESTABLE, 21 SEMI, 31 FORWARD_ONLY, 9 EXTERNAL_PENDING._

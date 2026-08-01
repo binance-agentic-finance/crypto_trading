@@ -37,6 +37,7 @@ __all__ = [
     "filter_quote_volume",
     "filter_change_pct",
     "filter_funding_rate",
+    "augment_with_funding",
     "top_gainers",
     "top_losers",
     "exclude_symbols",
@@ -179,16 +180,116 @@ def only_symbols(tickers: pd.DataFrame, symbols: Sequence[str]) -> pd.DataFrame:
     return tickers[tickers["symbol"].str.upper().isin(keep_set)].copy()
 
 
-def augment_with_funding(tickers: pd.DataFrame) -> pd.DataFrame:
-    """Augment the universe with the latest funding rate as ``fundingRatePct``."""
-    premium = _data.fetch_premium_index()
-    if premium.empty or "symbol" not in premium.columns:
-        tickers = tickers.copy()
-        tickers["fundingRatePct"] = float("nan")
-        return tickers
-    fr = premium[["symbol", "lastFundingRate"]].copy()
-    fr["fundingRatePct"] = fr["lastFundingRate"].astype(float) * 100.0
-    return tickers.merge(fr[["symbol", "fundingRatePct"]], on="symbol", how="left")
+def augment_with_funding(
+    tickers: pd.DataFrame,
+    funding_df: Optional[pd.DataFrame] = None,
+) -> pd.DataFrame:
+    """Join a cross-sectional funding snapshot as ``fundingRatePct``.
+
+    ``funding_df`` is the replay-safe/YAML path: it is supplied by the unified
+    input bundle and this function performs no I/O.  Direct Python callers may
+    omit it to retain the original convenience behaviour of fetching Binance's
+    current all-symbol premium-index snapshot.
+
+    Accepted source vocabularies are Binance's raw
+    ``symbol,lastFundingRate`` response, a wide canonical frame carrying
+    ``instrument_id,funding_rate``, and a long ``MetricFrame@1.0`` carrying
+    ``instrument_id,metric,value``.  Ratio values are converted to percentage
+    points; ``*_bps`` values are converted from basis points.
+    """
+    tickers = _with_symbol_column(tickers)
+    supplied = funding_df is not None
+    source = funding_df if supplied else _data.fetch_premium_index()
+
+    if source is None or not isinstance(source, pd.DataFrame):
+        raise ValueError(
+            "funding source must be a pandas DataFrame, got %s"
+            % type(source).__name__)
+    if source.empty:
+        if supplied:
+            raise ValueError(
+                "funding source is empty; a selection needs a cross-sectional snapshot"
+            )
+        out = tickers.copy()
+        out["fundingRatePct"] = float("nan")
+        return out
+
+    fr = source.copy()
+    symbol_col = next(
+        (column for column in ("symbol", "instrument_id") if column in fr.columns),
+        None,
+    )
+    if symbol_col is None:
+        raise ValueError(
+            "funding source missing 'symbol' / 'instrument_id' column; got %s"
+            % list(fr.columns))
+    fr = fr[fr[symbol_col].notna()].copy()
+    fr["symbol"] = fr[symbol_col].astype(str).str.upper()
+    fr = fr[(fr["symbol"] != "") & (fr["symbol"] != "NAN")]
+
+    # Canonical MetricFrame is long.  Keep funding rows only, then take the
+    # latest value per instrument.  The bundle assembler already applied the
+    # available_time <= decision_time gate; sorting here chooses among the
+    # already-safe rows and deliberately does not invent a second PIT rule.
+    if {"metric", "value"} <= set(fr.columns):
+        metric = fr["metric"].astype(str).str.lower()
+        aliases = {
+            "rate", "funding_rate", "funding_rate_8h",
+            "funding_rate_pct", "fundingratepct", "funding_rate_bps",
+        }
+        fr = fr[metric.isin(aliases)].copy()
+        if fr.empty:
+            raise ValueError(
+                "funding MetricFrame has no funding metric; expected one of %s"
+                % sorted(aliases))
+        fr["__metric"] = fr["metric"].astype(str).str.lower()
+        fr["__funding_value"] = pd.to_numeric(fr["value"], errors="coerce")
+    else:
+        value_col = next(
+            (column for column in (
+                "fundingRatePct", "funding_rate_pct", "funding_rate_bps",
+                "funding_rate", "rate", "lastFundingRate",
+            ) if column in fr.columns),
+            None,
+        )
+        if value_col is None:
+            raise ValueError(
+                "funding source has no recognised rate column; got %s"
+                % list(fr.columns))
+        fr["__metric"] = value_col
+        fr["__funding_value"] = pd.to_numeric(fr[value_col], errors="coerce")
+
+    time_cols = [column for column in
+                 ("available_time", "event_time", "time", "timestamp")
+                 if column in fr.columns]
+    if time_cols:
+        fr = fr.sort_values(time_cols, kind="stable")
+    fr = fr.dropna(subset=["symbol", "__funding_value"])
+    fr = fr.drop_duplicates(subset=["symbol"], keep="last")
+
+    universe_symbols = set(tickers["symbol"].astype(str).str.upper())
+    source_symbols = set(fr["symbol"]) & universe_symbols
+    if len(universe_symbols) > 1 and len(source_symbols) < 2:
+        raise ValueError(
+            "funding source covers only %d of %d universe instruments; this looks "
+            "like single-symbol funding history, not the required cross-sectional "
+            "snapshot" % (len(source_symbols), len(universe_symbols)))
+
+    def _to_pct(row) -> float:
+        value = float(row["__funding_value"])
+        metric_name = str(row["__metric"]).lower()
+        unit = str(row.get("unit", "")).lower()
+        if metric_name.endswith("_bps") or unit in {"bp", "bps", "basis_points"}:
+            return value / 100.0
+        if metric_name in {"fundingratepct", "funding_rate_pct"} or unit in {
+            "pct", "percent", "percentage",
+        }:
+            return value
+        return value * 100.0
+
+    fr["fundingRatePct"] = fr.apply(_to_pct, axis=1)
+    base = tickers.drop(columns=["fundingRatePct"], errors="ignore")
+    return base.merge(fr[["symbol", "fundingRatePct"]], on="symbol", how="left")
 
 
 # ---------------------------------------------------------------------------

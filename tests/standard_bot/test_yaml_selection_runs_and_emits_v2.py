@@ -285,9 +285,13 @@ def test_run_routes_a_selection_spec_to_the_selector(tmp_path, monkeypatch, caps
         "0-trade line looked like 'the strategy did nothing wrong'")
 
     written = json.loads(out.read_text(encoding="utf-8"))
-    assert written["version"] == "cyqnt.signal/v2"
-    assert written["kind"] == "selection"
-    assert [c["symbol"] for c in written["payload"]["candidates"]] == [
+    assert written["schema"] == "cyqnt.signal-batch/v1"
+    assert written["signal_count"] == 1
+    signal = written["signals"][0]
+    assert signal["schema"] == "cyqnt.signal/v2"
+    assert signal["kind"] == "selection"
+    assert len(signal) == 42
+    assert [c["symbol"] for c in signal["candidates"]] == [
         "BTCUSDT", "ETHUSDT", "SOLUSDT"]
 
 

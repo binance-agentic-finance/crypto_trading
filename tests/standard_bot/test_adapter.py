@@ -178,6 +178,19 @@ def test_a_v2_payload_riding_an_envelope_is_not_re_derived():
     assert restored.topic == "mtf_trend"
 
 
+def test_a_full_v2_payload_round_trips_without_losing_consumer_fields():
+    """The adapter is a transport boundary, not permission to keep only the
+    fields the old execution engine happens to understand."""
+    import json
+    from pathlib import Path
+
+    sample = Path(__file__).parents[2] / "docs" / "standard_bot_io" / "samples" \
+        / "output_open_long.json"
+    original = json.loads(sample.read_text(encoding="utf-8"))
+    restored = envelope_to_signal(_envelope(payload=original)).to_dict()
+    assert restored == original
+
+
 def test_batch_conversion():
     assert len(batch_to_signals([_envelope(), _envelope()])) == 2
 

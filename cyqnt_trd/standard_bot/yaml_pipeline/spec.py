@@ -195,6 +195,14 @@ def _synthetic_universe(n: int = 12):
     Carries both ticker_rank vocabularies so a spec dry-runs the same way
     whichever upstream feeds it, and spans the thresholds a spec is likely to
     test so the direction rules actually fire during validation.
+
+    ``priceChangePercent`` is part of that contract, not decoration: it is the
+    column ``universe.top_gainers`` / ``top_losers`` / ``filter_change_pct`` all
+    require, and the real universe frame (Binance 24h ticker) always carries it.
+    Without it those three blocks could not be validated at all — every spec
+    using one failed with ``DataFrame missing 'priceChangePercent' column``,
+    which reads as a bug in the user's spec when it was a hole in the stand-in.
+    Values straddle zero so a spec filtering on either sign has rows to match.
     """
     import numpy as np
     import pandas as pd
@@ -204,11 +212,14 @@ def _synthetic_universe(n: int = 12):
     idx = np.arange(len(bases))
     bull = 0.5 + 0.45 * np.sin(idx / 2.0)
     mentions = (500 - idx * 35).astype(float)
+    # -11%..+11%, alternating sign: exercises gainers and losers in one frame.
+    change_pct = np.round(11.0 * np.cos(idx / 1.7) * np.where(idx % 2, -1.0, 1.0), 3)
     return pd.DataFrame({
         "symbol": ["%sUSDT" % b for b in bases],
         "instrument_id": ["%sUSDT" % b for b in bases],
         "quote_volume": 1e9 / (idx + 1),
         "quoteVolume": 1e9 / (idx + 1),
+        "priceChangePercent": change_pct,
         "available_time": 1_700_000_000_000,
         "rank": idx + 1,
         "mention_count": mentions,
@@ -217,6 +228,29 @@ def _synthetic_universe(n: int = 12):
         "bullish_count": np.round(mentions * bull),
         "bearish_count": np.round(mentions * (1.0 - bull)),
         "neutral_count": np.round(mentions * 0.1),
+    })
+
+
+def _synthetic_funding(universe):
+    """Canonical multi-symbol MetricFrame used by the selection dry-run.
+
+    Supplying this explicitly is a safety property: validation must exercise
+    ``with: [funding]`` without letting ``augment_with_funding`` fall back to a
+    live Binance request.
+    """
+    import numpy as np
+    import pandas as pd
+
+    symbols = universe["instrument_id"].astype(str).tolist()
+    idx = np.arange(len(symbols), dtype=float)
+    return pd.DataFrame({
+        "instrument_id": symbols,
+        "metric": "funding_rate",
+        "value": 0.00005 + idx * 0.00001,
+        "unit": "ratio",
+        "source_id": "synthetic.funding",
+        "event_time": 1_700_000_000_000,
+        "available_time": 1_700_000_000_000,
     })
 
 
@@ -232,7 +266,11 @@ def _dry_run_selection(spec: Dict[str, Any], errors: List[str],
                      "unique_authors", "bull_ratio", "bullish_count",
                      "bearish_count", "neutral_count", "available_time"]].copy()
     try:
-        candidates = build_selection_fn(spec)(universe, rank)
+        candidates = build_selection_fn(spec)(
+            universe,
+            rank,
+            frames={"funding": _synthetic_funding(universe)},
+        )
     except Exception as exc:
         errors.append("selection dry-run failed: %s: %s" % (type(exc).__name__, exc))
         return errors, warnings

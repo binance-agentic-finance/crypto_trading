@@ -124,50 +124,52 @@ def _run_selection(spec: Dict[str, Any], args: argparse.Namespace) -> int:
     So: run the selector for real, print the basket, and refuse to call it a
     backtest.
     """
-    import json
-    from pathlib import Path
-    from types import SimpleNamespace
+    from ..data.live_snapshot import build_live_snapshot, requests_for_sections
+    from .bundle_runner import (
+        BundleRunError,
+        live_sections_for_spec,
+        required_bundle_nodes,
+        run_bundle,
+        write_signal_batch,
+    )
 
-    from cyqnt_trd.blocks import strategy as _strategy
-
-    from ..core import DataSnapshot, SnapshotMeta, UniverseBundle
-    from ..runtime import data as data_runtime
-
-    strategy_id = spec["strategy"]["id"]
-    plugin = _strategy.get_selection_plugin(strategy_id)
-    if plugin is None:                                  # register_from_yaml ran first
-        print(f"no selection plugin registered as {strategy_id!r}")
+    strategy_id = str(spec["strategy"]["id"])
+    market_type = (spec.get("data") or {}).get("market_type", "futures")
+    data = spec.get("data") or {}
+    symbol = str(data.get("symbol") or "BTCUSDT")
+    interval = str((data.get("primary") or {}).get("interval") or "1h")
+    sections = live_sections_for_spec(spec)
+    # A selection is a single cross-section and does not consume bars.  The
+    # general planner includes klines as the primary series for trade specs; do
+    # not perform that unrelated request here.
+    required = required_bundle_nodes(spec)
+    plan = [request for request in requests_for_sections(
+        sections,
+        symbol=symbol,
+        interval=interval,
+        market_type=market_type,
+    ) if request[2] in required]
+    try:
+        _snapshot, bundle = build_live_snapshot(
+            requests=plan,
+            symbol=symbol,
+            interval=interval,
+            market_type=market_type,
+        )
+        output = run_bundle(spec, bundle)
+    except (BundleRunError, SpecError, ValueError) as exc:
+        print("selection run failed: %s" % exc)
         return 1
 
-    market_type = (spec.get("data") or {}).get("market_type", "futures")
-    status: Dict[str, str] = {}
-    frames: Dict[str, Any] = {}
-    with data_runtime.session() as session:
-        as_of = session.as_of_ms
-        for node, params in (("universe", {"market_type": market_type}),
-                             ("ticker_rank", {"window": "24h", "limit": 30})):
-            try:
-                frames[node] = session.call(node, **params)
-                status[node] = "ok" if len(frames[node]) else "empty"
-            except data_runtime.DataUnavailable as exc:
-                frames[node] = None
-                status[node] = "error: %s" % exc.reason
-
-    snapshot = DataSnapshot(
-        version="mvp/v1",
-        universe=UniverseBundle(as_of=as_of, universe=frames.get("universe"),
-                                ticker_rank=frames.get("ticker_rank")),
-        meta=SnapshotMeta(snapshot_id="yaml-selection-%d" % as_of, assembled_at=as_of,
-                          decision_as_of=as_of, source_status=status, partial_ok=True),
-    )
-    envelope = plugin.run(snapshot, SimpleNamespace(market_type=market_type)).signals[0]
-    payload = envelope.payload
-    candidates = payload.get("candidates") or []
+    signal = (output.get("signals") or [{}])[0]
+    candidates = signal.get("candidates") or []
+    status = signal.get("source_status") or bundle.get("source_status") or {}
+    as_of = int(output["decision_time"])
 
     print(f"[yaml_pipeline] selection strategy={strategy_id} market={market_type} "
-          f"universe={payload.get('universe_size')} as_of={as_of}")
-    print(f"  output={envelope.version} kind={envelope.kind.value} "
-          f"data_quality={payload.get('data_quality')}")
+          f"universe={signal.get('universe_size')} as_of={as_of}")
+    print(f"  output={signal.get('schema')} kind={signal.get('kind')} "
+          f"data_quality={signal.get('data_quality')}")
     for key, value in status.items():
         if value != "ok":
             print(f"  {key}: {value}")
@@ -178,14 +180,11 @@ def _run_selection(spec: Dict[str, Any], args: argparse.Namespace) -> int:
               % (candidate["rank"], candidate["symbol"], candidate["score"],
                  candidate["direction"], candidate.get("reason", "")))
     if (spec.get("run") or {}).get("mode") == "backtest":
-        print("  NOTE: run.mode=backtest, but a cross-sectional selector has no "
+        print("  NOTE: this is not a backtest: a cross-sectional selector has no "
               "per-bar equity curve and this repo has no cross-sectional backtest "
               "engine. The above is ONE decision point, not a backtest.")
     if getattr(args, "output_json", None):
-        Path(args.output_json).write_text(json.dumps(
-            {"signal_id": envelope.signal_id, "version": envelope.version,
-             "kind": envelope.kind.value, "payload": payload},
-            ensure_ascii=False, indent=2))
+        write_signal_batch(output, args.output_json)
         print(f"  wrote {args.output_json}")
     return 0
 
@@ -365,6 +364,33 @@ def _run_live(spec: Dict[str, Any], args: argparse.Namespace) -> int:
 
 
 def cmd_run(args: argparse.Namespace) -> int:
+    # A cyqnt.input/v1 artifact is already a complete, PIT-gated decision
+    # input. Sending it through the legacy OHLCV loader discarded every frame
+    # except bars and then crashed while iterating the envelope's dict keys as
+    # rows. Detect the contract and route it through the one canonical runner.
+    input_path = getattr(args, "input_json", None)
+    if input_path:
+        import json
+        from pathlib import Path
+
+        try:
+            candidate = json.loads(Path(input_path).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            candidate = None
+        if isinstance(candidate, dict) and candidate.get("schema") == "cyqnt.input/v1":
+            from .bundle_runner import run_bundle, write_signal_batch
+
+            try:
+                output = run_bundle(args.spec, candidate)
+            except (SpecError, ValueError) as exc:
+                print("BUNDLE RUN FAILED: %s" % exc)
+                return 1
+            if getattr(args, "output_json", None):
+                write_signal_batch(output, args.output_json)
+                print("[yaml_pipeline] wrote %s" % args.output_json)
+            print(json.dumps(output, ensure_ascii=False, indent=2))
+            return 0
+
     try:
         spec = register_from_yaml(args.spec)
     except SpecError as exc:

@@ -296,7 +296,8 @@ class BotContext:
         """GOOD when everything read cleanly; INSUFFICIENT when a required
         input failed; DEGRADED in between."""
         for key in required:
-            if self.source_status.get(key, "error") == "error":
+            status = str(self.source_status.get(key, "error"))
+            if status.split(":", 1)[0].strip() == "error":
                 return DataQuality.INSUFFICIENT
         return DataQuality.GOOD if not self.degraded_inputs else DataQuality.DEGRADED
 
@@ -801,17 +802,29 @@ class StandardBot(ABC):
         if meta is not None:
             frames = dict(getattr(snapshot, "frames", {}) or {})
             frames.update(_frames_from_snapshot(snapshot))
+            bundle_config = dict(getattr(snapshot, "config", {}) or {})
+            if config is not None:
+                if isinstance(config, dict):
+                    bundle_config.update(config)
+                else:
+                    bundle_config.update(vars(config))
             return BotContext(
                 decision_time=int(getattr(meta, "decision_as_of", 0)
                                   or getattr(meta, "assembled_at", 0)),
                 frames=frames,
+                typed=dict(getattr(snapshot, "typed", {}) or {}),
                 source_status={
                     key: (value.value if hasattr(value, "value") else str(value))
                     for key, value in (getattr(meta, "source_status", {}) or {}).items()
                 },
                 warnings=list(getattr(meta, "warnings", []) or []),
-                config=self.normalize_config(config),
+                config=self.normalize_config(bundle_config),
+                positions=dict(getattr(snapshot, "positions", {}) or {}),
+                equity=getattr(snapshot, "equity", None),
                 snapshot_id=str(getattr(meta, "snapshot_id", "")),
+                run_id=str(getattr(snapshot, "run_id", "")),
+                trace_id=str(getattr(snapshot, "trace_id", "")
+                             or getattr(meta, "trace_id", "") or ""),
             )
         return self.fetch_context(config=config)
 

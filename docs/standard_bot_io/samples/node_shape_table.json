@@ -369,6 +369,20 @@
     "pit_hazard": "point read; use `funding` for anything replayed."
   },
   {
+    "node": "funding_snapshot",
+    "emits": "metric",
+    "schema": "MetricFrame@1.0",
+    "access": "public_binance",
+    "availability": "FORWARD_ONLY",
+    "wired": true,
+    "strategy_types": [
+      "D",
+      "L",
+      "P"
+    ],
+    "pit_hazard": "Current all-market snapshot only; capture it forward. It must not be replayed as historical funding at earlier decision times."
+  },
+  {
     "node": "funding_widget",
     "emits": "metric",
     "schema": "MetricFrame@1.0",
