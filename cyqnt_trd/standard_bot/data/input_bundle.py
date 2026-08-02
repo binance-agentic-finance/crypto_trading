@@ -480,6 +480,36 @@ def load_input_bundle(bundle: Any) -> DataSnapshot:
                                               or row["close_time"])},
             ))
         if bars:
+            # One key for the whole list, taken from the FIRST bar — so a frame
+            # holding more than one (instrument, timeframe) files every bar under
+            # whichever pair happened to sort first, and the strategy reads a
+            # series that is several series concatenated.
+            #
+            # The comment on FRAME_SHAPES already spells out this hazard for
+            # multiple INSTRUMENTS, which is why ``universe_bars`` exists as a
+            # separate key. Multiple TIMEFRAMES is the same hazard through the
+            # same line and had no guard: 99 1h bars plus 99 4h bars loaded as
+            # one 198-bar "1h" series whose time axis steps forward 98 times,
+            # jumps back 16.5 days, then steps forward again — and every
+            # indicator on the primary timeframe was computed on that, with no
+            # error and no warning. Refused here rather than joined, because
+            # neither the caller nor the reader can see it downstream.
+            grains = {(bar.instrument_id, bar.timeframe) for bar in bars}
+            if len(grains) > 1:
+                instruments = sorted({g[0] for g in grains})
+                timeframes = sorted({g[1] for g in grains})
+                raise ValueError(
+                    "frames.klines holds %d (instrument, timeframe) pairs "
+                    "(instruments=%s, timeframes=%s) but it is loaded into a "
+                    "MarketBundle under a single key, so every bar would end up "
+                    "filed as %s — one series made of several, with a time axis "
+                    "that jumps backwards where they join. Nothing downstream can "
+                    "see that. Put multi-instrument or multi-timeframe bars in the "
+                    "'universe_bars' frame instead: it is the same BarFrame@1.0 "
+                    "shape, it keeps the (instrument_id, timeframe) grain, and it "
+                    "is what universe.augment_with_indicator reads."
+                    % (len(grains), instruments[:5], timeframes,
+                       MarketBundle.key(*sorted(grains)[0])))
             key = MarketBundle.key(bars[0].instrument_id, bars[0].timeframe)
             market = MarketBundle(bars={key: bars})
 

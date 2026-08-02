@@ -2408,6 +2408,33 @@ _INDICATOR_AGGS = ("last", "min", "max", "mean", "any_negative", "all_negative")
 #: Checked per ``(instrument, timeframe)`` and never as a frame-wide average: a
 #: capture is usually complete for the majors and short for one new listing, and an
 #: average hides exactly that row.
+#: Indicators whose value at the last bar depends ONLY on the last ``period``
+#: bars — no seed, no recursion, nothing to settle. For these ``period`` bars is
+#: the exact answer and ``min_bars_multiple: 1`` is correct.
+#:
+#: The comment above named four of them in prose and the short-history error
+#: message repeated the advice, but nothing checked membership. So
+#: ``min_bars_multiple: 1`` worked on ANY indicator: measured on an 11-bar
+#: capture, three ``supertrend`` steps then reported all five instruments bearish
+#: on 4h, 1h and 15m at once — a full basket, no warning — where the same spec on
+#: the complete history returns none. The error message that fires without the
+#: knob was itself recommending the knob that produces the wrong answer.
+#:
+#: Derived rather than asserted: tests/standard_bot/test_indicator_warmup_family.py
+#: recomputes this set by running every indicator on 400 bars and again on the
+#: 15 that ``min_bars_multiple: 1`` would permit, over five random series, and
+#: fails if the membership drifts. An indicator whose classification cannot be
+#: decided (all-NaN at that length, or it raises) is deliberately LEFT OUT: being
+#: wrongly inside this set is a silent wrong answer, being wrongly outside it is
+#: a refusal that says exactly what to do next.
+_WARMUP_FREE_INDICATORS = frozenset({
+    "aroon", "bb_bandwidth", "bb_pct_b", "bb_squeeze", "bollinger",
+    "bollinger_bands", "cmf", "donchian", "highest", "lowest", "mfi",
+    "price_change_pct", "range_gain_pct", "rolling_zscore", "sma",
+    "trend_strength", "true_range", "volume_ma", "volume_zscore", "vwma",
+    "williams_r", "wma",
+})
+
 _INDICATOR_WARMUP_MULTIPLE = 3
 
 #: Share of the cross-section the bars frame must cover before the join raises.
@@ -2718,6 +2745,20 @@ def augment_with_indicator(
             "%s: min_bars_multiple must be >= 1, got %d — an indicator cannot "
             "report a value over fewer bars than its own period"
             % (caller, min_bars_multiple))
+    if (min_bars_multiple < _INDICATOR_WARMUP_MULTIPLE
+            and str(indicator) not in _WARMUP_FREE_INDICATORS):
+        raise ValueError(
+            "%s: min_bars_multiple=%d is only sound for a pure rolling-window "
+            "indicator, and indicators.%s is not one — its value at the last bar "
+            "still carries its seed at that length, so the number it returns is "
+            "not the indicator, it just looks like it. Measured: three supertrend "
+            "steps on an 11-bar capture reported every instrument bearish on all "
+            "three timeframes, where the full history returns none. Either leave "
+            "min_bars_multiple at %d and ask the capture for more bars (limit=), "
+            "or shorten the period. The %d indicators this knob IS sound for: %s."
+            % (caller, min_bars_multiple, indicator, _INDICATOR_WARMUP_MULTIPLE,
+               len(_WARMUP_FREE_INDICATORS),
+               ", ".join(sorted(_WARMUP_FREE_INDICATORS))))
 
     fn = _resolve_indicator(indicator)
     if bars_df is None:
