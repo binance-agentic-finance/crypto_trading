@@ -675,6 +675,12 @@ def load_input_bundle(bundle: Any) -> DataSnapshot:
             # primary series into an empty DataFrame downstream. Group first so
             # both ordinary single-series bundles and legitimate multi-series
             # captures retain their actual identity.
+            #
+            # Measured before this fix: 99 1h bars plus 99 4h bars for one
+            # symbol loaded as a single 198-bar "1h" series whose time axis
+            # steps forward 98 times, jumps back 16.5 days, then steps forward
+            # again — and every indicator on the primary timeframe was computed
+            # on that, with no error and no warning.
             grouped_bars: Dict[str, List[Bar]] = {}
             for bar in bars:
                 key = MarketBundle.key(bar.instrument_id, bar.timeframe)
