@@ -210,6 +210,106 @@ def _selection_summary(basket: int, scored_pool: int | None, universe_size: int)
             "(universe %d)" % (basket, scored_pool, universe_size))
 
 
+def _candidate_trade_signal(row: Dict, *, plugin_id: str, plugin_version: str,
+                            as_of: int, snapshot, source_status: Dict[str, str],
+                            data_quality, assumptions=()):
+    """Build one complete nested v2 trade from a qualified selection row.
+
+    The selection function knows the qualifying side, while this layer is the
+    first one that also knows the frozen snapshot id and decision clock.  The
+    full contract is therefore assembled here instead of leaking a half-shaped
+    trade dict into ``candidates[].trade``.
+    """
+    plan = row.get("_candidate_trade")
+    if not isinstance(plan, dict):
+        return None
+
+    raw_side = str(row.get("side") or row.get("direction") or "neutral").lower()
+    if raw_side not in ("long", "short", "neutral"):
+        raise ValueError("unknown candidate direction %r" % raw_side)
+
+    from ..standard_bot.adapter import _exit_plan_from_spec  # type: ignore
+    from ..standard_bot.core import (  # type: ignore
+        Direction, EntrySpec, EntryType, PositionIntent, Provenance, SizeMode,
+        SizeSpec, StandardSignal,
+    )
+    from ..standard_bot.data.alignment import timeframe_to_ms  # type: ignore
+
+    try:
+        entry_type = EntryType(str(plan.get("entry_type") or "market").lower())
+    except ValueError as exc:
+        raise ValueError(
+            "unsupported candidate_trade.entry_type=%r" % plan.get("entry_type")
+        ) from exc
+    exit_plan = _exit_plan_from_spec(plan.get("exit_cfg"))
+    if exit_plan is None:
+        raise ValueError(
+            "candidate_trade needs risk.exit; an entry without an exit plan is refused"
+        )
+    try:
+        size_value = float(plan["size"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError(
+            "candidate_trade needs an explicit numeric sizing.size"
+        ) from exc
+
+    interval = str(plan.get("interval") or "1h")
+    try:
+        horizon_seconds = max(1, int(timeframe_to_ms(interval) // 1000))
+    except (KeyError, TypeError, ValueError):
+        horizon_seconds = 3600
+    market_type = str(plan.get("market_type") or "futures").lower()
+    direction = (Direction.LONG if raw_side == "long"
+                 else Direction.SHORT if raw_side == "short"
+                 else Direction.NEUTRAL)
+    intent = (PositionIntent.OPEN_LONG if raw_side == "long"
+              else PositionIntent.OPEN_SHORT if raw_side == "short"
+              else PositionIntent.HOLD)
+    actionable = intent is not PositionIntent.HOLD
+    score = row.get("score")
+    strength = min(100.0, max(0.0, float(score))) if score is not None else 0.0
+    meta = getattr(snapshot, "meta", None)
+    symbol = str(row.get("symbol") or row.get("instrument_id") or "")
+    declared_assumptions = tuple(str(item) for item in (assumptions or ()) if item)
+    nested_warnings = tuple(dict.fromkeys(
+        tuple(getattr(meta, "warnings", []) or []) + declared_assumptions
+    ))
+    reason_codes = (("selection_candidate_trade",) if actionable
+                    else ("candidate_trade_hold", "no_entry_condition"))
+    if declared_assumptions:
+        reason_codes += ("assumption_declared",)
+
+    return StandardSignal(
+        bot_id="%s:candidate_trade" % plugin_id,
+        bot_version=plugin_version,
+        decision_time=int(as_of),
+        symbol=symbol,
+        product="spot" if market_type == "spot" else "usd_m_perpetual",
+        intent=intent,
+        direction=direction,
+        entry=EntrySpec(type=entry_type) if actionable else None,
+        exit_plan=exit_plan if actionable else None,
+        size=(SizeSpec(mode=SizeMode.EQUITY_PCT, value=size_value)
+              if actionable else None),
+        score=strength,
+        horizon_seconds=horizon_seconds,
+        summary=(("%s qualified as a %s candidate; execute only after confirmation"
+                  % (symbol, raw_side)) if actionable else
+                 "%s is selected, but no candidate entry condition is active" % symbol),
+        reason_codes=reason_codes,
+        data_quality=data_quality,
+        source_status=dict(source_status),
+        warnings=nested_warnings,
+        provenance=Provenance(
+            strategy_id=plugin_id,
+            strategy_version=plugin_version,
+            snapshot_id=str(getattr(meta, "snapshot_id", "") or ""),
+        ),
+        auto_trade_eligible=False,
+        requires_confirmation=True,
+    )
+
+
 def register_selection(
     strategy_id: str,
     selection_fn: SelectionFn,
@@ -906,6 +1006,13 @@ class SelectionStrategyPlugin:
         scored_pool = next((int(row["scored_pool"]) for row in candidates
                             if row.get("scored_pool") is not None), None)
 
+        meta = getattr(snapshot, "meta", None)
+        statuses = {k: (v.value if hasattr(v, "value") else str(v))
+                    for k, v in (getattr(meta, "source_status", {}) or {}).items()}
+        source_quality = (DataQuality.DEGRADED
+                          if any(str(v).startswith("error") for v in statuses.values())
+                          else DataQuality.GOOD)
+
         rows = []
         for position, row in enumerate(candidates, start=1):
             raw = str(row.get("side") or row.get("direction") or "neutral").lower()
@@ -918,20 +1025,25 @@ class SelectionStrategyPlugin:
                            else Direction.SHORT if raw == "short" else Direction.NEUTRAL),
                 reason=str(row.get("reason") or ""),
                 features=dict(row.get("features") or {}),
+                trade=_candidate_trade_signal(
+                    row,
+                    plugin_id=self.plugin_id,
+                    plugin_version=self.plugin_version,
+                    as_of=int(as_of),
+                    snapshot=snapshot,
+                    source_status=statuses,
+                    data_quality=source_quality,
+                    assumptions=self.assumptions,
+                ),
             ))
 
-        meta = getattr(snapshot, "meta", None)
-        statuses = {k: (v.value if hasattr(v, "value") else str(v))
-                    for k, v in (getattr(meta, "source_status", {}) or {}).items()}
         # Quality only ever goes DOWN. An earlier version reassigned it in the
         # empty-basket branch, which threw away the DEGRADED verdict just
         # computed from source_status: with ticker_rank dead and a 300-name
         # universe read fine, the payload said data_quality="good" beside
         # "no name passed the declared filters" — blaming a strict filter for a
         # dead feed, in the one field an executor safety-checks.
-        quality = DataQuality.GOOD
-        if any(str(v).startswith("error") for v in statuses.values()):
-            quality = DataQuality.DEGRADED
+        quality = source_quality
         if not rows and not universe_size:
             # Nothing ranked and nothing to rank: this is not "none qualified".
             quality = DataQuality.INSUFFICIENT

@@ -25,6 +25,7 @@ import re
 __all__ = [
     "IntentDecision",
     "UNSUPPORTED_SELECTION_SOURCES",
+    "candidate_trade_plan",
     "classify_request",
     "generated_strategy_kind",
     "infer_strategy_kind",
@@ -34,13 +35,13 @@ __all__ = [
 #: Cross-sectional sources a selection spec cannot express yet, so a request
 #: that depends on one is refused instead of answered with something else.
 #:
-#: ``open_interest``: Binance publishes no whole-market OI endpoint —
-#: ``GET /fapi/v1/openInterest`` without a symbol answers HTTP 400 — so there is
-#: no cross-section frame to rank on, only a per-symbol fan-out that nobody has
-#: built. ``price_change`` used to be listed here and was simply wrong:
-#: ``priceChangePercent`` rides along in the universe RANK frame already, and
-#: ``universe.top_gainers`` / ``top_losers`` have always consumed it.
-UNSUPPORTED_SELECTION_SOURCES = frozenset({"open_interest"})
+#: Keep this list beside the front-door classifier, but derive every entry from
+#: the *running* YAML path.  Open interest used to live here because Binance has
+#: no whole-market endpoint.  The runtime now deliberately fans out over an
+#: already-narrowed roster via ``open_interest_snapshot`` and
+#: ``universe.augment_with_open_interest``, so refusing it here would make the
+#: front door less capable than the Blocks path it fronts.
+UNSUPPORTED_SELECTION_SOURCES = frozenset()
 
 
 class IntentDecision:
@@ -48,10 +49,13 @@ class IntentDecision:
 
     __slots__ = (
         "kind", "evidence", "requested_count", "sources",
-        "bullish_preference", "unsupported_preferences", "named_symbols",
-        "intervals", "market_type", "technical_periods", "stop_pct",
-        "tp_pct", "size_fraction", "directions", "news_metrics", "triggers",
-        "indicator_names", "rsi_thresholds", "ranking_metric",
+        "bullish_preference", "unsupported_preferences", "candidate_trade_requested",
+        "named_symbols",
+        "included_symbols", "excluded_symbols", "intervals", "market_type",
+        "technical_periods", "excluded_technical_periods", "stop_pct",
+        "tp_pct", "size_fraction", "directions", "excluded_directions",
+        "news_metrics", "triggers", "indicator_names",
+        "excluded_indicator_names", "rsi_thresholds", "ranking_metric",
         "score_order", "score_order_metric",
     )
 
@@ -64,17 +68,23 @@ class IntentDecision:
         sources=frozenset(),
         bullish_preference=False,
         unsupported_preferences=(),
+        candidate_trade_requested=False,
         named_symbols=(),
+        included_symbols=(),
+        excluded_symbols=(),
         intervals=(),
         market_type=None,
         technical_periods=(),
+        excluded_technical_periods=(),
         stop_pct=None,
         tp_pct=None,
         size_fraction=None,
         directions=(),
+        excluded_directions=(),
         news_metrics=(),
         triggers=(),
         indicator_names=(),
+        excluded_indicator_names=(),
         rsi_thresholds=(),
         ranking_metric=None,
         score_order=None,
@@ -86,17 +96,23 @@ class IntentDecision:
         self.sources = frozenset(sources)
         self.bullish_preference = bool(bullish_preference)
         self.unsupported_preferences = tuple(unsupported_preferences)
+        self.candidate_trade_requested = bool(candidate_trade_requested)
         self.named_symbols = tuple(named_symbols)
+        self.included_symbols = tuple(included_symbols)
+        self.excluded_symbols = tuple(excluded_symbols)
         self.intervals = tuple(intervals)
         self.market_type = market_type
         self.technical_periods = tuple(technical_periods)
+        self.excluded_technical_periods = tuple(excluded_technical_periods)
         self.stop_pct = stop_pct
         self.tp_pct = tp_pct
         self.size_fraction = size_fraction
         self.directions = tuple(directions)
+        self.excluded_directions = tuple(excluded_directions)
         self.news_metrics = tuple(news_metrics)
         self.triggers = tuple(triggers)
         self.indicator_names = tuple(indicator_names)
+        self.excluded_indicator_names = tuple(excluded_indicator_names)
         self.rsi_thresholds = tuple(rsi_thresholds)
         self.ranking_metric = ranking_metric
         # Which end of the ranked column the request named ("asc"/"desc"), and
@@ -113,20 +129,29 @@ class IntentDecision:
             "sources": sorted(self.sources),
             "bullish_preference": self.bullish_preference,
             "unsupported_preferences": list(self.unsupported_preferences),
+            "candidate_trade_requested": self.candidate_trade_requested,
             "named_symbols": list(self.named_symbols),
+            "included_symbols": list(self.included_symbols),
+            "excluded_symbols": list(self.excluded_symbols),
             "intervals": list(self.intervals),
             "market_type": self.market_type,
             "technical_periods": [
                 {"indicator": name, "period": period}
                 for name, period in self.technical_periods
             ],
+            "excluded_technical_periods": [
+                {"indicator": name, "period": period}
+                for name, period in self.excluded_technical_periods
+            ],
             "stop_pct": self.stop_pct,
             "tp_pct": self.tp_pct,
             "size_fraction": self.size_fraction,
             "directions": list(self.directions),
+            "excluded_directions": list(self.excluded_directions),
             "news_metrics": list(self.news_metrics),
             "triggers": list(self.triggers),
             "indicator_names": list(self.indicator_names),
+            "excluded_indicator_names": list(self.excluded_indicator_names),
             "rsi_thresholds": [
                 {"relation": relation, "value": value}
                 for relation, value in self.rsi_thresholds
@@ -135,6 +160,146 @@ class IntentDecision:
             "score_order": self.score_order,
             "score_order_metric": self.score_order_metric,
         }
+
+
+_CANDIDATE_DEFAULT_CIDS = frozenset({
+    "default_candidate_indicator",
+    "default_candidate_rsi_period",
+    "default_candidate_rsi_long",
+    "default_candidate_rsi_short",
+    "candidate_sell_point_as_short_entry",
+    "default_candidate_size",
+    "default_candidate_stop",
+    "default_candidate_take_profit",
+})
+
+
+def _candidate_default(cid: str, reading: str, basis: str) -> dict:
+    return {
+        "cid": cid,
+        "reading": reading,
+        "alternatives": ["由使用者明確指定此值"],
+        "basis": basis,
+    }
+
+
+def candidate_trade_plan(intent: IntentDecision) -> dict:
+    """One source of truth for hybrid prompt defaults and semantic checks.
+
+    Defaults remain useful for a conversational front door, but only when the
+    generated YAML admits each choice under ``strategy.assumptions``.  The
+    returned readings are canonical strings: reconciliation compares them
+    exactly, and the runtime carries those same strings into signal warnings.
+    """
+    sides = tuple(side for side in ("long", "short") if side in intent.directions)
+    if "bidirectional_trade_points" in intent.evidence:
+        sides = ("long", "short")
+    elif "candidate_buy_point" in intent.evidence and not sides:
+        sides = ("long",)
+    elif "candidate_sell_point" in intent.evidence and not sides:
+        sides = ("short",)
+    elif not sides:
+        sides = ("long", "short")
+
+    explicit = {relation: float(value) for relation, value in intent.rsi_thresholds}
+    periods = [period for name, period in intent.technical_periods if name == "rsi"]
+    period = periods[0] if periods else 14
+    alias = "rsi%d" % period
+    thresholds = {}
+    assumptions = []
+
+    requested_rsi = (
+        "rsi" in intent.indicator_names
+        or any(name == "rsi" for name, _period in intent.technical_periods)
+        or bool(intent.rsi_thresholds)
+    )
+    if not requested_rsi:
+        assumptions.append(_candidate_default(
+            "default_candidate_indicator",
+            "default candidate indicator: name=rsi, period=14",
+            "使用者要求逐候選技術買賣點但未指定技術指標",
+        ))
+    elif not periods:
+        assumptions.append(_candidate_default(
+            "default_candidate_rsi_period",
+            "default candidate RSI period: period=14",
+            "使用者指定 RSI 但未指定週期",
+        ))
+
+    if "sell_point_requires_short_interpretation" in intent.evidence:
+        assumptions.append({
+            "cid": "candidate_sell_point_as_short_entry",
+            "reading": (
+                "candidate sell point interpretation: intent=open_short, "
+                "product=usd_m_perpetual; not close_long"
+            ),
+            "alternatives": [
+                "close_long for an existing position",
+                "advisory-only sell point",
+            ],
+            "basis": "使用者說賣點但未明確指定做空或平多",
+        })
+
+    if "long" in sides:
+        if "below" in explicit:
+            thresholds["long"] = ("below", explicit["below"])
+        elif "above" in explicit and "short" not in sides:
+            thresholds["long"] = ("above", explicit["above"])
+        else:
+            thresholds["long"] = ("below", 30.0)
+            assumptions.append(_candidate_default(
+                "default_candidate_rsi_long",
+                "default candidate long threshold: indicator=rsi, period=%d, "
+                "relation=below, value=30" % period,
+                "使用者要求逐候選買點但未指定做多 RSI 門檻",
+            ))
+    if "short" in sides:
+        if "above" in explicit:
+            thresholds["short"] = ("above", explicit["above"])
+        elif "below" in explicit and "long" not in sides:
+            thresholds["short"] = ("below", explicit["below"])
+        else:
+            thresholds["short"] = ("above", 70.0)
+            assumptions.append(_candidate_default(
+                "default_candidate_rsi_short",
+                "default candidate short threshold: indicator=rsi, period=%d, "
+                "relation=above, value=70" % period,
+                "使用者要求逐候選賣點但未指定做空 RSI 門檻",
+            ))
+
+    size = intent.size_fraction if intent.size_fraction is not None else 0.05
+    if intent.size_fraction is None:
+        assumptions.append(_candidate_default(
+            "default_candidate_size",
+            "default candidate size: mode=equity_pct, value=0.05",
+            "使用者未指定逐候選交易計畫的倉位",
+        ))
+    stop = intent.stop_pct if intent.stop_pct is not None else 0.02
+    if intent.stop_pct is None:
+        assumptions.append(_candidate_default(
+            "default_candidate_stop",
+            "default candidate stop: type=pct_stop_tp, stop_pct=0.02",
+            "使用者未指定逐候選交易計畫的停損",
+        ))
+    take_profit = intent.tp_pct if intent.tp_pct is not None else 0.04
+    if intent.tp_pct is None:
+        assumptions.append(_candidate_default(
+            "default_candidate_take_profit",
+            "default candidate take profit: type=pct_stop_tp, tp_pct=0.04",
+            "使用者未指定逐候選交易計畫的停利",
+        ))
+
+    return {
+        "sides": sides,
+        "period": period,
+        "alias": alias,
+        "thresholds": thresholds,
+        "size": float(size),
+        "stop_pct": float(stop),
+        "tp_pct": float(take_profit),
+        "assumptions": tuple(assumptions),
+        "default_cids": _CANDIDATE_DEFAULT_CIDS,
+    }
 
 
 def _rules(*items):
@@ -171,7 +336,9 @@ _TRADE_RULES = _rules(
     # trade" instead of the true answer, "open interest has no whole-market
     # endpoint yet".
     ("zh_trade_action",
-     r"(?:買進|賣出|買入|賣掉|做多|做空|進場|出場|(?<!未)平倉|停損|停利|止損|止盈)"),
+     r"(?:(?:技術分析.{0,12})?(?:買賣點|買點|賣點)|"
+     r"買進|賣出|買入|賣掉|做多|做空|進場|出場|"
+     r"(?<!未)平倉|停損|停利|止損|止盈)"),
     ("zh_trade_trigger",
      r"(?:上穿|下穿|突破|跌破|黃金交叉|死亡交叉|交易策略|回測策略)"),
     ("en_trade_action",
@@ -306,6 +473,39 @@ _EXCLUSION_VERB = (r"(?:排除|剔除|去掉|扣掉|不要|避開|避免|不含|
 _SELECTION_VERB = (r"(?:選|挑|篩|找|列出|推薦|"
                    r"\b(?:select|pick|screen|rank|show|find|list|want)\b)")
 
+#: Polarity belongs to the extracted slot, not to an after-the-fact exception in
+#: reconciliation.  Without this, ``不要使用 RSI`` and ``不要做多`` put the exact
+#: same positive tokens in :class:`IntentDecision` as ``使用 RSI`` / ``做多``.
+#: The reconciler then rejected the faithful YAML and accepted the forbidden one.
+_NEGATED_TERM_PREFIX = re.compile(
+    r"(?:不要|不用|不准|不準|不可|不能|不允許|不允许|禁止|避免|避開|避开|"
+    r"排除|剔除|去掉|扣掉|不含|勿|別|别|除了|"
+    r"\b(?:do\s+not|don't|never|without|exclude|excluding|avoid|avoiding|"
+    r"except|skip|no)\b)"
+    r"(?:\s*(?:再|去|使用|採用|采用|加入|用|做|開|开|建立|"
+    r"allow|use|using|take|go))*\s*$",
+    re.IGNORECASE,
+)
+_NEGATED_TERM_SUFFIX = re.compile(
+    r"^\s*(?:不要|不用|不准|不準|禁止|避免|排除|剔除|勿|別用|别用|"
+    r"\b(?:is\s+forbidden|not\s+allowed|must\s+not\s+be\s+used)\b)",
+    re.IGNORECASE,
+)
+
+
+def _is_excluded_match(text: str, match: re.Match) -> bool:
+    """Whether one concrete token occurrence is in a negative clause.
+
+    The check is span-local.  A global ``"不要" in text`` would also negate the
+    positive half of ``不要做多,只允許做空``; splitting at punctuation keeps the
+    two clauses independent.  Looking on both sides covers the ordinary
+    ``不要使用 RSI`` form and the less common ``RSI 不要用`` form.
+    """
+
+    left = re.split(r"[,，。;；、\n]", text[max(0, match.start() - 48):match.start()])[-1]
+    right = re.split(r"[,，。;；、\n]", text[match.end():match.end() + 32])[0]
+    return bool(_NEGATED_TERM_PREFIX.search(left) or _NEGATED_TERM_SUFFIX.search(right))
+
 #: Exclusion phrasing attached to a direction word inverts what the direction
 #: means: "排除跌幅最大的幣" names the end of the column the user does NOT want.
 #: No ``order`` value means "rank everything else", so a match here drops the
@@ -368,13 +568,47 @@ _KNOWN_BASE_SYMBOL = re.compile(
 _BARE_UPPER_SYMBOL = re.compile(r"\b[A-Z][A-Z0-9]{1,9}\b")
 _SYMBOL_STOPWORDS = {
     "ADX", "API", "ATR", "BUY", "CHOOSE", "EMA", "ENTER", "EXIT", "FIND",
-    "LLM", "LONG", "MACD", "OHLCV", "PICK", "RANK", "RSI", "SELECT", "SELL",
+    "LLM", "LONG", "MACD", "OHLCV", "OI", "PICK", "RANK", "RSI", "SELECT", "SELL",
     "SHORT", "SMA", "TOP", "TRADE", "USD", "USDC", "USDT", "VWAP", "YAML",
 }
+#: Separators that keep adjacent symbol mentions in the same list.  Clause
+#: punctuation is allowed only when *nothing except another list separator* sits
+#: between the two symbols.  Consequently ``排除 BTC, ETH`` propagates the
+#: exclusion, while ``排除 BTC, 選 ETH`` does not cross the new selection clause.
+_SYMBOL_LIST_SEPARATOR = re.compile(
+    r"\s*(?:(?:[/／|、,，&]|與|和|及|\b(?:and|or)\b)\s*)+",
+    re.IGNORECASE,
+)
 _EXECUTION_ACTION = re.compile(
     # (?<!未)平倉 for the same reason as _TRADE_RULES: 未平倉量 is open interest.
-    r"(?:買進|買入|賣出|賣掉|下單|進場|出場|(?<!未)平倉|自動交易|直接買|"
-    r"\b(?:buy|sell|execute|enter|exit|place\s+orders?|trade\s+them)\b)",
+    r"(?:(?:技術分析.{0,12})?(?:買賣點|買點|賣點)|"
+    r"買進|買入|賣出|賣掉|下單|進場|出場|(?<!未)平倉|"
+    r"自動交易|直接買|"
+    r"\b(?:buy|sell|execute|enter|exit|entry\s+points?|exit\s+points?|"
+    r"place\s+orders?|trade\s+them)\b)",
+    re.IGNORECASE,
+)
+#: ``做空候選`` can be a direction label on a basket rather than an order.
+#: Treat long/short wording as candidate execution only when it is attached to
+#: an explicit RSI threshold; otherwise existing direction-only selections stay
+#: selections instead of being turned into unsupported compound orders.
+_CANDIDATE_DIRECTION_ACTION = re.compile(
+    r"(?:做多|做空|\b(?:long|short)\b)", re.IGNORECASE,
+)
+_CANDIDATE_TRADE_POINT = re.compile(
+    r"(?:技術分析.{0,12})?(?:買賣點|買點|賣點)|"
+    r"\b(?:entry|exit|buy|sell)\s+points?\b",
+    re.IGNORECASE,
+)
+_CANDIDATE_BUY_POINT = re.compile(
+    r"(?:(?:技術分析.{0,12})?買點|\bbuy\s+points?\b)", re.IGNORECASE,
+)
+_CANDIDATE_SELL_POINT = re.compile(
+    r"(?:(?:技術分析.{0,12})?賣點|\bsell\s+points?\b)", re.IGNORECASE,
+)
+_BIDIRECTIONAL_TRADE_POINT = re.compile(
+    r"(?:(?:技術分析.{0,12})?買賣點|買點.{0,12}賣點|賣點.{0,12}買點|"
+    r"\bbuy\s+and\s+sell\s+points?\b)",
     re.IGNORECASE,
 )
 _INTERVAL = re.compile(
@@ -391,6 +625,19 @@ _TECHNICAL_NAME = re.compile(r"(?<![A-Za-z])(EMA|SMA|RSI|ADX|MACD)(?![A-Za-z])",
 _RSI_THRESHOLD = re.compile(
     r"RSI(?:\s*[-_]?\s*\d{1,4})?.{0,24}?"
     r"(低於|小於|低于|below|under|高於|大於|高于|above|over)\s*(\d+(?:\.\d+)?)",
+    re.IGNORECASE,
+)
+#: A second threshold commonly inherits the indicator named by the first:
+#: ``RSI14 低於 30 做多，高於 70 做空``.  Requiring the action plus a clause
+#: join keeps an unrelated later comparison (for example quote volume > 1m)
+#: from being relabelled as an RSI threshold merely because RSI appeared earlier.
+_RSI_FOLLOWUP_THRESHOLD = re.compile(
+    r"\s*(?:時|就)?\s*"
+    r"(?:做多|做空|買進|買入|賣出|賣掉|買點|賣點|"
+    r"\b(?:long|short|buy|sell)\b)?\s*"
+    r"(?:[,，、;；/]|且|並且|而|同時|\b(?:and|then)\b)+\s*"
+    r"(低於|小於|低于|below|under|高於|大於|高于|above|over)\s*"
+    r"(\d+(?:\.\d+)?)",
     re.IGNORECASE,
 )
 _LONG_DIRECTION = re.compile(r"(?:買進|買入|做多|多方|\b(?:buy|long)\b)", re.IGNORECASE)
@@ -450,16 +697,56 @@ def _requested_count(text: str) -> int | None:
     return _parse_chinese_count(match.group(1)) if match else None
 
 
+def _symbol_mentions(text: str) -> tuple[tuple[str, bool], ...]:
+    """Return ``(symbol, excluded)`` without losing the mention's polarity."""
+
+    found = []
+    for pattern in (_FULL_SYMBOL, _KNOWN_BASE_SYMBOL, _BARE_UPPER_SYMBOL):
+        for match in pattern.finditer(text):
+            symbol = match.group(0).upper()
+            if pattern is _BARE_UPPER_SYMBOL and (
+                symbol in _SYMBOL_STOPWORDS
+                or re.fullmatch(r"(?:EMA|SMA|RSI|ADX|MACD)\d*", symbol)
+            ):
+                continue
+            found.append((match.start(), match.end(), symbol, match))
+    # The broad bare-upper pattern also sees symbols found by a narrower pattern.
+    # Collapse those overlapping matches before carrying an exclusion through a
+    # joined list; otherwise the duplicate at one span becomes the "previous"
+    # symbol and breaks propagation to the next real mention.
+    mentions = []
+    seen_spans = set()
+    for start, end, symbol, match in sorted(found, key=lambda item: item[:3]):
+        key = (start, end, symbol)
+        if key not in seen_spans:
+            seen_spans.add(key)
+            mentions.append((start, end, symbol, match))
+
+    classified = []
+    previous_end = None
+    previous_excluded = False
+    for start, end, symbol, match in mentions:
+        excluded = _is_excluded_match(text, match)
+        if not excluded and previous_excluded and previous_end is not None:
+            separator = text[previous_end:start]
+            excluded = bool(_SYMBOL_LIST_SEPARATOR.fullmatch(separator))
+        classified.append((symbol, excluded))
+        previous_end = end
+        previous_excluded = excluded
+
+    # Preserve textual order while deduplicating the same symbol/polarity pair.
+    ordered = []
+    seen = set()
+    for symbol, excluded in classified:
+        key = (symbol, excluded)
+        if key not in seen:
+            seen.add(key)
+            ordered.append(key)
+    return tuple(ordered)
+
+
 def _named_symbols(text: str) -> tuple[str, ...]:
-    found = [match.group(0).upper() for match in _FULL_SYMBOL.finditer(text)]
-    found.extend(match.group(0).upper() for match in _KNOWN_BASE_SYMBOL.finditer(text))
-    found.extend(
-        match.group(0)
-        for match in _BARE_UPPER_SYMBOL.finditer(text)
-        if match.group(0) not in _SYMBOL_STOPWORDS
-        and not re.fullmatch(r"(?:EMA|SMA|RSI|ADX|MACD)\d*", match.group(0))
-    )
-    return tuple(dict.fromkeys(found))
+    return tuple(dict.fromkeys(symbol for symbol, _excluded in _symbol_mentions(text)))
 
 
 def _requested_intervals(text: str) -> tuple[str, ...]:
@@ -494,6 +781,41 @@ def _percent_near(text: str, labels: str) -> float | None:
     return float(before.group(1)) / 100.0 if before else None
 
 
+def _normalise_rsi_relation(value: str) -> str:
+    return (
+        "below"
+        if value.lower() in {"低於", "小於", "低于", "below", "under"}
+        else "above"
+    )
+
+
+def _requested_rsi_thresholds(text: str) -> tuple[tuple[str, float], ...]:
+    """Extract explicit and inherited RSI thresholds in textual order."""
+    thresholds = []
+    for match in _RSI_THRESHOLD.finditer(text):
+        if _is_excluded_match(text, match):
+            continue
+        thresholds.append(
+            (_normalise_rsi_relation(match.group(1)), float(match.group(2)))
+        )
+
+        # A coordinated second comparison may omit the already-established
+        # subject: "RSI below 30 long, above 70 short".  Match only from the end
+        # of this concrete RSI comparison; do not search an arbitrary tail.
+        cursor = match.end()
+        while True:
+            inherited = _RSI_FOLLOWUP_THRESHOLD.match(text, cursor)
+            if inherited is None or _is_excluded_match(text, inherited):
+                break
+            thresholds.append(
+                (_normalise_rsi_relation(inherited.group(1)),
+                 float(inherited.group(2)))
+            )
+            cursor = inherited.end()
+
+    return tuple(dict.fromkeys(thresholds))
+
+
 def _requested_market_type(text: str) -> str | None:
     if re.search(r"(?:現貨|\bspot\b)", text, re.IGNORECASE):
         return "spot"
@@ -510,16 +832,84 @@ def classify_request(nl: str) -> IntentDecision:
     actually a trade request.
     """
     text = " ".join(str(nl or "").split())
-    selection = [name for name, rule in _SELECTION_RULES if rule.search(text)]
-    trade = [name for name, rule in _TRADE_RULES if rule.search(text)]
-    plural_scope = bool(_PLURAL_SCOPE.search(text))
+    def positive_matches(rule):
+        return [match for match in rule.finditer(text)
+                if not _is_excluded_match(text, match)]
 
-    if selection and trade and _EXECUTION_ACTION.search(text):
-        # There is no one-spec grammar for "rank a universe, then run this
-        # single-symbol entry rule on every winner". Picking either half would
-        # silently discard user intent, so stop before an LLM can improvise.
-        kind = "ambiguous"
-        evidence = tuple(selection + trade + ["compound_selection_execution"])
+    selection = [name for name, rule in _SELECTION_RULES if rule.search(text)]
+    trade = [name for name, rule in _TRADE_RULES if positive_matches(rule)]
+    plural_scope = bool(_PLURAL_SCOPE.search(text))
+    buy_point = bool(positive_matches(_CANDIDATE_BUY_POINT))
+    sell_point = bool(positive_matches(_CANDIDATE_SELL_POINT))
+    bidirectional_point = bool(positive_matches(_BIDIRECTIONAL_TRADE_POINT))
+    has_rsi = bool(positive_matches(re.compile(
+        r"(?<![A-Za-z])RSI(?:\s*[-_]?\s*\d{1,4})?", re.IGNORECASE)))
+    named_candidate_indicators = {
+        match.group(1).lower()
+        for match in positive_matches(_TECHNICAL_NAME)
+    }
+    excluded_candidate_indicators = {
+        match.group(1).lower()
+        for match in _TECHNICAL_NAME.finditer(text)
+        if _is_excluded_match(text, match)
+    }
+    generic_point_is_supported = (
+        (buy_point or sell_point or bidirectional_point)
+        and named_candidate_indicators.issubset({"rsi"})
+        and "rsi" not in excluded_candidate_indicators
+    )
+    explicit_short = bool(positive_matches(_SHORT_DIRECTION))
+    requested_market_type = _requested_market_type(text)
+    compound_execution = bool(
+        positive_matches(_EXECUTION_ACTION)
+        or (
+            positive_matches(_CANDIDATE_DIRECTION_ACTION)
+            and positive_matches(_RSI_THRESHOLD)
+        )
+    )
+    # ``selection.candidate_trade`` can express an entry plan driven by the
+    # current per-candidate indicator snapshot.  It still cannot express an EMA
+    # *cross* over time, so a generic "pick then buy" or crossover request stays
+    # closed instead of being upgraded merely because an indicator name appears.
+    candidate_trade_requested = bool(
+        selection
+        and trade
+        and compound_execution
+        and (
+            (_CANDIDATE_TRADE_POINT.search(text)
+             and has_rsi)
+            or positive_matches(_RSI_THRESHOLD)
+            or generic_point_is_supported
+        )
+    )
+    # A spot candidate cannot carry the inferred short entry used for a sell
+    # point.  Stop before generation instead of silently changing spot to
+    # futures or pretending that an open_short instruction means close_long.
+    if candidate_trade_requested and requested_market_type == "spot" \
+            and (sell_point or bidirectional_point or explicit_short):
+        candidate_trade_requested = False
+
+    if selection and trade and compound_execution:
+        if candidate_trade_requested:
+            kind = "selection"
+            extra = ["compound_select_then_trade"]
+            if bidirectional_point:
+                extra.append("bidirectional_trade_points")
+            elif buy_point:
+                extra.append("candidate_buy_point")
+            elif sell_point:
+                extra.append("candidate_sell_point")
+            if not has_rsi:
+                extra.append("default_candidate_indicator_rsi")
+            if (sell_point or bidirectional_point) and not explicit_short:
+                extra.append("sell_point_requires_short_interpretation")
+            evidence = tuple(selection + trade + extra)
+        else:
+            # Direct execution without a per-candidate threshold, and temporal
+            # crossovers that the snapshot grammar cannot represent, must still
+            # stop before an LLM can invent a different rule.
+            kind = "ambiguous"
+            evidence = tuple(selection + trade + ["compound_selection_execution"])
     elif selection and (plural_scope or not trade):
         kind = "selection"
         evidence = tuple(selection + (["plural_scope"] if plural_scope else []))
@@ -550,26 +940,47 @@ def classify_request(nl: str) -> IntentDecision:
     else:
         ranking_metric = None
     sources = frozenset(sources)
-    technical_periods = tuple(
-        (match.group(1).lower(), int(match.group(2)))
-        for match in _TECHNICAL_PERIOD.finditer(text)
-    )
+
+    technical_periods = []
+    excluded_technical_periods = []
+    for match in _TECHNICAL_PERIOD.finditer(text):
+        item = (match.group(1).lower(), int(match.group(2)))
+        target = excluded_technical_periods if _is_excluded_match(text, match) \
+            else technical_periods
+        if item not in target:
+            target.append(item)
+
+    indicator_names = []
+    excluded_indicator_names = []
+    for match in _TECHNICAL_NAME.finditer(text):
+        name = match.group(1).lower()
+        target = excluded_indicator_names if _is_excluded_match(text, match) \
+            else indicator_names
+        if name not in target:
+            target.append(name)
+
     directions = []
-    if _LONG_DIRECTION.search(text):
-        directions.append("long")
-    if _SHORT_DIRECTION.search(text):
-        directions.append("short")
+    excluded_directions = []
+    for direction, pattern in (("long", _LONG_DIRECTION), ("short", _SHORT_DIRECTION)):
+        matches = list(pattern.finditer(text))
+        if any(not _is_excluded_match(text, match) for match in matches):
+            directions.append(direction)
+        if any(_is_excluded_match(text, match) for match in matches):
+            excluded_directions.append(direction)
+    symbol_mentions = _symbol_mentions(text)
+    included_symbols = tuple(
+        dict.fromkeys(symbol for symbol, excluded in symbol_mentions if not excluded)
+    )
+    excluded_symbols = tuple(
+        dict.fromkeys(symbol for symbol, excluded in symbol_mentions if excluded)
+    )
     news_metrics = []
     if "news" in sources and _NEWS_MENTION_METRIC.search(text) \
             and ranking_metric != "liquidity":
         news_metrics.append("mentions")
     if "news" in sources and _NEWS_SENTIMENT_METRIC.search(text):
         news_metrics.append("sentiment")
-    rsi_thresholds = []
-    for match in _RSI_THRESHOLD.finditer(text):
-        relation = match.group(1).lower()
-        relation = "below" if relation in {"低於", "小於", "低于", "below", "under"} else "above"
-        rsi_thresholds.append((relation, float(match.group(2))))
+    rsi_thresholds = _requested_rsi_thresholds(text)
     # One unambiguous direction phrase, or none at all. "最低與最高 funding" and
     # "漲幅或跌幅" match two rules that contradict each other; guessing one would
     # invent a preference the user never stated, and the downstream check would
@@ -586,19 +997,23 @@ def classify_request(nl: str) -> IntentDecision:
         sources=sources,
         bullish_preference=bool(_BULLISH_PREFERENCE.search(text)),
         unsupported_preferences=unsupported,
-        named_symbols=_named_symbols(text),
+        candidate_trade_requested=candidate_trade_requested,
+        named_symbols=tuple(dict.fromkeys(symbol for symbol, _ in symbol_mentions)),
+        included_symbols=included_symbols,
+        excluded_symbols=excluded_symbols,
         intervals=_requested_intervals(text),
-        market_type=_requested_market_type(text),
+        market_type=requested_market_type,
         technical_periods=technical_periods,
+        excluded_technical_periods=excluded_technical_periods,
         stop_pct=_percent_near(text, r"停損|止損|stop[- ]?loss"),
         tp_pct=_percent_near(text, r"停利|止盈|take[- ]?profit"),
         size_fraction=_percent_near(text, r"倉位|資金|投入|size|position[\s_-]*size"),
         directions=directions,
+        excluded_directions=excluded_directions,
         news_metrics=news_metrics,
         triggers=[name for name, rule in _TRIGGER_RULES if rule.search(text)],
-        indicator_names=tuple(dict.fromkeys(
-            match.group(1).lower() for match in _TECHNICAL_NAME.finditer(text)
-        )),
+        indicator_names=indicator_names,
+        excluded_indicator_names=excluded_indicator_names,
         rsi_thresholds=rsi_thresholds,
         ranking_metric=ranking_metric,
         score_order=score_order,
@@ -702,6 +1117,23 @@ def _selection_usage(selection: dict):
     return steps, blocks, score_dependencies, direction_dependencies
 
 
+def _selection_indicator_specs(steps) -> tuple[tuple[str, object, str], ...]:
+    """``(indicator, period, output_alias)`` for real per-candidate indicator steps."""
+
+    out = []
+    for step in steps:
+        if step.get("block") != "universe.augment_with_indicator":
+            continue
+        params = step.get("params") or {}
+        if not isinstance(params, dict):
+            continue
+        name = str(params.get("indicator") or "").lower()
+        timeframe = str(params.get("timeframe") or "")
+        alias = str(params.get("as") or "%s_%s" % (name, timeframe))
+        out.append((name, params.get("period"), alias))
+    return tuple(out)
+
+
 def _iter_strings(value):
     if isinstance(value, str):
         yield value
@@ -750,18 +1182,24 @@ def _reconcile_trade(intent: IntentDecision, spec: dict) -> list[str]:
     data = spec.get("data") or {}
     actual_symbol = str(data.get("symbol") or "").upper()
 
-    if intent.named_symbols:
-        requested_bases = {_base_asset(item) for item in intent.named_symbols}
+    if intent.included_symbols:
+        requested_bases = {_base_asset(item) for item in intent.included_symbols}
         if len(requested_bases) > 1:
             errors.append(
                 "trade YAML 一次只能執行一個標的,但需求指定了多個標的: %s"
-                % ", ".join(intent.named_symbols)
+                % ", ".join(intent.included_symbols)
             )
         elif _base_asset(actual_symbol) not in requested_bases:
             errors.append(
                 "使用者指定標的是 %s,但 YAML 的 data.symbol=%s"
-                % (", ".join(intent.named_symbols), actual_symbol or None)
+                % (", ".join(intent.included_symbols), actual_symbol or None)
             )
+    excluded_bases = {_base_asset(item) for item in intent.excluded_symbols}
+    if actual_symbol and _base_asset(actual_symbol) in excluded_bases:
+        errors.append(
+            "使用者明確排除標的 %s,但 YAML 的 data.symbol=%s"
+            % (", ".join(intent.excluded_symbols), actual_symbol)
+        )
 
     if intent.intervals:
         primary = str((data.get("primary") or {}).get("interval") or "").lower()
@@ -808,15 +1246,41 @@ def _reconcile_trade(intent: IntentDecision, spec: dict) -> list[str]:
                 % indicator_name.upper()
             )
 
+    excluded_period_names = {
+        name for name, _period in intent.excluded_technical_periods
+    }
+    for indicator_name, period in intent.excluded_technical_periods:
+        if _indicator_aliases(indicators, indicator_name, period):
+            errors.append(
+                "使用者明確要求不要使用 %s%d,但 YAML 仍宣告了該 indicator Block"
+                % (indicator_name.upper(), period)
+            )
+    for indicator_name in set(intent.excluded_indicator_names) - excluded_period_names:
+        if _indicator_aliases(indicators, indicator_name):
+            errors.append(
+                "使用者明確要求不要使用 %s,但 YAML 仍宣告了該 indicator Block"
+                % indicator_name.upper()
+            )
+
     entry = signals.get("entry") or {}
     if "long" in intent.directions and not entry.get("long"):
         errors.append("需求包含做多/買進,但 YAML 沒有 signals.entry.long")
     if "short" in intent.directions and not entry.get("short"):
         errors.append("需求包含做空,但 YAML 沒有 signals.entry.short")
+    if "long" in intent.excluded_directions and entry.get("long"):
+        errors.append("使用者明確要求不要做多,但 YAML 仍包含 signals.entry.long")
+    if "short" in intent.excluded_directions and entry.get("short"):
+        errors.append("使用者明確要求不要做空,但 YAML 仍包含 signals.entry.short")
     if intent.directions == ("long",) and entry.get("short"):
         errors.append("使用者只要求做多/買進,但模型擅自加入 signals.entry.short")
     if intent.directions == ("short",) and entry.get("long"):
         errors.append("使用者只要求做空,但模型擅自加入 signals.entry.long")
+    if (not intent.directions and not intent.excluded_directions
+            and entry.get("short")):
+        errors.append(
+            "使用者未指定方向時系統預設 long-only,但模型擅自加入 "
+            "signals.entry.short"
+        )
 
     requested_nodes = [entry.get(side) for side in intent.directions if entry.get(side)]
     if not requested_nodes:
@@ -1006,6 +1470,63 @@ def reconcile_intent(intent: IntentDecision, spec: dict) -> tuple[list[str], lis
     selection = spec["selection"]
     steps, blocks, score_dependencies, direction_dependencies = _selection_usage(selection)
     functional_dependencies = score_dependencies | direction_dependencies
+    selection_indicators = _selection_indicator_specs(steps)
+    candidate_trade = selection.get("candidate_trade")
+    candidate_plan = (
+        candidate_trade_plan(intent) if intent.candidate_trade_requested else None
+    )
+    if intent.candidate_trade_requested and not isinstance(candidate_trade, dict):
+        errors.append(
+            "需求包含逐候選技術買賣點,但 YAML 沒有 selection.candidate_trade"
+        )
+    if not intent.candidate_trade_requested and candidate_trade is not None:
+        errors.append(
+            "使用者只要求選幣/方向標註,但模型擅自加入 selection.candidate_trade 交易計畫"
+        )
+    if candidate_plan is not None:
+        declared = {
+            str(item.get("cid")): item
+            for item in ((spec.get("strategy") or {}).get("assumptions") or [])
+            if isinstance(item, dict) and item.get("cid")
+        }
+        required = {
+            str(item["cid"]): item for item in candidate_plan["assumptions"]
+        }
+        for cid, expected in required.items():
+            actual = declared.get(cid)
+            if actual is None:
+                errors.append(
+                    "逐候選交易使用未由使用者指定的預設,但 strategy.assumptions "
+                    "缺少 cid=%s" % cid
+                )
+            elif actual.get("reading") != expected["reading"]:
+                errors.append(
+                    "strategy.assumptions cid=%s 必須精確宣告 %r,但目前是 %r"
+                    % (cid, expected["reading"], actual.get("reading"))
+                )
+        unexpected_defaults = sorted(
+            set(declared).intersection(candidate_plan["default_cids"]) - set(required)
+        )
+        if unexpected_defaults:
+            errors.append(
+                "使用者已明確指定對應值,但 YAML 仍宣稱使用未採用的預設: %s"
+                % ", ".join(unexpected_defaults)
+            )
+
+        actual_size = (spec.get("sizing") or {}).get("size")
+        if not _close_enough(actual_size, candidate_plan["size"]):
+            errors.append(
+                "逐候選交易 sizing.size 必須是 %.4g,但 YAML 是 %r"
+                % (candidate_plan["size"], actual_size)
+            )
+        actual_exit = (spec.get("risk") or {}).get("exit") or {}
+        for label, key in (("停損", "stop_pct"), ("停利", "tp_pct")):
+            expected = candidate_plan[key]
+            if not _close_enough(actual_exit.get(key), expected):
+                errors.append(
+                    "逐候選交易%s %s 必須是 %.4g,但 YAML 是 %r"
+                    % (label, key, expected, actual_exit.get(key))
+                )
     data = spec.get("data") or {}
     if intent.market_type and str(data.get("market_type") or "").lower() != intent.market_type:
         errors.append(
@@ -1104,6 +1625,33 @@ def reconcile_intent(intent: IntentDecision, spec: dict) -> tuple[list[str], lis
                 % " / ".join(sorted(funding_columns))
             )
 
+    if "open_interest" in intent.sources:
+        oi_augments = {
+            "universe.augment_with_open_interest": "open_interest_snapshot",
+            "universe.augment_with_oi_change": "oi_change_snapshot",
+        }
+        wired_augments = [
+            step for step in steps
+            if step.get("block") in oi_augments
+            and isinstance(step.get("with"), (list, tuple))
+            and oi_augments[step.get("block")] in step.get("with")
+        ]
+        if not wired_augments:
+            errors.append(
+                "需求提到 open interest,selection 必須使用 "
+                "universe.augment_with_open_interest(with: [open_interest_snapshot])"
+                " 或 universe.augment_with_oi_change(with: [oi_change_snapshot])"
+            )
+        oi_columns = {
+            "oi_base", "oi_notional_usd", "oi_change_pct",
+            "oi_base_change_pct", "oi_change_notional_pct",
+        }
+        oi_filters = {"universe.filter_open_interest", "universe.filter_oi_change"}
+        if not (oi_columns & functional_dependencies or oi_filters & blocks):
+            errors.append(
+                "需求提到 open interest,但 selection 的排名或過濾沒有實際讀取 OI 欄位"
+            )
+
     if "news" in intent.sources:
         augment = [step for step in steps
                    if step.get("block") == "universe.augment_with_news"]
@@ -1170,13 +1718,152 @@ def reconcile_intent(intent: IntentDecision, spec: dict) -> tuple[list[str], lis
                 " quoteVolume"
             )
 
-    if not intent.directions and not intent.bullish_preference:
+    if intent.candidate_trade_requested:
+        if "long" in intent.directions and not selection.get("long_when"):
+            errors.append("需求明確要求做多買點,但 YAML 沒有 selection.long_when")
+        if "short" in intent.directions and not selection.get("short_when"):
+            errors.append("需求明確要求做空賣點,但 YAML 沒有 selection.short_when")
+        if "bidirectional_trade_points" in intent.evidence:
+            if not selection.get("long_when"):
+                errors.append("需求要求買賣點,但 YAML 沒有 selection.long_when 買點")
+            if not selection.get("short_when"):
+                errors.append("需求要求買賣點,但 YAML 沒有 selection.short_when 賣點")
+    elif not intent.directions and not intent.bullish_preference:
         if selection.get("long_when") or selection.get("short_when"):
             errors.append("使用者只要求排名,但模型擅自加入 long_when/short_when 方向條件")
-    elif "long" in intent.directions and not selection.get("long_when"):
-        errors.append("需求明確要求做多候選,但 YAML 沒有 selection.long_when")
-    elif "short" in intent.directions and not selection.get("short_when"):
-        errors.append("需求明確要求做空候選,但 YAML 沒有 selection.short_when")
+    else:
+        if "long" in intent.directions and not selection.get("long_when"):
+            errors.append("需求明確要求做多候選,但 YAML 沒有 selection.long_when")
+        if "short" in intent.directions and not selection.get("short_when"):
+            errors.append("需求明確要求做空候選,但 YAML 沒有 selection.short_when")
+    if "long" in intent.excluded_directions and selection.get("long_when"):
+        errors.append("使用者明確要求不要做多,但 YAML 仍包含 selection.long_when")
+    if "short" in intent.excluded_directions and selection.get("short_when"):
+        errors.append("使用者明確要求不要做空,但 YAML 仍包含 selection.short_when")
+
+    if intent.candidate_trade_requested:
+        period_names = {name for name, _period in intent.technical_periods}
+        requested_aliases = set()
+        for name, period in intent.technical_periods:
+            aliases = {
+                alias for actual_name, actual_period, alias in selection_indicators
+                if actual_name == name and _close_enough(actual_period, period)
+            }
+            if not aliases:
+                errors.append(
+                    "需求指定 %s%d,但 selection 沒有用 "
+                    "universe.augment_with_indicator 計算該指標"
+                    % (name.upper(), period)
+                )
+            elif not aliases.intersection(direction_dependencies):
+                errors.append(
+                    "selection 雖計算 %s%d,但其輸出沒有實際影響 long_when/short_when"
+                    % (name.upper(), period)
+                )
+            requested_aliases.update(aliases)
+        for name in set(intent.indicator_names) - period_names:
+            aliases = {
+                alias for actual_name, _actual_period, alias in selection_indicators
+                if actual_name == name
+            }
+            if not aliases:
+                errors.append(
+                    "需求指定 %s,但 selection 沒有用 "
+                    "universe.augment_with_indicator 計算該指標"
+                    % name.upper()
+                )
+            elif not aliases.intersection(direction_dependencies):
+                errors.append(
+                    "selection 雖計算 %s,但其輸出沒有實際影響 long_when/short_when"
+                    % name.upper()
+                )
+            requested_aliases.update(aliases)
+
+        # A generic "technical buy/sell point" request intentionally defaults
+        # to RSI14.  There is no user-named indicator for the loops above to
+        # discover, so validate the resolved plan itself as well: the model must
+        # actually compute RSI at the declared/defaulted period and wire that
+        # alias into the direction conditions.
+        plan_aliases = {
+            alias for actual_name, actual_period, alias in selection_indicators
+            if actual_name == "rsi"
+            and _close_enough(actual_period, candidate_plan["period"])
+        }
+        if not plan_aliases:
+            errors.append(
+                "逐候選交易計畫要求 RSI%d,但 selection 沒有用 "
+                "universe.augment_with_indicator 計算該指標"
+                % candidate_plan["period"]
+            )
+        elif not plan_aliases.intersection(direction_dependencies):
+            errors.append(
+                "selection 雖計算逐候選交易計畫的 RSI%d,但其輸出沒有實際影響 "
+                "long_when/short_when" % candidate_plan["period"]
+            )
+        requested_aliases.update(plan_aliases)
+
+        # The resolved plan includes both user-stated values and any declared
+        # defaults.  Check each side separately: finding ``above 70`` somewhere
+        # in the tree is not enough when the model attached it to the buy side.
+        for side, (relation, value) in candidate_plan["thresholds"].items():
+            side_leaves = list(_condition_leaves(selection.get("%s_when" % side)))
+            suffixes = (
+                ("value_below", "rsi_oversold")
+                if relation == "below"
+                else ("value_above", "rsi_overbought")
+            )
+            wired = any(
+                str(leaf.get("cond") or "").endswith(suffixes)
+                and bool(requested_aliases.intersection({
+                    str(item) for item in (leaf.get("args") or [])
+                }))
+                and _close_enough(_leaf_threshold(leaf), value)
+                for leaf in side_leaves
+            )
+            if not wired:
+                errors.append(
+                    "逐候選 %s_when 必須使用 RSI %s %.4g,且門檻與宣告/需求一致"
+                    % (side, relation, value)
+                )
+
+        # A threshold is part of the request, not a suggestion.  Merely wiring
+        # the RSI alias into a different comparison would still produce a healthy
+        # basket answering a different strategy.
+        direction_leaves = list(_condition_leaves(selection.get("long_when")))
+        direction_leaves += list(_condition_leaves(selection.get("short_when")))
+        for relation, value in intent.rsi_thresholds:
+            suffixes = (("value_below", "rsi_oversold") if relation == "below"
+                        else ("value_above", "rsi_overbought"))
+            wired = any(
+                str(leaf.get("cond") or "").endswith(suffixes)
+                and bool(requested_aliases.intersection({
+                    str(item) for item in (leaf.get("args") or [])
+                }))
+                and _close_enough(_leaf_threshold(leaf), value)
+                for leaf in direction_leaves
+            )
+            if not wired:
+                errors.append(
+                    "需求指定 RSI %s %.4g,但 selection.long_when/short_when "
+                    "沒有以該門檻建立候選交易條件" % (relation, value)
+                )
+
+    excluded_indicator_period_names = {
+        name for name, _period in intent.excluded_technical_periods
+    }
+    for name, period in intent.excluded_technical_periods:
+        if any(actual_name == name and _close_enough(actual_period, period)
+               for actual_name, actual_period, _alias in selection_indicators):
+            errors.append(
+                "使用者明確要求不要使用 %s%d,但 selection 仍計算該指標"
+                % (name.upper(), period)
+            )
+    for name in set(intent.excluded_indicator_names) - excluded_indicator_period_names:
+        if any(actual_name == name for actual_name, _period, _alias in selection_indicators):
+            errors.append(
+                "使用者明確要求不要使用 %s,但 selection 仍計算該指標"
+                % name.upper()
+            )
 
     if intent.requested_count is not None:
         try:
@@ -1189,21 +1876,42 @@ def reconcile_intent(intent: IntentDecision, spec: dict) -> tuple[list[str], lis
                 % (intent.requested_count, selection.get("top_k"))
             )
 
-    requested_symbols = {_base_asset(item) for item in intent.named_symbols}
-    for step in steps:
-        if step.get("block") != "universe.only_symbols":
-            continue
-        symbols = {str(item).upper() for item in
-                   ((step.get("params") or {}).get("symbols") or [])}
-        unexpected = sorted(
-            symbol for symbol in symbols if _base_asset(symbol) not in requested_symbols
-        )
-        if unexpected:
-            errors.append(
-                "模型擅自把選幣宇宙限制為使用者未指定的標的: %s"
-                % ", ".join(unexpected)
-            )
+    def step_symbols(block_name):
+        return {
+            str(item).upper()
+            for step in steps if step.get("block") == block_name
+            for item in (((step.get("params") or {}).get("symbols") or []))
+        }
 
+    only_symbols = step_symbols("universe.only_symbols")
+    excluded_symbols = step_symbols("universe.exclude_symbols")
+    requested_included_bases = {_base_asset(item) for item in intent.included_symbols}
+    requested_excluded_bases = {_base_asset(item) for item in intent.excluded_symbols}
+    actual_only_bases = {_base_asset(item) for item in only_symbols}
+    actual_excluded_bases = {_base_asset(item) for item in excluded_symbols}
+
+    missing_included = sorted(requested_included_bases - actual_only_bases)
+    if missing_included:
+        errors.append(
+            "使用者把選幣宇宙限定為 %s,但 YAML 的 universe.only_symbols 未完整保留: %s"
+            % (", ".join(intent.included_symbols), ", ".join(missing_included))
+        )
+    unexpected_included = sorted(
+        symbol for symbol in only_symbols
+        if _base_asset(symbol) not in requested_included_bases
+    )
+    if unexpected_included:
+        errors.append(
+            "模型擅自把選幣宇宙限制為使用者未指定的標的: %s"
+            % ", ".join(unexpected_included)
+        )
+
+    missing_excluded = sorted(requested_excluded_bases - actual_excluded_bases)
+    if missing_excluded:
+        errors.append(
+            "使用者明確排除 %s,但 YAML 的 universe.exclude_symbols 未完整排除: %s"
+            % (", ".join(intent.excluded_symbols), ", ".join(missing_excluded))
+        )
     if "under_discovered" in intent.unsupported_preferences:
         warnings.append(
             "「少見/尚未被市場發現」目前沒有直接資料欄位;本策略只能使用"

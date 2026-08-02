@@ -7,7 +7,8 @@ The gates, in order, with the status each one fails as::
     G1b  yaml_pipeline.spec.validate_spec                static_invalid | dryrun_failed
     G1c  yaml_pipeline.intent.reconcile_intent           intent_mismatch
     G1d  yaml_pipeline.bundle_runner.run_bundle          run_error | bundle_insufficient
-    G1e  one Python predicate per stated condition       condition_violated
+    G1e  one Python predicate per stated condition       condition_violated |
+                                                          condition_unresolved
 
 Strictly sequential, and which gate stopped it is recorded, because the retry
 cost is per GATE and not per error: ``validate_spec`` batches its static errors
@@ -72,6 +73,7 @@ __all__ = [
     "RetryOutcome",
     "SATISFIED",
     "STATUSES",
+    "STATUS_CONDITION_UNRESOLVED",
     "STATUS_PASSED",
     "UNVERIFIABLE",
     "VIOLATED",
@@ -86,6 +88,7 @@ __all__ = [
 GATES = ("G1a", "G1b", "G1c", "G1d", "G1e")
 
 STATUS_PASSED = "passed"
+STATUS_CONDITION_UNRESOLVED = "condition_unresolved"
 STATUSES = (
     STATUS_PASSED,
     "parse_error",         # G1a
@@ -95,6 +98,7 @@ STATUSES = (
     "run_error",           # G1d, the model's fault
     "bundle_insufficient",  # G1d, NOT the model's fault
     "condition_violated",  # G1e
+    STATUS_CONDITION_UNRESOLVED,  # G1e: omitted, unprovable, or silent proxy
     # G1e, and a separate stop from condition_violated on purpose: the spec may
     # well satisfy every predicate it was given — under a reading of the request
     # that it chose and never stated. "Right answer to a question nobody asked"
@@ -266,14 +270,15 @@ class GateReport:
     def clean(self) -> bool:
         """All five gates passed AND every condition is provably satisfied.
 
-        Separate from :attr:`ok` on purpose. ``ok`` answers the brief's question
-        ("did any gate stop it"), and the brief assigns no failing status to a
-        condition that was quietly proxied or that nothing can check. Those are
-        exactly the cases that shipped wrong, so a caller picking gold specs
-        should filter on ``clean``, not on ``ok``.
+        This remains the canonical acceptance invariant even though G1e now
+        fails closed with ``condition_unresolved``. Keeping the condition-level
+        check here prevents a future status regression from making retry or gold
+        selection accept a quietly proxied or unprovable answer.
         """
         return self.ok and all(
-            item.verdict == SATISFIED and not item.silently_proxied
+            item.verdict == SATISFIED
+            and not item.silently_proxied
+            and not item.undisclosed_assumption
             for item in self.condition_verdicts)
 
     def summary(self) -> str:
@@ -1006,6 +1011,9 @@ def _gate_e(batch: Mapping[str, Any], spec: Mapping[str, Any],
                                    allow_proxy_for=allow_proxy_for)
     violated = [item for item in verdicts if item.verdict == VIOLATED]
     undisclosed = [item for item in verdicts if item.undisclosed_assumption]
+    unresolved = [item for item in verdicts
+                  if item.verdict in (NOT_EXPRESSED, UNVERIFIABLE)
+                  or item.silently_proxied]
     notes = ["%s: %s / %s" % (item.condition.id or item.subject, item.verdict,
                               item.detail)
              for item in verdicts if item.verdict != SATISFIED]
@@ -1031,6 +1039,44 @@ def _gate_e(batch: Mapping[str, Any], spec: Mapping[str, Any],
                                           item.subject, item.detail)
                          for item in violated),
             warnings=tuple(notes)), verdicts
+    if unresolved:
+        errors = []
+        for item in unresolved:
+            cid = item.condition.id or item.subject
+            if "capability verdict not_expressible" in item.detail:
+                action = (
+                    "This is a named capability gap: mark the request unsupported "
+                    "until that capability is implemented; do not replace it with "
+                    "a correlated signal.")
+            elif "capability verdict proxy_only" in item.detail:
+                action = (
+                    "Only a proxy capability exists. Obtain explicit proxy approval "
+                    "and disclose the degradation in the output, or implement the "
+                    "exact capability.")
+            elif item.verdict == NOT_EXPRESSED:
+                action = (
+                    "Regenerate the YAML so this condition is explicitly expressed "
+                    "using the capability named above.")
+            elif item.verdict == UNVERIFIABLE:
+                action = (
+                    "Add execution evidence plus a deterministic predicate, or "
+                    "shelve/clarify the condition instead of accepting it.")
+            else:
+                action = (
+                    "The predicate only passed through an undisclosed proxy. Use "
+                    "the exact capability or surface and explicitly approve the "
+                    "proxy degradation.")
+            if item.silently_proxied and "proxy" not in action.lower():
+                action += (
+                    " The current output also hides a proxy; remove it or disclose "
+                    "and explicitly approve the degradation.")
+            errors.append("%s (%s): %s: %s %s" % (
+                cid, item.subject, item.verdict, item.detail, action))
+        return GateResult(
+            "G1e", STATUS_CONDITION_UNRESOLVED,
+            errors=tuple(errors), warnings=tuple(notes),
+            detail="%d condition(s) were not provably and exactly satisfied"
+                   % len(unresolved)), verdicts
     return GateResult("G1e", STATUS_PASSED, warnings=tuple(notes),
                       detail="%d condition(s): %s" % (
                           len(verdicts),
@@ -1109,9 +1155,9 @@ def run_gates(
 class RetryOutcome:
     reports: Tuple[GateReport, ...]
     status: str
-    #: set when the loop aborted on a repeated signature: the prompt is missing
-    #: something, which is a playbook gap and NOT a capability gap. Filing it as
-    #: a capability gap would send someone to build a block that already exists.
+    #: Set when the loop aborted on a repeated signature. The legacy field name
+    #: is retained for callers, but the message preserves a named G1e capability
+    #: gap instead of relabelling every repeated failure as a playbook problem.
     playbook_gap: Optional[str] = None
 
     @property
@@ -1135,9 +1181,9 @@ def run_with_retries(
     """Convert, gate, feed the failure back, up to *max_attempts*.
 
     Aborts early when the same gate fails with the same ``error_signature``
-    twice. At temperature 0 that is not a model that needs another try — it is a
-    prompt that does not contain what the model would need, so the useful record
-    is a playbook gap, not another identical attempt.
+    twice. At temperature 0 the model does not need another identical attempt:
+    ordinary repeats identify a playbook gap, while a G1e error that already
+    names an unavailable capability keeps that classification.
 
     ``bundle_insufficient`` also stops the loop immediately: nothing about the
     spec is known to be wrong, so a retry would be asking the model to fix the
@@ -1153,21 +1199,30 @@ def run_with_retries(
         report = run_gates(convert(attempt, previous), nl=nl, bundle=bundle,
                            conditions=conditions, allow_proxy_for=allow_proxy_for)
         reports.append(report)
-        if report.ok:
+        if report.clean:
             return RetryOutcome(tuple(reports), STATUS_PASSED)
         if report.status == "bundle_insufficient":
             return RetryOutcome(tuple(reports), "bundle_insufficient")
         signature = report.signature
         seen[signature] = seen.get(signature, 0) + 1
         if seen[signature] >= 2:
-            return RetryOutcome(
-                tuple(reports), "stuck",
-                playbook_gap=(
+            first_error = report.results[-1].errors[0]
+            if "named capability gap" in first_error:
+                explanation = (
+                    "%s failed twice with the identical signature %s. The error "
+                    "names a capability gap, so keep the request unsupported and "
+                    "route it to the capability backlog; do not keep retrying the "
+                    "YAML. First error: %s"
+                    % (report.failed_gate, signature, first_error))
+            else:
+                explanation = (
                     "%s failed twice with the identical signature %s. The prompt "
                     "is missing information the model cannot derive; fix the "
                     "playbook, do not file a capability gap. First error: %s"
-                    % (report.failed_gate, signature,
-                       report.results[-1].errors[0])))
+                    % (report.failed_gate, signature, first_error))
+            return RetryOutcome(
+                tuple(reports), "stuck",
+                playbook_gap=explanation)
         previous = report
 
     return RetryOutcome(tuple(reports), reports[-1].status)

@@ -124,11 +124,9 @@ def _run_selection(spec: Dict[str, Any], args: argparse.Namespace) -> int:
     So: run the selector for real, print the basket, and refuse to call it a
     backtest.
     """
-    from ..data.live_snapshot import build_live_snapshot, requests_for_sections
     from .bundle_runner import (
         BundleRunError,
-        live_sections_for_spec,
-        required_bundle_nodes,
+        collect_live_bundle_for_spec,
         run_bundle,
         write_signal_batch,
     )
@@ -138,20 +136,9 @@ def _run_selection(spec: Dict[str, Any], args: argparse.Namespace) -> int:
     data = spec.get("data") or {}
     symbol = str(data.get("symbol") or "BTCUSDT")
     interval = str((data.get("primary") or {}).get("interval") or "1h")
-    sections = live_sections_for_spec(spec)
-    # A selection is a single cross-section and does not consume bars.  The
-    # general planner includes klines as the primary series for trade specs; do
-    # not perform that unrelated request here.
-    required = required_bundle_nodes(spec)
-    plan = [request for request in requests_for_sections(
-        sections,
-        symbol=symbol,
-        interval=interval,
-        market_type=market_type,
-    ) if request[2] in required]
     try:
-        _snapshot, bundle = build_live_snapshot(
-            requests=plan,
+        bundle = collect_live_bundle_for_spec(
+            spec,
             symbol=symbol,
             interval=interval,
             market_type=market_type,
@@ -364,6 +351,27 @@ def _run_live(spec: Dict[str, Any], args: argparse.Namespace) -> int:
 
 
 def cmd_run(args: argparse.Namespace) -> int:
+    try:
+        spec = register_from_yaml(args.spec)
+    except SpecError as exc:
+        print(f"VALIDATION FAILED (not running):\n{exc}")
+        return 1
+
+    mode = (spec.get("run") or {}).get("mode")
+    # This check must precede the serialized-bundle fast path too.  A frozen
+    # input proves what was observed, not that a selection basket has an order
+    # resolver; allowing paper/live here would still exit 0 without execution.
+    if isinstance(spec.get("selection"), dict) and mode in ("paper", "live"):
+        print(
+            "run.mode=%s is not supported for a selection spec: there is no "
+            "resolver turning ranked candidates into per-symbol orders "
+            "(build_intents only accepts kind=trade), so nothing would be "
+            "executed and this command would exit 0 while doing nothing.\n"
+            "  Use run.mode=backtest to evaluate one decision point and emit "
+            "the cyqnt.signal/v2 basket, then hand that basket to whatever "
+            "places the orders." % mode)
+        return 1
+
     # A cyqnt.input/v1 artifact is already a complete, PIT-gated decision
     # input. Sending it through the legacy OHLCV loader discarded every frame
     # except bars and then crashed while iterating the envelope's dict keys as
@@ -381,7 +389,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             from .bundle_runner import run_bundle, write_signal_batch
 
             try:
-                output = run_bundle(args.spec, candidate)
+                output = run_bundle(spec, candidate)
             except (SpecError, ValueError) as exc:
                 print("BUNDLE RUN FAILED: %s" % exc)
                 return 1
@@ -391,13 +399,6 @@ def cmd_run(args: argparse.Namespace) -> int:
             print(json.dumps(output, ensure_ascii=False, indent=2))
             return 0
 
-    try:
-        spec = register_from_yaml(args.spec)
-    except SpecError as exc:
-        print(f"VALIDATION FAILED (not running):\n{exc}")
-        return 1
-
-    mode = (spec.get("run") or {}).get("mode")
     # Shape AND mode, not shape alone. Dispatching on mode alone sent every
     # selection spec into the per-bar backtest, which has no universe to rank and
     # reported a clean trades=0. But dispatching on shape alone is worse: a
@@ -407,16 +408,6 @@ def cmd_run(args: argparse.Namespace) -> int:
     # a cross-sectional selector genuinely has no engine for; it may never stand
     # in for execution.
     if isinstance(spec.get("selection"), dict):
-        if mode in ("paper", "live"):
-            print(
-                "run.mode=%s is not supported for a selection spec: there is no "
-                "resolver turning ranked candidates into per-symbol orders "
-                "(build_intents only accepts kind=trade), so nothing would be "
-                "executed and this command would exit 0 while doing nothing.\n"
-                "  Use run.mode=backtest to evaluate one decision point and emit "
-                "the cyqnt.signal/v2 basket, then hand that basket to whatever "
-                "places the orders." % mode)
-            return 1
         return _run_selection(spec, args)
     if mode == "backtest":
         if getattr(args, "engine", "vectorized") == "event":

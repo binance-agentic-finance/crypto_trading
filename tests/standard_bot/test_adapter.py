@@ -152,11 +152,66 @@ def test_a_selection_envelope_becomes_a_selection_signal():
     assert payload["universe_size"] == 40
 
 
+def test_a_legacy_selection_envelope_preserves_a_nested_v2_trade():
+    from cyqnt_trd.standard_bot.core import ExitPlan, Provenance, StandardSignal
+
+    nested = StandardSignal(
+        bot_id="selector:candidate_trade",
+        decision_time=DT,
+        provenance=Provenance(strategy_id="selector"),
+        symbol="BTCUSDT",
+        intent=PositionIntent.OPEN_LONG,
+        exit_plan=ExitPlan(exit_on_opposite_signal=True),
+    ).to_dict()
+    envelope = _envelope(
+        kind=SignalKind.SELECTION,
+        instrument_id=None,
+        side=TradeSide.FLAT,
+        payload={
+            "bar_timestamp": DT,
+            "universe_size": 1,
+            "candidates": [{
+                "symbol": "BTCUSDT",
+                "rank": 1,
+                "score": 9.0,
+                "side": "long",
+                "trade": nested,
+            }],
+        },
+    )
+
+    restored = envelope_to_signal(envelope)
+
+    assert restored.candidates[0].trade is not None
+    assert restored.candidates[0].trade.to_dict() == nested
+
+
 def test_an_empty_selection_envelope_is_refused():
     envelope = _envelope(kind=SignalKind.SELECTION, instrument_id=None,
                          payload={"bar_timestamp": DT, "candidates": []})
     with pytest.raises(AdapterError, match="no candidates"):
         envelope_to_signal(envelope)
+
+
+def test_an_explained_empty_selection_envelope_is_a_selection_result():
+    envelope = _envelope(
+        kind=SignalKind.SELECTION,
+        instrument_id=None,
+        payload={
+            "bar_timestamp": DT,
+            "universe_size": 40,
+            "candidates": [],
+            "reason_codes": ["empty_basket", "no_candidate_qualified"],
+            "summary": "no name passed the declared filters",
+        },
+    )
+
+    signal = envelope_to_signal(envelope)
+
+    assert signal.kind is SignalKind.SELECTION
+    assert signal.market_scope is MarketScope.CROSS_SECTION
+    assert signal.universe_size == 40
+    assert signal.candidates == ()
 
 
 def test_a_v2_payload_riding_an_envelope_is_not_re_derived():

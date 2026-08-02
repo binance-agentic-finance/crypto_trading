@@ -1,7 +1,10 @@
 """Canonical decision path: YAML + ``cyqnt.input/v1`` -> v2 signal batch.
 
-This module deliberately does not fetch data and does not execute orders.  It
-joins the two contracts that already exist in the repo:
+The executor in this module deliberately does not fetch data and does not
+execute orders.  :func:`collect_live_bundle_for_spec` is the one orchestration
+wrapper around the data layer for callers that explicitly ask for a live
+artifact; execution still receives only the finished input contract.  The
+module joins the two contracts that already exist in the repo:
 
 * the input bundle is the only data object;
 * the YAML interpreter builds the existing Blocks plugin;
@@ -15,7 +18,10 @@ function instead of growing another strategy execution path.
 
 from __future__ import annotations
 
+import copy
+import hashlib
 import json
+import uuid
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -34,6 +40,10 @@ SIGNAL_BATCH_SCHEMA_VERSION = "cyqnt.signal-batch/v1"
 
 class BundleRunError(ValueError):
     """The contracts are valid individually but cannot safely run together."""
+
+
+class EmptySelectionPrefix(BundleRunError):
+    """A valid screen eliminated every symbol before a paid fan-out source."""
 
 
 _COLUMN_NODES = {
@@ -230,6 +240,12 @@ def _assert_required_sources(bundle: Mapping[str, Any], spec: Mapping[str, Any])
     selection = isinstance(spec.get("selection"), dict)
     for node in sorted(required_bundle_nodes(spec)):
         frame = frames.get(node)
+        if (
+            selection
+            and node in _SELECTION_SOURCES_REQUIRING_ROWS
+            and _verified_empty_prefix_skip(bundle, spec, node)
+        ):
+            continue
         empty_required_frame = (
             isinstance(frame, dict)
             and not (frame.get("rows") or [])
@@ -346,7 +362,7 @@ def plan_bars_capture(spec: Mapping[str, Any], bundle: Mapping[str, Any]) -> Bar
     column = next((name for name in ("instrument_id", "symbol")
                    if name in getattr(survivors, "columns", ())), None)
     if column is None or not len(survivors):
-        raise BundleRunError(
+        raise EmptySelectionPrefix(
             "the %d step(s) before the first %s step left no instrument, so there "
             "is nothing to fetch bars for. That is not 'collect nothing': an empty "
             "bars frame is read by the joining block as a failed capture. Either "
@@ -363,6 +379,430 @@ def _bars_block() -> str:
     from .interpreter import BARS_BLOCK
 
     return BARS_BLOCK
+
+
+def _frame_table(bundle: Mapping[str, Any], key: str):
+    """Return one bundle frame as a DataFrame for a collection planner."""
+    import pandas as pd
+
+    return pd.DataFrame(
+        (((bundle.get("frames") or {}).get(key) or {}).get("rows") or [])
+    )
+
+
+def _plan_fan_out_roster(
+    spec: Mapping[str, Any], bundle: Mapping[str, Any], source: str,
+) -> list[str]:
+    """Run the spec prefix before *source* is first consumed.
+
+    The source is a per-instrument fan-out, so its request roster is not a
+    property of the endpoint.  It is the exact set of instruments that survives
+    the preceding YAML steps.  Re-running that prefix through
+    ``run_universe_steps`` keeps collection and execution on one implementation.
+    """
+    from .interpreter import run_universe_steps
+
+    steps = list((spec.get("selection") or {}).get("universe") or ())
+    position = next((
+        index for index, step in enumerate(steps)
+        if isinstance(step, Mapping) and source in (step.get("with") or ())
+    ), None)
+    if position is None:
+        raise BundleRunError(
+            "cannot plan fan-out source %r: no selection.universe step consumes "
+            "it through `with:`" % source
+        )
+
+    universe = _frame_table(bundle, "universe")
+    if universe.empty:
+        raise BundleRunError(
+            "cannot plan fan-out source %r: the cheap collection pass returned "
+            "no universe rows" % source
+        )
+    extras = {
+        key: _frame_table(bundle, key)
+        for key in (bundle.get("frames") or {})
+    }
+    extras["universe"] = universe
+    extras.setdefault("ticker_rank", None)
+    survivors = run_universe_steps(steps[:position], universe, extras)
+    column = next((
+        name for name in ("instrument_id", "symbol")
+        if name in getattr(survivors, "columns", ())
+    ), None)
+    if column is None or not len(survivors):
+        raise EmptySelectionPrefix(
+            "the %d step(s) before fan-out source %r left no instrument; an "
+            "empty roster is a screen result, not a successful data capture"
+            % (position, source)
+        )
+    return sorted({str(value).strip().upper() for value in survivors[column]
+                   if str(value).strip()})
+
+
+_EMPTY_PREFIX_STATUS = "skipped: empty selection prefix"
+
+
+def _verified_empty_prefix_skip(
+    bundle: Mapping[str, Any], spec: Mapping[str, Any], source: str,
+) -> bool:
+    """Prove that a skipped source could not have been reached by execution."""
+    frame = ((bundle.get("frames") or {}).get(source) or {})
+    status = str((bundle.get("source_status") or {}).get(source) or "")
+    if (
+        status != _EMPTY_PREFIX_STATUS
+        or not isinstance(frame, Mapping)
+        or not frame.get("collection_skipped")
+        or frame.get("rows")
+    ):
+        return False
+    try:
+        _plan_fan_out_roster(spec, bundle, source)
+    except EmptySelectionPrefix:
+        return True
+    except (BundleRunError, SpecError, ValueError):
+        return False
+    return False
+
+
+def _mark_empty_prefix_skips(
+    bundle: Dict[str, Any], sources: Iterable[str], reason: str,
+) -> None:
+    """Land explicit empty frames for sources a valid empty screen never reads."""
+    from ..data.catalog import get_node
+
+    frames = bundle.setdefault("frames", {})
+    statuses = bundle.setdefault("source_status", {})
+    warnings = bundle.setdefault("warnings", [])
+    for source in sorted(set(str(name) for name in sources)):
+        node = get_node(source)
+        shape = node.input_schema.name if node.input_schema else "RawFrame@1.0"
+        frames[source] = {
+            "shape": shape,
+            "status": "empty",
+            "rows": [],
+            "reason": "collection skipped because the spec prefix had no survivors",
+            "collection_skipped": True,
+        }
+        statuses[source] = _EMPTY_PREFIX_STATUS
+        warning = "%s: %s; %s" % (source, _EMPTY_PREFIX_STATUS, reason)
+        if warning not in warnings:
+            warnings.append(warning)
+
+
+def _merge_collection_pass(
+    base: Optional[Dict[str, Any]], addition: Mapping[str, Any],
+) -> Dict[str, Any]:
+    """Merge one independently PIT-gated live pass into one replay artifact."""
+    if addition.get("schema") != "cyqnt.input/v1":
+        raise BundleRunError(
+            "live collector returned %r instead of cyqnt.input/v1"
+            % addition.get("schema")
+        )
+    if base is None:
+        merged = copy.deepcopy(dict(addition))
+        merged["collection_passes"] = []
+    else:
+        merged = base
+        for field in ("market_type", "primary_timeframe"):
+            old = merged.get(field)
+            new = addition.get(field)
+            if old is not None and new is not None and old != new:
+                raise BundleRunError(
+                    "live collection passes disagree on %s (%r != %r)"
+                    % (field, old, new)
+                )
+        for field in ("run_id", "trace_id"):
+            old = str(merged.get(field) or "")
+            new = str(addition.get(field) or "")
+            if old and new and old != new:
+                raise BundleRunError(
+                    "live collection passes disagree on %s (%r != %r)"
+                    % (field, old, new)
+                )
+            if not old and new:
+                merged[field] = new
+
+        frames = merged.setdefault("frames", {})
+        statuses = merged.setdefault("source_status", {})
+        for key, frame in (addition.get("frames") or {}).items():
+            if key in frames and frames[key] != frame:
+                raise BundleRunError(
+                    "live collection attempted to replace frame %r with a "
+                    "different capture; one input bundle may contain only one "
+                    "version of each source" % key
+                )
+            frames.setdefault(key, copy.deepcopy(frame))
+        for key, status in (addition.get("source_status") or {}).items():
+            if key in statuses and statuses[key] != status:
+                raise BundleRunError(
+                    "live collection passes disagree on source_status[%r] "
+                    "(%r != %r)" % (key, statuses[key], status)
+                )
+            statuses.setdefault(key, str(status))
+
+        warnings = list(merged.get("warnings") or ())
+        for warning in addition.get("warnings") or ():
+            if warning not in warnings:
+                warnings.append(str(warning))
+        merged["warnings"] = warnings
+        merged["decision_time"] = max(
+            int(merged["decision_time"]), int(addition["decision_time"])
+        )
+        instruments = list(merged.get("instruments") or ())
+        for instrument in addition.get("instruments") or ():
+            if instrument not in instruments:
+                instruments.append(instrument)
+        merged["instruments"] = instruments
+
+    merged.setdefault("collection_passes", []).append({
+        "snapshot_id": str(addition.get("snapshot_id") or ""),
+        "decision_time": int(addition["decision_time"]),
+        "decision_time_basis": str(
+            addition.get("decision_time_basis") or "unknown"
+        ),
+        "sources": sorted(str(key)
+                          for key in (addition.get("source_status") or {})),
+    })
+    bases = {
+        str(item.get("decision_time_basis") or "unknown")
+        for item in merged["collection_passes"]
+    }
+    merged["decision_time_basis"] = (
+        "replay" if bases == {"replay"} else "collection_complete"
+    )
+    return merged
+
+
+def _finish_collected_bundle(bundle: Dict[str, Any]) -> Dict[str, Any]:
+    """Apply the final PIT gate and bind ``snapshot_id`` to the artifact."""
+    from ..data.input_bundle import BUNDLE_NAMESPACE
+    from ..data.live_bundle import _regate
+
+    cutoff = int(bundle["decision_time"])
+    frames = bundle.setdefault("frames", {})
+    _regate(frames, cutoff)
+    statuses = bundle.setdefault("source_status", {})
+    for key, frame in frames.items():
+        current = str(statuses.get(key, ""))
+        if current in ("", "ok", "empty"):
+            statuses[key] = str(frame.get("status") or statuses.get(key) or "empty")
+
+    # The single-pass collector identifies a capture by its clock.  A merged
+    # capture also needs its source content in the identity; otherwise two
+    # different fan-out rosters finishing in the same millisecond collide.
+    identity = {
+        key: bundle.get(key)
+        for key in (
+            "schema", "decision_time", "decision_time_basis", "market_type",
+            "instruments", "primary_timeframe", "frames", "source_status",
+            "warnings", "positions", "equity", "config", "bot_id", "run_id",
+            "trace_id", "collection_passes",
+        )
+    }
+    encoded = json.dumps(
+        identity, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    digest = hashlib.sha256(encoded).hexdigest()
+    bundle["snapshot_id"] = str(uuid.uuid5(
+        BUNDLE_NAMESPACE, "live-spec-multipass|%s" % digest
+    ))
+    return bundle
+
+
+def collect_live_bundle_for_spec(
+    spec_or_path: Any,
+    *,
+    symbol: Optional[str] = None,
+    interval: Optional[str] = None,
+    market_type: Optional[str] = None,
+    limit: int = 500,
+    positions: Optional[Dict[str, float]] = None,
+    equity: Optional[float] = None,
+    run_id: Optional[str] = None,
+    trace_id: Optional[str] = None,
+    include_account: bool = False,
+    bar_limit: int = 200,
+    write_bundle: Optional[Any] = None,
+) -> Dict[str, Any]:
+    """Collect the live sources a spec needs into one ``cyqnt.input/v1``.
+
+    Selection sources are collected in dependency order:
+
+    1. whole-market/cheap cross-sections;
+    2. each per-symbol derivative source over the survivors of its own YAML
+       prefix;
+    3. candidate bars, planned by :func:`plan_bars_capture` after the preceding
+       derivative filters have run.
+
+    Each network pass is normalised and PIT-gated by ``build_live_snapshot``.
+    The returned bundle then receives one final gate, unioned status/warnings,
+    the final collection-complete decision time, and a content-bound snapshot id.
+    Optional ``run_id`` / ``trace_id`` values are attached to every pass and
+    retained on the merged replay boundary.
+    Serialising this dict is therefore sufficient to replay the exact decision;
+    execution never needs to fetch again.  This live collector deliberately has
+    no historical ``decision_time`` override: selection sources such as the
+    universe and funding snapshot are forward-only, so fetching them now and
+    stamping an older clock would fabricate a replay.  Historical execution must
+    load a previously saved ``cyqnt.input/v1`` instead.
+    """
+    from ..data.input_bundle import write_input_bundle
+    from ..data.live_snapshot import (
+        BARS_SECTION,
+        FAN_OUT_SECTIONS,
+        build_live_snapshot,
+        requests_for_sections,
+    )
+
+    spec = _validated_spec(spec_or_path)
+    data = spec.get("data") or {}
+    resolved_symbol = str(symbol or data.get("symbol") or "BTCUSDT").upper()
+    resolved_interval = str(
+        interval or (data.get("primary") or {}).get("interval") or "1h"
+    )
+    resolved_market = str(market_type or data.get("market_type") or "futures")
+    sections = live_sections_for_spec(spec)
+
+    def collect(requests, pass_sections):
+        _snapshot, collected = build_live_snapshot(
+            requests=requests,
+            # Kept alongside the explicit request plan for observability and for
+            # simple test adapters. ``requests`` remains authoritative.
+            sections=pass_sections,
+            symbol=resolved_symbol,
+            interval=resolved_interval,
+            limit=int(limit),
+            market_type=resolved_market,
+            positions=positions,
+            equity=equity,
+            include_account=include_account,
+            bar_limit=int(bar_limit),
+        )
+        if run_id is not None:
+            collected["run_id"] = str(run_id)
+        if trace_id is not None:
+            collected["trace_id"] = str(trace_id)
+        return collected
+
+    if not isinstance(spec.get("selection"), dict):
+        bundle = collect(None, sections)
+        if write_bundle is not None:
+            write_input_bundle(bundle, str(write_bundle))
+        return bundle
+
+    required = required_bundle_nodes(spec)
+    bars_section, bars_node, _bars_key = BARS_SECTION
+    fan_out_by_node = {
+        node: section
+        for section, (node, _key, _extra) in FAN_OUT_SECTIONS.items()
+    }
+    dynamic_sections = set(FAN_OUT_SECTIONS) | {bars_section}
+    cheap_sections = [section for section in sections
+                      if section not in dynamic_sections]
+    cheap_requests = [
+        request for request in requests_for_sections(
+            cheap_sections,
+            symbol=resolved_symbol,
+            interval=resolved_interval,
+            limit=int(limit),
+            market_type=resolved_market,
+        )
+        if request[2] in required
+    ]
+    if not cheap_requests:
+        raise BundleRunError(
+            "selection live collection has no cheap first-pass requests; every "
+            "selection needs at least the universe cross-section"
+        )
+    bundle: Optional[Dict[str, Any]] = _merge_collection_pass(
+        None, collect(cheap_requests, cheap_sections)
+    )
+
+    empty_prefix = False
+    for step in (spec.get("selection") or {}).get("universe") or ():
+        if not isinstance(step, Mapping):
+            continue
+        for source in step.get("with") or ():
+            source = str(source)
+            if source in (bundle.get("frames") or {}):
+                continue
+            if source == bars_node:
+                try:
+                    plan = plan_bars_capture(spec, bundle)
+                except EmptySelectionPrefix as exc:
+                    remaining = (
+                        ((set(fan_out_by_node) | {bars_node}) & required)
+                        - set(bundle.get("frames") or {})
+                    )
+                    _mark_empty_prefix_skips(bundle, remaining, str(exc))
+                    empty_prefix = True
+                    break
+                requests = [
+                    request for request in requests_for_sections(
+                        [bars_section],
+                        symbol=resolved_symbol,
+                        interval=resolved_interval,
+                        limit=int(limit),
+                        market_type=resolved_market,
+                        bar_symbols=plan.symbols,
+                        bar_timeframes=plan.timeframes,
+                        bar_limit=int(bar_limit),
+                        bars_end_ms=plan.end_ms,
+                    )
+                    if request[2] == bars_node
+                ]
+                bundle = _merge_collection_pass(
+                    bundle, collect(requests, [bars_section])
+                )
+                continue
+            section = fan_out_by_node.get(source)
+            if section is None:
+                # A cheap source that failed is still present as an error frame.
+                # Truly absent names are left for run_bundle's required-source
+                # error, which reports the public bundle key and status.
+                continue
+            try:
+                roster = _plan_fan_out_roster(spec, bundle, source)
+            except EmptySelectionPrefix as exc:
+                remaining = (
+                    ((set(fan_out_by_node) | {bars_node}) & required)
+                    - set(bundle.get("frames") or {})
+                )
+                _mark_empty_prefix_skips(bundle, remaining, str(exc))
+                empty_prefix = True
+                break
+            requests = [
+                request for request in requests_for_sections(
+                    [section],
+                    symbol=resolved_symbol,
+                    interval=resolved_interval,
+                    limit=int(limit),
+                    market_type=resolved_market,
+                    fan_out_symbols=roster,
+                )
+                if request[2] == source
+            ]
+            bundle = _merge_collection_pass(
+                bundle, collect(requests, [section])
+            )
+        if empty_prefix:
+            break
+
+    missing_dynamic = sorted(
+        ((set(fan_out_by_node) | {bars_node}) & required)
+        - set((bundle.get("frames") or {}))
+    )
+    if missing_dynamic:
+        raise BundleRunError(
+            "spec requires live fan-out source(s) %s, but no universe step "
+            "consumed them through `with:`" % missing_dynamic
+        )
+    finished = _finish_collected_bundle(bundle)
+    if write_bundle is not None:
+        write_input_bundle(finished, str(write_bundle))
+    return finished
 
 
 def run_bundle(spec_or_path: Any, bundle_or_path: Any) -> Dict[str, Any]:
@@ -409,11 +849,28 @@ def run_bundle(spec_or_path: Any, bundle_or_path: Any) -> Dict[str, Any]:
             run_id=signal.provenance.run_id or run_id,
             trace_id=signal.provenance.trace_id or trace_id,
         )
+        candidates = []
+        for candidate in signal.candidates:
+            trade = candidate.trade
+            if trade is not None:
+                trade_provenance = replace(
+                    trade.provenance,
+                    run_id=trade.provenance.run_id or run_id,
+                    trace_id=trade.provenance.trace_id or trace_id,
+                )
+                trade = replace(
+                    trade,
+                    provenance=trade_provenance,
+                    source_status=trade.source_status or statuses,
+                    warnings=trade.warnings or warnings,
+                )
+            candidates.append(replace(candidate, trade=trade))
         complete.append(replace(
             signal,
             provenance=provenance,
             source_status=signal.source_status or statuses,
             warnings=signal.warnings or warnings,
+            candidates=tuple(candidates),
         ))
 
     return {
@@ -440,6 +897,7 @@ def write_signal_batch(batch: Mapping[str, Any], path: Any) -> str:
 
 __all__ = [
     "SIGNAL_BATCH_SCHEMA_VERSION", "BundleRunError", "required_bundle_nodes",
-    "live_sections_for_spec", "run_bundle", "write_signal_batch",
+    "live_sections_for_spec", "collect_live_bundle_for_spec", "run_bundle",
+    "write_signal_batch",
     "BarsPlan", "plan_bars_capture",
 ]

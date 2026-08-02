@@ -78,11 +78,13 @@ MEASURE_VERSION = "gate0-measure/1"
 CROSS = "cross_section"
 SERIES = "per_symbol_series"
 
-#: How a request's shape picks the frame. ``both`` and ``unclear`` have no single
-#: answer, so those rows are scored under each frame and the better result is
-#: kept (see :func:`plan_row`) — upward, like every other approximation here.
+#: How a request's shape picks the frame. ``both`` is now one outer selection
+#: with ``selection.candidate_trade`` attached to each candidate, so its frame is
+#: the cross-section. Only ``unclear`` has no decided frame; those rows are scored
+#: under each one and the better result is kept (see :func:`plan_row`) — upward,
+#: like every other approximation here.
 SHAPE_SCOPE = {"selection": (CROSS,), "trade": (SERIES,),
-               "both": (CROSS, SERIES), "unclear": (CROSS, SERIES)}
+               "both": (CROSS,), "unclear": (CROSS, SERIES)}
 
 
 # ---------------------------------------------------------------------------
@@ -321,12 +323,13 @@ for _name, _why in _INDICATOR_OVERSTATED.items():
         "technical_indicator", "compare", None, "overstates", _why)
 
 
-#: Gaps this pass structurally cannot count, and why. The miner has eight
-#: condition families and none of them looks for these subjects, so a request
-#: that hits one is scored as if it did not.
+#: Gap ids this pass cannot currently rank, and why. Most have no matching miner
+#: family, so a request that hits one is scored as if it did not. A few are
+#: historical ids retained after their capability became expressible; those can
+#: no longer be emitted by a current ``not_expressible`` capability row.
 #:
-#: This is the single most important caveat on the gap ranking: it covers 5 of
-#: the table's 16 gap ids. The 11 below are not rare — "which coins got
+#: This is the single most important caveat on the gap ranking: it covers 2 of
+#: the table's 16 gap ids. Many of the 14 below are not rare — "which coins got
 #: liquidated hardest", "tell me when BTC breaks 70k", "coins down 50% from their
 #: yearly high", "close my position" are all ordinary requests — they are
 #: *invisible*. So every refusal-gold count here is a FLOOR and every
@@ -361,6 +364,14 @@ UNDETECTABLE_GAPS: dict[str, str] = {
         "metadata blocks landed), so nothing should reach it",
     "GAP-SECTOR-LABEL":
         "vacant, as above",
+    "GAP-COMPOUND-SELECT-THEN-TRADE":
+        "historical gap id retained for dataset compatibility. The capability is "
+        "now expressible: selection.candidate_trade attaches one nested trade to "
+        "each selected candidate, so no current not_expressible row emits this id",
+    "GAP-ENTRY-EXIT-PER-CANDIDATE":
+        "historical gap id retained for dataset compatibility. Cross-sectional "
+        "entry_exit_plan is now expressible through selection.candidate_trade plus "
+        "risk.exit and sizing.size, so no current not_expressible row emits this id",
     # ASCII only, like every other value here: these strings are rendered into
     # the markdown report and test_rendered_markdown_is_pure_ascii is the last
     # line of defence on the privacy rule, so an em dash fails the whole render.
@@ -382,8 +393,7 @@ def _reachable_gaps() -> set[str]:
     changed set rather than as a quietly shorter ranking.
     """
     reachable: set[str] = set()
-    synthetic = (("multi_timeframe", "resonance", None),
-                 ("compound_select_then_trade", "execute", "*"))
+    synthetic = (("multi_timeframe", "resonance", None),)
     keys = [(row.cap_subject, row.cap_operator, row.scope)
             for row in PROXY_MAP.values() if row.fidelity != "non_condition"]
     for subject, operator, scope in list(keys) + list(synthetic):
@@ -532,9 +542,12 @@ def map_conditions(record: dict, scope: str) -> list[Mapped]:
     """Every mined condition of one row, in one frame.
 
     ``spec_shape == "both"`` adds a condition the miner cannot see: the request
-    asks for a screen *and* per-bar execution, and one spec is either
-    ``selection:`` or ``signals:``. ``classify_request`` already refuses these, so
-    the refusal is part of the row's truth and not an artifact of this pass.
+    asks for a screen *and* a trade plan for each result. The current grammar
+    expresses that as one outer ``selection:`` plus ``candidate_trade`` rather
+    than simultaneous top-level ``selection:`` and ``signals:`` sections. Keeping
+    the synthetic condition makes that product shape pass through the capability
+    table instead of assuming that every independently expressible condition is
+    enough.
     """
     mapped: list[Mapped] = []
     intervals: list[str] = []
@@ -625,11 +638,11 @@ def _rank(verdict: RowVerdict) -> tuple:
 def plan_row(record: dict) -> RowVerdict:
     """The row's verdict, under the frame most favourable to it.
 
-    A ``selection`` or ``trade`` row has exactly one frame and gets it. An
-    ``unclear`` row has none — ``classify_request`` returned ambiguous — and a
-    ``both`` row needs two at once, which no spec can be. For those the row is
-    scored in each frame and the better result is kept, so the number stays an
-    upper bound instead of depending on a coin toss.
+    A ``selection`` or ``trade`` row has exactly one frame and gets it. A ``both``
+    row is the compound selection frame: one basket whose candidates carry nested
+    trade plans. Only an ``unclear`` row has no frame — ``classify_request``
+    returned ambiguous — so it is scored in each frame and the better result is
+    kept, preserving an upper bound instead of depending on a coin toss.
     """
     scopes = SHAPE_SCOPE[record["spec_shape"]]
     return min((_score(record, scope) for scope in scopes), key=_rank)
@@ -1103,9 +1116,11 @@ def render_markdown(report: dict, funnel: dict) -> str:
     w("")
     w("Two things push the other way and are stated so they can be argued with:")
     w("")
-    w("* **The gap ranking is blind to 11 of the table's 16 gap ids** (section 5). "
-      "Requests that hit an undetectable gap are scored as clean, so refusal-gold "
-      "counts are floors.")
+    w("* **The gap ranking cannot rank %d of the table's %d gap ids** (section 5). "
+      "Most lack a miner detector, so requests that hit them are scored as clean "
+      "and refusal-gold counts are floors. The list also retains historical ids "
+      "whose capability is now closed; those have zero counts by design."
+      % (len(report["undetectable_gaps"]), len(cap.GAP_IDS)))
     w("* **Two intervals in one conversation are scored as a resonance request.** "
       "The miner reads the whole excerpt, so \"look at 1h ... now 4h\" is "
       "indistinguishable from \"aligned on 1h AND 4h\", and only the second needs "
@@ -1166,9 +1181,10 @@ def render_markdown(report: dict, funnel: dict) -> str:
     w("(cells are rows / unique canon)")
     w("")
     w("`classify_request` base kinds: %s. `both` = the request screens a universe "
-      "*and* states a per-bar entry rule; one spec cannot be both, so those "
-      "%d rows are refusal gold by construction, not by any judgement of this "
-      "pass." % (funnel["shape_base_rows"], funnel["shape_rows"].get("both", 0)))
+      "*and* asks for a trade plan per result. It now has one concrete grammar: "
+      "an outer `selection:` with `selection.candidate_trade`, so those %d rows "
+      "are capability-scored rather than refusal gold by construction."
+      % (funnel["shape_base_rows"], funnel["shape_rows"].get("both", 0)))
     w("")
 
     # -- 3 & 4. per-tier expressibility ------------------------------------
@@ -1249,10 +1265,12 @@ def render_markdown(report: dict, funnel: dict) -> str:
       "lookback windows, the long/short ratio, holder concentration, or a vague "
       "criterion. Requests hitting those are scored as if they had not hit "
       "anything, so **every refusal-gold count in this report is a floor and "
-      "every expressible count is a ceiling.** The undetectable eleven are listed "
-      "below the table with zero counts, and they are in `gaps.jsonl` too - a gap "
-      "missing from a priority list reads as a gap nobody needs."
-      % (len(report["detectable_gap_ids"]), len(cap.GAP_IDS)))
+      "every expressible count is a ceiling.** All %d unranked ids are listed "
+      "below the table with zero counts, including historical ids retained after "
+      "their capability closed. They are in `gaps.jsonl` too - a gap missing from "
+      "a priority list reads as a gap nobody needs."
+      % (len(report["detectable_gap_ids"]), len(cap.GAP_IDS),
+         len(report["undetectable_gaps"])))
     w("")
     w("| # | gap_id | dup_weighted_count | distinct | unlocked if closed "
       "(rows / groups) | top group | main shape |")
@@ -1267,9 +1285,10 @@ def render_markdown(report: dict, funnel: dict) -> str:
              gap["distinct_requests_unlocked_if_closed"],
              100 * gap["largest_group_share"], shape[0], shape[1]))
     w("")
-    w("Unranked because this pass is blind to them, NOT because they are rare:")
+    w("Unranked for the declared reason: either this pass has no detector, or the "
+      "id is retained as history after the capability closed:")
     w("")
-    w("| gap_id | why this pass cannot count it |")
+    w("| gap_id | why this pass does not rank it |")
     w("| --- | --- |")
     for gap_id, why in report["undetectable_gaps"].items():
         w("| `%s` | %s |" % (gap_id, why))
@@ -1337,20 +1356,22 @@ def render_markdown(report: dict, funnel: dict) -> str:
     # -- 7. the verdict ----------------------------------------------------
     w("## 7. Is this enough to fine-tune? (500-5,000 structured outputs)")
     w("")
-    w("The two dialects are separate tasks with separate grammars "
-      "(`selection:` ranks a universe and emits candidates; `signals:` emits "
-      "per-bar entries for one declared symbol). `validate_spec` refuses a spec "
-      "that is both, so a mixed training set teaches a shape that cannot exist. "
-      "Counted apart:")
+    w("The two base dialects remain separate (`selection:` ranks a universe; "
+      "`signals:` emits per-bar entries for one declared symbol). A compound "
+      "request does not put both sections at the top level: it is an outer "
+      "`selection:` whose candidates carry `candidate_trade`. The three training "
+      "shapes are therefore counted apart:")
     w("")
     w("| dialect | scored rows | upper bound rows | **upper bound, deduped "
       "(groups)** | + >=1 expressible (groups) | minus overstated (groups) | "
       "strict (groups) | + user stated every number (groups) |")
     w("| --- | --- | --- | --- | --- | --- | --- | --- |")
-    for shape in ("selection", "trade"):
+    labels = {"selection": "selection", "trade": "trade",
+              "both": "compound selection"}
+    for shape in ("selection", "trade", "both"):
         b = report["by_shape"][shape]
         w("| %s | %d | %d | **%d** | %d | %d | %d | %d |"
-          % (shape, b["total"]["rows"], b["upper_bound"]["rows"],
+          % (labels[shape], b["total"]["rows"], b["upper_bound"]["rows"],
              b["upper_bound"]["split_groups"],
              b["upper_bound_convertible"]["split_groups"],
              b["upper_bound_minus_overstated"]["split_groups"],
@@ -1366,13 +1387,12 @@ def render_markdown(report: dict, funnel: dict) -> str:
       % (report["quantified_families"],
          report["risk_conditions_without_value"]))
     w("")
-    w("`both` (%d rows) and `unclear` (%d rows) are excluded from this table on "
-      "purpose: `both` is refusal gold, and `unclear` has no decided shape, so "
+    w("`both` is shown as compound selection because it now has a concrete target "
+      "grammar. `unclear` (%d rows) remains excluded: it has no decided shape, so "
       "its target dialect would be the annotator's guess."
-      % (report["by_shape"]["both"]["total"]["rows"],
-         report["by_shape"]["unclear"]["total"]["rows"]))
+      % report["by_shape"]["unclear"]["total"]["rows"])
     w("")
-    w("Refusal gold is a third, cheaper class and it is abundant:")
+    w("Refusal gold remains a third, cheaper class:")
     w("")
     w("| dialect | refusal gold rows | deduped (groups) |")
     w("| --- | --- | --- |")
@@ -1395,10 +1415,10 @@ def render_markdown(report: dict, funnel: dict) -> str:
     unclear = report["by_shape"]["unclear"]
     gap_by_id = {g["gap_id"]: g for g in report["gaps"]}
     per_symbol = gap_by_id["GAP-PER-SYMBOL-INDICATOR"]
-    compound = gap_by_id["GAP-COMPOUND-SELECT-THEN-TRADE"]
     sel_spec = sel["upper_bound"]["split_groups"]
     sel_refusal = sel["refusal_gold"]["split_groups"]
     tra_spec = tra["upper_bound"]["split_groups"]
+    compound_spec = both["upper_bound"]["split_groups"]
 
     w("### The answer")
     w("")
@@ -1412,19 +1432,16 @@ def render_markdown(report: dict, funnel: dict) -> str:
       % (tra_spec, tra["strict"]["split_groups"],
          report["upper_bound_quantified"]["trade"]["split_groups"]))
     w("")
-    w("**Selection dialect: no, not as spec emission.** %d distinct requests clear "
-      "the bound - and that is the ceiling, before A1's own error rate and before "
-      "a human rejects the ones the miner scored generously. Realistically that "
-      "lands well under 300, against a floor of 500. Adding the refusals gets the "
-      "selection *task* to %d distinct targets (%d specs + %d refusals), which "
-      "does clear 500, but half of that set teaches the model to decline. Train "
-      "that head, and do not claim a selection spec generator on %d examples."
-      % (sel_spec, sel_spec + sel_refusal, sel_spec, sel_refusal, sel_spec))
+    w("**Selection now has two strata, so the old single 'no' no longer follows.** "
+      "The ranking-only shape has %d upper-bound split groups and %d refusal "
+      "groups. Compound selection contributes another %d upper-bound groups via "
+      "`candidate_trade` (%d strict; %d with every required number stated). They "
+      "share an outer `selection:` grammar but not target complexity, so report "
+      "and hold them out separately rather than adding them into one headline."
+      % (sel_spec, sel_refusal, compound_spec, both["strict"]["split_groups"],
+         report["upper_bound_quantified"]["both"]["split_groups"]))
     w("")
-    w("Three ways to close the selection shortfall, in order of leverage. All "
-      "three are worth more than more chat data, because the corpus is not short "
-      "of selection *requests* - it is short of selection requests this repo can "
-      "answer:")
+    w("Three next moves follow from the refreshed capability boundary:")
     w("")
     w("1. **Decide the shape of the ambiguous rows.** `classify_request` returns "
       "`ambiguous` for %d of %d rows, and that bucket holds %d upper-bound "
@@ -1436,22 +1453,18 @@ def render_markdown(report: dict, funnel: dict) -> str:
       % (funnel["shape_base_rows"].get("ambiguous", 0),
          funnel["funnel"]["total_rows"], unclear["upper_bound"]["split_groups"],
          funnel["shape_base_rows"].get("selection", 0)))
-    w("2. **Close `GAP-PER-SYMBOL-INDICATOR` (`universe.augment_with_indicator`).** "
-      "%d distinct requests are blocked by it and %d are blocked by nothing else, "
-      "so closing it alone converts them. \"Scan the market, then run the "
-      "indicator on each survivor\" is the shape the selection dialect is missing, "
-      "and it is the same gap the Supertrend accident came from."
+    w("2. **Curate compound selection as its own stratum.** %d upper-bound split "
+      "groups now have a concrete target: one outer basket with a confirmation-"
+      "required nested trade per candidate. Keep golden examples explicit about "
+      "`candidate_trade`, exits, sizing, and the no-auto-trade boundary."
+      % compound_spec)
+    w("3. **Keep the remaining `GAP-PER-SYMBOL-INDICATOR` claim narrow.** It now "
+      "blocks %d distinct requests, %d by itself. The surviving row is per-symbol "
+      "multi-timeframe resonance; cross-sectional per-candidate indicators already "
+      "use `universe.augment_with_indicator`, so this gap no longer describes a "
+      "compound-selection limitation."
       % (per_symbol["distinct_requests"],
          per_symbol["distinct_requests_unlocked_if_closed"]))
-    w("3. **Decide what a compound request should produce.** %d distinct requests "
-      "(%d rows) ask for a screen AND per-bar execution, and today all of them "
-      "are refusals - that bucket alone is %.1fx the entire selection spec yield. "
-      "They do not need a new block so much as a decision: two specs, or a "
-      "declared refusal. Either answer converts them into training targets; "
-      "leaving it undecided keeps the largest single block of selection-flavoured "
-      "demand in the corpus unusable."
-      % (compound["distinct_requests"], compound["dup_weighted_count"],
-         compound["distinct_requests"] / max(sel_spec, 1)))
     w("")
     w("**One practical note on cost.** A1 does not need %d calls. Conditions are "
       "computed per unique canonical text and cases split by group, so one pass "
@@ -1462,16 +1475,18 @@ def render_markdown(report: dict, funnel: dict) -> str:
          funnel["funnel"]["candidates_rows"]
          / max(funnel["funnel"]["candidates_split_groups"], 1)))
     w("")
-    w("**And one warning about what this pass cannot tell you.** Section 5 sees 5 "
-      "of 16 gaps and the miner's recall is a floor, so the refusal counts above "
-      "are floors and the spec counts are ceilings. The number that would settle "
+    w("**And one warning about what this pass cannot tell you.** Section 5 sees %d "
+      "of %d gaps; the unranked set mixes missing miner detectors with historical "
+      "ids retained after closure. Miner recall is still a floor, so refusal "
+      "counts are floors and spec counts are ceilings. The number that would settle "
       "it is the one this pass deliberately did not spend: run A1 over a "
       "stratified sample of a few hundred split groups, have a human adjudicate "
       "every condition, and compare the realised level-5 rate against the %.0f%% "
       "and %.0f%% upper bounds in the shape table. Until then, treat the trade "
-      "'yes' as firm and the selection 'no' as firm, and treat everything between "
-      "them as unmeasured."
-      % (100 * tra["upper_bound"]["rows"] / max(tra["total"]["rows"], 1),
+      "'yes' as firm, and treat ranking-only versus compound selection as separate "
+      "measured strata rather than reviving the old single 'no'."
+      % (len(report["detectable_gap_ids"]), len(cap.GAP_IDS),
+         100 * tra["upper_bound"]["rows"] / max(tra["total"]["rows"], 1),
          100 * sel["upper_bound"]["rows"] / max(sel["total"]["rows"], 1)))
     w("")
 

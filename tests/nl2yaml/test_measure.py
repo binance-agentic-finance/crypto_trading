@@ -155,21 +155,30 @@ def test_undetectable_gaps_are_not_reachable():
 def test_the_gaps_this_pass_can_see():
     """Pinned so that a change in coverage is a visible diff, not a silent one.
 
-    It was five. ``GAP-SPREAD-DEPTH`` left this set when the cross-sectional half
-    of it was CLOSED — the ``book_ticker`` node plus ``universe.augment_with_spread``
-    landed, so ``('universe_filter','liquidity')`` scores expressible and no
-    longer reaches the gap. The gap id still exists for the per-bar
-    microstructure half, which no miner family looks for, so it moved to
-    ``measure.UNDETECTABLE_GAPS`` and ``_assert_gap_coverage_is_declared`` is what
-    forced that to be written down rather than dropped.
+    It was five. Spread, compound selection, and per-candidate trade plans left
+    this set as their capability rows closed. Their ids remain in the historical
+    gap vocabulary, so ``_assert_gap_coverage_is_declared`` forces an explicit
+    reason into ``UNDETECTABLE_GAPS`` rather than silently dropping them.
     """
     assert measure._reachable_gaps() == {
-        "GAP-COMPOUND-SELECT-THEN-TRADE",
-        "GAP-ENTRY-EXIT-PER-CANDIDATE",
         "GAP-MARKET-CAP",
         "GAP-PER-SYMBOL-INDICATOR",
     }
-    assert "GAP-SPREAD-DEPTH" in measure.UNDETECTABLE_GAPS
+    for gap in ("GAP-SPREAD-DEPTH", "GAP-COMPOUND-SELECT-THEN-TRADE",
+                "GAP-ENTRY-EXIT-PER-CANDIDATE"):
+        assert gap in measure.UNDETECTABLE_GAPS
+
+
+def test_capability_table_closes_compound_selection_and_candidate_trade_plans():
+    compound = cap.lookup("compound_select_then_trade", "*", "execute")
+    candidate_plan = cap.lookup("entry_exit_plan", measure.CROSS, "plan")
+
+    assert compound.verdict == cap.EXPRESSIBLE
+    assert "selection.candidate_trade.entry_type" in compound.fields
+    assert "candidates[].trade" in compound.fields
+    assert candidate_plan.verdict == cap.EXPRESSIBLE
+    assert "risk.exit.stop_pct" in candidate_plan.fields
+    assert "sizing.size" in candidate_plan.fields
 
 
 def test_gaps_jsonl_lists_every_gap_id():
@@ -258,18 +267,18 @@ def test_a_liquidity_filter_is_no_longer_a_gap_in_either_frame():
 
 
 def test_ambiguous_rows_take_the_better_frame():
-    """An unclear row holding a stop-loss is scored on the series frame, where
-    an entry/exit plan is expressible - the upward choice, and it is the choice
-    this report has to make to stay a bound.
+    """An unclear multi-timeframe row chooses the now-expressible cross-section.
 
-    This used to use an indicator. It cannot any more: augment_with_indicator
-    made the indicator expressible in BOTH frames, so that row now ties and
-    tie-breaks to the cross-section, which tests nothing about choosing. An
-    entry/exit plan is the asymmetry that is left - a stop is a per-candidate
-    order, and the cross-section returns a basket, not orders.
+    Indicators and entry/exit plans are now expressible in both frames. Resonance
+    remains asymmetric: cross-sectional per-candidate bars can express it, while
+    the per-symbol series row still carries GAP-PER-SYMBOL-INDICATOR. Choosing the
+    gap-free frame is the upward choice this report needs to stay a bound.
     """
-    verdict = measure.plan_row(record([cond("risk", "stop_loss")], shape="unclear"))
-    assert verdict.scope == measure.SERIES
+    verdict = measure.plan_row(record([
+        cond("timeframe", "interval", "eq", "1h"),
+        cond("timeframe", "interval", "eq", "4h"),
+    ], shape="unclear"))
+    assert verdict.scope == measure.CROSS
     assert verdict.gap_ids == ()
 
 
@@ -317,23 +326,23 @@ def test_the_same_interval_twice_is_still_one_interval():
 # The compound shape
 # ---------------------------------------------------------------------------
 
-def test_both_shape_is_refusal_gold_whatever_else_it_holds():
-    """`validate_spec` refuses a spec that is both selection and signals, so no
-    amount of otherwise-expressible content rescues these."""
+def test_both_shape_uses_the_compound_selection_capability():
+    """The target is one selection with nested candidate trades, not two specs."""
     verdict = measure.plan_row(record([
         cond("rank_topn", "universe", "top_n", 5),
         cond("indicator", "rsi"),
     ], shape="both"))
-    assert "GAP-COMPOUND-SELECT-THEN-TRADE" in verdict.gap_ids
-    assert not verdict.all_expressible_optimistic
+    assert verdict.scope == measure.CROSS
+    assert verdict.gap_ids == ()
+    assert verdict.all_expressible_strict
 
 
-def test_entry_plan_in_a_selection_request_is_refused():
-    """"five shorts with entry and stop" answers half the request; the YAML
-    selection path leaves every candidate's trade slot null."""
+def test_entry_plan_in_a_selection_request_is_expressible_per_candidate():
+    """``candidate_trade`` carries the same top-level exit and sizing grammar."""
     verdict = measure.plan_row(record([cond("risk", "stop_loss", "eq", 2.0)],
                                       shape="selection"))
-    assert verdict.gap_ids == ("GAP-ENTRY-EXIT-PER-CANDIDATE",)
+    assert verdict.gap_ids == ()
+    assert verdict.all_expressible_strict
 
 
 def test_entry_plan_in_a_trade_request_is_expressible():
@@ -506,6 +515,9 @@ def test_rendered_markdown_is_pure_ascii():
     markdown = measure.render_markdown(report, funnel)
     assert markdown.isascii()
     markdown.encode("ascii")
+    assert "selection.candidate_trade" in markdown
+    assert "one spec cannot be both" not in markdown
+    assert "undetectable eleven" not in markdown
 
 
 def test_report_json_is_serialisable_and_ascii():
@@ -515,22 +527,21 @@ def test_report_json_is_serialisable_and_ascii():
 
 
 def test_gap_ranking_is_sorted_by_dup_weighted_count():
-    # Second gap, third occupant. It was GAP-SPREAD-DEPTH until the book
-    # cross-section landed, then GAP-PER-SYMBOL-INDICATOR until
-    # augment_with_indicator landed. What is left blocked in a SELECTION request
-    # is a per-candidate entry/exit plan, blocked for a different reason than
-    # market_cap (the frame returns a basket rather than orders, not a missing
-    # source), which is what makes it a distinct gap id.
+    # Candidate entry/exit is expressible now. Use the remaining series-side
+    # multi-timeframe gap as the second occupant so this still tests ordering.
     rows = [record([cond("universe_filter", "market_cap")], shape="selection")
             for _ in range(3)]
-    rows += [record([cond("risk", "stop_loss")], shape="selection")]
+    rows += [record([
+        cond("timeframe", "interval", "eq", "1h"),
+        cond("timeframe", "interval", "eq", "4h"),
+    ], shape="trade")]
     for index, row in enumerate(rows):
         row["split_group_key"] = "dup:%d" % index
     verdicts = {id(r): measure.plan_row(r) for r in rows}
     gaps = [g for g in measure.build_gaps(rows, verdicts)
             if g["detectable_by_this_pass"]]
     assert [g["gap_id"] for g in gaps] == ["GAP-MARKET-CAP",
-                                           "GAP-ENTRY-EXIT-PER-CANDIDATE"]
+                                           "GAP-PER-SYMBOL-INDICATOR"]
     counts = [g["dup_weighted_count"] for g in gaps]
     assert counts == sorted(counts, reverse=True)
 
@@ -538,21 +549,19 @@ def test_gap_ranking_is_sorted_by_dup_weighted_count():
 def test_unlocked_if_closed_counts_only_sole_blockers():
     """A row blocked by two gaps is unlocked by neither on its own, and a
     frequency ranking cannot see that."""
-    # Second gap swapped to GAP-ENTRY-EXIT-PER-CANDIDATE for the reason given in
-    # the ranking test above: both of its predecessors got their blocking half
-    # implemented.
     single = record([cond("universe_filter", "market_cap")], shape="selection",
                     split_group_key="dup:1")
     double = record([cond("universe_filter", "market_cap"),
-                     cond("risk", "stop_loss")], shape="selection",
-                    split_group_key="dup:2")
+                     cond("timeframe", "interval", "eq", "1h"),
+                     cond("timeframe", "interval", "eq", "4h")], shape="trade",
+                     split_group_key="dup:2")
     rows = [single, double]
     verdicts = {id(r): measure.plan_row(r) for r in rows}
     gaps = {g["gap_id"]: g for g in measure.build_gaps(rows, verdicts)}
     assert gaps["GAP-MARKET-CAP"]["dup_weighted_count"] == 2
     assert gaps["GAP-MARKET-CAP"]["rows_unlocked_if_closed"] == 1
-    assert gaps["GAP-ENTRY-EXIT-PER-CANDIDATE"]["rows_unlocked_if_closed"] == 0
-    assert (gaps["GAP-ENTRY-EXIT-PER-CANDIDATE"]["co_occurring_gaps"]
+    assert gaps["GAP-PER-SYMBOL-INDICATOR"]["rows_unlocked_if_closed"] == 0
+    assert (gaps["GAP-PER-SYMBOL-INDICATOR"]["co_occurring_gaps"]
             == {"GAP-MARKET-CAP": 1})
 
 

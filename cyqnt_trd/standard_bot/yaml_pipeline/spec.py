@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 from .interpreter import (
+    CANDIDATE_TRADE_KEYS,
     FAN_OUT_AUGMENTS,
     COLUMN_REQUIRES_SOURCE,
     INDICATOR_KEYS,
@@ -36,6 +37,34 @@ from .interpreter import (
 from .vocabulary import DATA_SECTIONS, synthetic_columns
 
 VALID_MODES = {"backtest", "paper", "live"}
+
+#: The declarative parts of the YAML contract are closed.  Block ``params`` and
+#: named indicator/feature mappings stay open because their keys belong to the
+#: addressed callable; these keys are owned by the pipeline itself and a typo is
+#: otherwise a silent no-op.
+TOP_LEVEL_KEYS = frozenset({
+    "spec_version", "target", "strategy", "run", "data", "signals", "sizing",
+    "risk", "backtest", "selection",
+})
+STRATEGY_KEYS = frozenset({"id", "description", "assumptions"})
+RUN_KEYS = frozenset({"mode", "duration_end_at"})
+PRIMARY_DATA_KEYS = frozenset({"interval", "poll_interval", "warm_up_bars"})
+SOURCE_DATA_KEYS = frozenset({
+    "type", "dir", "storage_timeframe", "download_missing", "start_ts", "end_ts",
+    "path",
+})
+VALID_SOURCE_TYPES = frozenset({"binance_rest", "historical_parquet", "input_json"})
+HTF_DATA_KEYS = frozenset({"interval", "sma_period"})
+OPTIONAL_DATA_SECTION_KEYS = frozenset({"dir"})
+SIGNALS_KEYS = frozenset({"indicators", "entry"})
+ENTRY_KEYS = frozenset({"long", "short"})
+RISK_KEYS = frozenset({"exit", "fees", "live_guards"})
+FEE_KEYS = frozenset({"commission_bps", "slippage_bps"})
+LIVE_GUARD_KEYS = frozenset({"max_notional", "notional_fraction"})
+BACKTEST_KEYS = frozenset({"initial_capital", "execution_model"})
+CONDITION_NODE_KINDS = frozenset({"all_of", "any_of", "not", "exclude_when", "cond"})
+CONDITION_LEAF_KEYS = frozenset({"cond", "args", "params"})
+EXCLUDE_WHEN_KEYS = frozenset({"base", "exclusions"})
 
 #: Keys allowed under ``data:``. Closed on purpose — a typo'd optional key used
 #: to be accepted in silence, so ``data: {derivative: {...}}`` looked like it had
@@ -1102,6 +1131,84 @@ def assumption_warnings(spec: dict) -> tuple:
     return tuple(lines)
 
 
+def _refuse_unknown_keys(value: Any, allowed: frozenset, path: str, err) -> None:
+    """Report pipeline-owned mapping keys that no consumer reads."""
+    if not isinstance(value, dict):
+        return
+    for key in sorted(set(value) - allowed):
+        location = "%s.%s" % (path, key) if path else "top-level %s" % key
+        err("unknown %s; allowed: %s" % (location, sorted(allowed)))
+
+
+def _as_mapping(value: Any, path: str, err) -> Dict[str, Any]:
+    """Return a mapping or record a schema error and a safe empty substitute."""
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        err("%s must be a mapping, got %s" % (path, type(value).__name__))
+        return {}
+    return value
+
+
+def _validate_condition_node(node: Any, path: str, err) -> None:
+    """Close the combinator grammar without closing callable-owned ``params``."""
+    if not isinstance(node, dict):
+        err("%s must be a condition mapping, got %s"
+            % (path, type(node).__name__))
+        return
+
+    kinds = [key for key in CONDITION_NODE_KINDS if key in node]
+    if len(kinds) != 1:
+        err("%s must contain exactly one of %s, got %s"
+            % (path, sorted(CONDITION_NODE_KINDS), sorted(node)))
+        return
+    kind = kinds[0]
+
+    if kind == "cond":
+        _refuse_unknown_keys(node, CONDITION_LEAF_KEYS, path, err)
+        args = node.get("args")
+        if args is not None and not isinstance(args, list):
+            err("%s.args must be a list, got %s" % (path, type(args).__name__))
+        params = node.get("params")
+        if params is not None and not isinstance(params, dict):
+            err("%s.params must be a mapping, got %s"
+                % (path, type(params).__name__))
+        return
+
+    if kind in ("all_of", "any_of"):
+        _refuse_unknown_keys(node, frozenset({kind}), path, err)
+        children = node.get(kind)
+        if not isinstance(children, list):
+            err("%s.%s must be a list of condition mappings, got %s"
+                % (path, kind, type(children).__name__))
+            return
+        for position, child in enumerate(children):
+            _validate_condition_node(
+                child, "%s.%s[%d]" % (path, kind, position), err)
+        return
+
+    if kind == "not":
+        _refuse_unknown_keys(node, frozenset({"not"}), path, err)
+        _validate_condition_node(node.get("not"), "%s.not" % path, err)
+        return
+
+    _refuse_unknown_keys(node, frozenset({"exclude_when"}), path, err)
+    payload = _as_mapping(node.get("exclude_when"), "%s.exclude_when" % path, err)
+    _refuse_unknown_keys(payload, EXCLUDE_WHEN_KEYS, "%s.exclude_when" % path, err)
+    if "base" not in payload:
+        err("%s.exclude_when.base is required" % path)
+    else:
+        _validate_condition_node(payload["base"], "%s.exclude_when.base" % path, err)
+    exclusions = payload.get("exclusions", [])
+    if not isinstance(exclusions, list):
+        err("%s.exclude_when.exclusions must be a list, got %s"
+            % (path, type(exclusions).__name__))
+        return
+    for position, child in enumerate(exclusions):
+        _validate_condition_node(
+            child, "%s.exclude_when.exclusions[%d]" % (path, position), err)
+
+
 def validate_spec(spec: Dict[str, Any]) -> Tuple[List[str], List[str]]:
     """Return ``(errors, warnings)``. Empty ``errors`` ⇒ spec is runnable."""
     errors: List[str] = []
@@ -1111,23 +1218,28 @@ def validate_spec(spec: Dict[str, Any]) -> Tuple[List[str], List[str]]:
         errors.append(msg)
 
     # ---- structural ----
+    _refuse_unknown_keys(spec, TOP_LEVEL_KEYS, "", err)
     if spec.get("target") not in (None, "standard_bot"):
         warnings.append(f"target={spec.get('target')!r}; this pipeline targets standard_bot")
 
-    strategy = spec.get("strategy") or {}
+    strategy = _as_mapping(spec.get("strategy"), "strategy", err)
+    _refuse_unknown_keys(strategy, STRATEGY_KEYS, "strategy", err)
     if not strategy.get("id"):
         err("strategy.id is required")
     _validate_assumptions(strategy, err)
 
-    run = spec.get("run") or {}
+    run = _as_mapping(spec.get("run"), "run", err)
+    _refuse_unknown_keys(run, RUN_KEYS, "run", err)
     mode = run.get("mode")
     if mode not in VALID_MODES:
         err(f"run.mode must be one of {sorted(VALID_MODES)}, got {mode!r}")
 
-    data = spec.get("data") or {}
+    data = _as_mapping(spec.get("data"), "data", err)
+    primary = _as_mapping(data.get("primary"), "data.primary", err)
+    source = _as_mapping(data.get("source"), "data.source", err)
     if not data.get("symbol"):
         err("data.symbol is required")
-    if not (data.get("primary") or {}).get("interval"):
+    if not primary.get("interval"):
         err("data.primary.interval is required")
     for key in sorted(set(data) - DATA_KEYS):
         err(
@@ -1135,15 +1247,36 @@ def validate_spec(spec: Dict[str, Any]) -> Tuple[List[str], List[str]]:
             "and simply attaches nothing. Known sections: %s"
             % (key, sorted(DATA_KEYS))
         )
+    _refuse_unknown_keys(primary, PRIMARY_DATA_KEYS, "data.primary", err)
+    _refuse_unknown_keys(source, SOURCE_DATA_KEYS, "data.source", err)
+    source_type = source.get("type")
+    if source_type is not None and (
+            not isinstance(source_type, str)
+            or source_type not in VALID_SOURCE_TYPES):
+        err("data.source.type must be one of %s, got %r; an unknown value would "
+            "otherwise fall through without selecting the requested data source"
+            % (sorted(VALID_SOURCE_TYPES), source_type))
+    htf = data.get("htf")
+    if htf is not None and not isinstance(htf, list):
+        err("data.htf must be a list of mappings, got %s" % type(htf).__name__)
+        htf = []
+    for position, item in enumerate(htf or []):
+        item = _as_mapping(item, "data.htf[%d]" % position, err)
+        _refuse_unknown_keys(item, HTF_DATA_KEYS, "data.htf[%d]" % position, err)
     for name, section in DATA_SECTIONS.items():
         declared = data.get(name)
         if declared is None:
             continue
-        if not isinstance(declared, dict) or not declared.get("dir"):
+        declared = _as_mapping(declared, "data.%s" % name, err)
+        _refuse_unknown_keys(
+            declared, OPTIONAL_DATA_SECTION_KEYS, "data.%s" % name, err)
+        if not declared.get("dir"):
             err("data.%s needs a 'dir'. %s" % (name, section.example))
 
-    signals = spec.get("signals") or {}
-    entry = signals.get("entry") or {}
+    signals = _as_mapping(spec.get("signals"), "signals", err)
+    _refuse_unknown_keys(signals, SIGNALS_KEYS, "signals", err)
+    entry = _as_mapping(signals.get("entry"), "signals.entry", err)
+    _refuse_unknown_keys(entry, ENTRY_KEYS, "signals.entry", err)
     selection = spec.get("selection")
     if selection is not None and signals:
         err("a spec is either a trade strategy (signals:) or a selection "
@@ -1163,7 +1296,13 @@ def validate_spec(spec: Dict[str, Any]) -> Tuple[List[str], List[str]]:
             "strategy that can never fire" % type(selection).__name__)
 
     # ---- exit / risk ----
-    exit_cfg = (spec.get("risk") or {}).get("exit")
+    risk = _as_mapping(spec.get("risk"), "risk", err)
+    _refuse_unknown_keys(risk, RISK_KEYS, "risk", err)
+    fees = _as_mapping(risk.get("fees"), "risk.fees", err)
+    guards = _as_mapping(risk.get("live_guards"), "risk.live_guards", err)
+    _refuse_unknown_keys(fees, FEE_KEYS, "risk.fees", err)
+    _refuse_unknown_keys(guards, LIVE_GUARD_KEYS, "risk.live_guards", err)
+    exit_cfg = risk.get("exit")
     if exit_cfg is not None:
         etype = exit_cfg.get("type") if isinstance(exit_cfg, dict) else None
         if etype not in VALID_EXIT_TYPES:
@@ -1177,7 +1316,7 @@ def validate_spec(spec: Dict[str, Any]) -> Tuple[List[str], List[str]]:
                 )
 
     # ---- sizing ----
-    sizing = spec.get("sizing") or {}
+    sizing = _as_mapping(spec.get("sizing"), "sizing", err)
     for key in sorted(set(sizing) - SIZING_KEYS):
         err("unknown sizing.%s; allowed: %s" % (key, sorted(SIZING_KEYS)))
     size = sizing.get("size", 1.0)
@@ -1189,14 +1328,16 @@ def validate_spec(spec: Dict[str, Any]) -> Tuple[List[str], List[str]]:
 
     # ---- live guards ----
     if mode == "live":
-        guards = (spec.get("risk") or {}).get("live_guards") or {}
         if not guards.get("max_notional"):
             err("run.mode=live requires risk.live_guards.max_notional (hard per-order cap)")
         if not run.get("duration_end_at"):
             err("run.mode=live requires run.duration_end_at (ISO8601; sessions must be time-bounded)")
 
+    backtest = _as_mapping(spec.get("backtest"), "backtest", err)
+    _refuse_unknown_keys(backtest, BACKTEST_KEYS, "backtest", err)
+
     # ---- static block resolution ----
-    ind_specs = (signals.get("indicators") or {})
+    ind_specs = _as_mapping(signals.get("indicators"), "signals.indicators", err)
     for name, ispec in ind_specs.items():
         if not isinstance(ispec, dict) or "block" not in ispec:
             err(f"indicator {name!r} must be a mapping with a 'block' field")
@@ -1216,6 +1357,9 @@ def validate_spec(spec: Dict[str, Any]) -> Tuple[List[str], List[str]]:
     # but only the first one, and only as a dry-run traceback — listing them all
     # up front is the difference between one round trip and five.
     for label in ("long", "short"):
+        if entry.get(label) is not None:
+            _validate_condition_node(
+                entry[label], "signals.entry.%s" % label, err)
         for ref in _condition_refs(entry.get(label)):
             try:
                 resolve_block(ref)
@@ -1224,10 +1368,47 @@ def validate_spec(spec: Dict[str, Any]) -> Tuple[List[str], List[str]]:
 
     # ---- selection ----
     if isinstance(selection, dict):
+        if "backtest" in spec:
+            err("selection does not consume backtest; this runtime makes one "
+                "cross-sectional decision and has no selection equity-curve "
+                "engine, so remove backtest instead of accepting ignored fields")
         for key in sorted(set(selection) - SELECTION_KEYS):
             err("unknown selection.%s; allowed: %s" % (key, sorted(SELECTION_KEYS)))
         if not selection.get("score"):
             err("selection.score is required: name the column or feature to rank by")
+        has_candidate_trade = "candidate_trade" in selection
+        if has_candidate_trade:
+            candidate_trade = _as_mapping(
+                selection.get("candidate_trade"), "selection.candidate_trade", err)
+            _refuse_unknown_keys(
+                candidate_trade, CANDIDATE_TRADE_KEYS,
+                "selection.candidate_trade", err)
+            entry_type = candidate_trade.get("entry_type")
+            if entry_type != "market":
+                err("selection.candidate_trade.entry_type is required and must "
+                    "be 'market', got %r; limit/stop entries need a price that "
+                    "this schema does not define" % entry_type)
+            if not selection.get("long_when") and not selection.get("short_when"):
+                err("selection.candidate_trade requires at least one of "
+                    "selection.long_when / selection.short_when to determine "
+                    "the nested trade direction")
+            if "size" not in sizing:
+                err("selection.candidate_trade requires explicit sizing.size; "
+                    "a default-sized executable plan is unsafe")
+            if not isinstance(exit_cfg, dict):
+                err("selection.candidate_trade requires risk.exit as a mapping; "
+                    "every executable plan needs an explicit exit")
+            if str(data.get("market_type") or "futures").lower() == "spot" \
+                    and selection.get("short_when") is not None:
+                err("selection.candidate_trade cannot use selection.short_when "
+                    "with data.market_type=spot; spot cannot open a short position")
+        else:
+            if "sizing" in spec:
+                err("pure selection does not consume sizing; remove sizing or add "
+                    "selection.candidate_trade so the field has an effect")
+            if "risk" in spec:
+                err("pure selection does not consume risk; remove risk or add "
+                    "selection.candidate_trade so the field has an effect")
         # ``min_score``/``max_score`` are absolute bounds (floor/ceiling), so an
         # inverted pair can never match anything. The dry-run does not catch it:
         # an empty basket is a legitimate outcome of a strict filter, so it comes
@@ -1247,7 +1428,12 @@ def validate_spec(spec: Dict[str, Any]) -> Tuple[List[str], List[str]]:
                 "can satisfy both and the basket is always empty. For a "
                 "bottom-of-the-column screen use `order: asc` with `max_score:` "
                 "as the ceiling." % (bounds["min_score"], bounds["max_score"]))
-        for position, step in enumerate(selection.get("universe") or []):
+        universe = selection.get("universe")
+        if universe is not None and not isinstance(universe, list):
+            err("selection.universe must be a list of mappings, got %s"
+                % type(universe).__name__)
+            universe = []
+        for position, step in enumerate(universe or []):
             if not isinstance(step, dict) or "block" not in step:
                 err("selection.universe[%d] must be a mapping with a 'block'" % position)
                 continue
@@ -1265,7 +1451,7 @@ def validate_spec(spec: Dict[str, Any]) -> Tuple[List[str], List[str]]:
             # validated green and raised in production.
             if str(step["block"]) in FAN_OUT_AUGMENTS and not any(
                     narrows_the_universe(str(prior.get("block")))
-                    for prior in (selection.get("universe") or [])[:position]
+                    for prior in (universe or [])[:position]
                     if isinstance(prior, dict)):
                 err("selection.universe[%d] is %s, whose source is captured by "
                     "fanning out one request per surviving symbol — so it must "
@@ -1276,7 +1462,9 @@ def validate_spec(spec: Dict[str, Any]) -> Tuple[List[str], List[str]]:
                     "frame built from a narrower roster and fail the join's "
                     "coverage floor. Move a narrowing step above it."
                     % (position, step["block"]))
-        for name, fspec in (selection.get("features") or {}).items():
+        feature_specs = _as_mapping(
+            selection.get("features"), "selection.features", err)
+        for name, fspec in feature_specs.items():
             if not isinstance(fspec, dict) or "block" not in fspec:
                 err("selection.features.%s must be a mapping with a 'block'" % name)
                 continue
@@ -1285,6 +1473,9 @@ def validate_spec(spec: Dict[str, Any]) -> Tuple[List[str], List[str]]:
             except SpecError as exc:
                 err("selection.features.%s: %s" % (name, exc))
         for label in ("long_when", "short_when"):
+            if selection.get(label) is not None:
+                _validate_condition_node(
+                    selection[label], "selection.%s" % label, err)
             for ref in _condition_refs(selection.get(label)):
                 try:
                     resolve_block(ref)

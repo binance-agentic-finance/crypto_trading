@@ -39,6 +39,7 @@ from cyqnt_trd.standard_bot.simulation.vectorized_backtest import run_vectorized
 from cyqnt_trd.standard_bot.yaml_pipeline.intent import (  # noqa: F401
     UNSUPPORTED_SELECTION_SOURCES,
     IntentDecision,
+    candidate_trade_plan,
     classify_request,
     generated_strategy_kind,
     infer_strategy_kind,
@@ -178,6 +179,32 @@ selection:
   min_score: 1.0
   dedupe_by: base_asset
 """
+
+
+OPEN_INTEREST_SELECTION_EXAMPLE_YAML = """\
+spec_version: "1.0"
+target: standard_bot
+strategy:
+  id: open_interest_selector
+  description: "依目前跨幣別合約未平倉名目金額挑選候選幣"
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary: { interval: "1h" }
+selection:
+  universe:
+    - block: universe.filter_quote_volume
+      params: { min_quote_volume: 100000000 }
+    - block: universe.augment_with_open_interest
+      with: [open_interest_snapshot]
+  score: oi_notional_usd
+  order: desc
+  top_k: 5
+  dedupe_by: base_asset
+"""
+
 
 #: The funding example, ranked on the ANNUALISED rate.
 #:
@@ -323,12 +350,205 @@ def _score_order_for(intent: IntentDecision | None, column: str) -> str | None:
     return intent.score_order
 
 
+def _candidate_trade_selection_prompt(intent: IntentDecision) -> str:
+    """Prompt one outer selection with complete nested candidate trades.
+
+    This branch deliberately precedes the source-specific plain-selection
+    prompts.  Those prompts correctly prohibit ``risk``/``sizing`` for a plain
+    basket, but those sections are required by ``selection.candidate_trade``.
+    """
+
+    sources = set(intent.sources)
+    if "open_interest" in sources:
+        source_steps = (
+            "    - block: universe.filter_quote_volume\n"
+            "      params: { min_quote_volume: 100000000 }\n"
+            "    - block: universe.augment_with_open_interest\n"
+            "      with: [open_interest_snapshot]\n"
+        )
+        score = "oi_notional_usd"
+        order = "desc"
+        source_note = (
+            "選幣依據是 open interest:先用 filter_quote_volume 收窄,再用 "
+            "augment_with_open_interest(with: [open_interest_snapshot]),並以 "
+            "oi_notional_usd 排名。"
+        )
+    elif "funding" in sources:
+        source_steps = (
+            "    - block: universe.filter_quote_volume\n"
+            "      params: { min_quote_volume: 100000000 }\n"
+            "    - block: universe.augment_with_funding\n"
+            "      with: [funding, funding_info]\n"
+        )
+        score = "fundingRateApr"
+        order = _score_order_for(intent, "fundingRatePct")
+        source_note = (
+            "選幣依據是 funding:使用 augment_with_funding(with: [funding, "
+            "funding_info])與可跨結算週期比較的 fundingRateApr。"
+        )
+    elif "price_change" in sources:
+        source_steps = (
+            "    - block: universe.filter_quote_volume\n"
+            "      params: { min_quote_volume: 100000000 }\n"
+        )
+        score = "priceChangePercent"
+        order = _score_order_for(intent, "priceChangePercent")
+        source_note = (
+            "選幣依據是 24h 漲跌幅:priceChangePercent 已在 universe frame,"
+            "不得虛構 augment_with_price_change。"
+        )
+    elif "news" in sources:
+        source_steps = (
+            "    - block: universe.filter_quote_volume\n"
+            "      params: { min_quote_volume: 100000000 }\n"
+            "    - block: universe.augment_with_news\n"
+            "      with: [ticker_rank]\n"
+        )
+        score = ("news_bull_ratio" if intent.ranking_metric == "sentiment"
+                 else "news_mention_count")
+        order = "desc"
+        source_note = (
+            "選幣依據是新聞/社群:使用 augment_with_news(with: [ticker_rank]),"
+            "並以使用者要求的 news_mention_count 或 news_bull_ratio 排名。"
+        )
+    else:
+        source_steps = (
+            "    - block: universe.filter_quote_volume\n"
+            "      params: { min_quote_volume: 100000000 }\n"
+        )
+        score = "quoteVolume"
+        order = "desc"
+        source_note = "選幣依據是 24h 成交額,以 quoteVolume 排名。"
+
+    plan = candidate_trade_plan(intent)
+    period = plan["period"]
+    interval = intent.intervals[0] if len(intent.intervals) == 1 else "1h"
+    alias = plan["alias"]
+    condition_lines = []
+    for side in plan["sides"]:
+        relation, value = plan["thresholds"][side]
+        condition_lines.append(
+            "  %s_when: { cond: conditions.value_%s, args: [%s, %g] }"
+            % (side, relation, alias, value)
+        )
+
+    top_k = intent.requested_count or 5
+    order_line = "  order: %s\n" % order if order else ""
+    assumptions = list(plan["assumptions"])
+    assumption_block = ""
+    if assumptions:
+        rendered = yaml.safe_dump(
+            {"assumptions": assumptions}, allow_unicode=True, sort_keys=False
+        ).rstrip()
+        assumption_block = "\n".join(
+            "  " + line for line in rendered.splitlines()
+        ) + "\n"
+    description = (
+        "先選幣,再以逐候選 RSI 快照產生需確認的買賣計畫;"
+        + ("未指定值已列於 strategy.assumptions" if assumptions else "未使用隱含預設")
+    )
+    example = (
+        'spec_version: "1.0"\n'
+        "target: standard_bot\n"
+        "strategy:\n"
+        "  id: rsi_candidate_trade_selector\n"
+        "  description: %s\n%s"
+        "run:\n"
+        "  mode: backtest\n"
+        "data:\n"
+        "  symbol: BTCUSDT\n"
+        "  market_type: futures\n"
+        "  primary: { interval: \"%s\" }\n"
+        "selection:\n"
+        "  universe:\n%s"
+        "    - block: universe.augment_with_indicator\n"
+        "      with: [universe_bars]\n"
+        "      params: { indicator: rsi, timeframe: \"%s\", period: %d, as: %s }\n"
+        "  score: %s\n%s"
+        "  top_k: %d\n"
+        "  dedupe_by: base_asset\n%s\n"
+        "  candidate_trade: { entry_type: market }\n"
+        "sizing: { size: %g }\n"
+        "risk:\n"
+        "  exit: { type: pct_stop_tp, stop_pct: %g, tp_pct: %g, max_bars: 48 }\n"
+        % (json.dumps(description, ensure_ascii=False), assumption_block,
+           interval, source_steps, interval, period, alias, score, order_line,
+           top_k, "\n".join(condition_lines), plan["size"], plan["stop_pct"],
+           plan["tp_pct"])
+    )
+    return (
+        "你是一個把自然語言『選幣 + 每個候選的技術買賣點』轉成 StandardBot "
+        "YAML 的轉換器。只輸出合法 YAML,不要 markdown 或解釋。\n\n"
+        "外層必須只有 selection:,不得同時產生頂層 signals:。必須寫 "
+        "selection.candidate_trade: {entry_type: market};外層執行結果仍是 kind=selection,"
+        "每個 candidates[].trade 才是完整 kind=trade。這些 nested trades 固定 "
+        "auto_trade_eligible=false、requires_confirmation=true,不是自動下單授權。\n"
+        + source_note + "\n"
+        "RSI 必須使用 universe.augment_with_indicator 並精確傳 "
+        "with: [universe_bars]。fan-out 前必須先收窄 universe。其輸出 alias 必須真的"
+        "出現在 long_when/short_when;只計算 RSI 卻不用它判斷買賣點一律不接受。"
+        "任何未由使用者指定的 RSI 門檻、size、stop 或 take-profit 只能採範例中的"
+        "固定預設,而且必須逐項保留範例的 strategy.assumptions cid 與 reading；漏掉"
+        "宣告或宣告值和實際條件不同都會被拒絕。\n\n"
+        "=== 範例輸出 ===\n" + example
+    )
+
+
+def _trade_prompt_sides(intent: IntentDecision | None) -> tuple[str, ...]:
+    """Resolve the same direction default that semantic reconciliation enforces."""
+    if intent is None:
+        return ("long",)
+    excluded = set(intent.excluded_directions)
+    requested = tuple(
+        side for side in ("long", "short")
+        if side in intent.directions and side not in excluded
+    )
+    if requested:
+        return requested
+    if "long" in excluded and "short" not in excluded:
+        return ("short",)
+    return ("long",)
+
+
+def _trade_prompt_example(sides: tuple[str, ...]) -> str:
+    """Remove unrequested sides so the example cannot contradict the instruction."""
+    example = yaml.safe_load(EXAMPLE_YAML)
+    entry = example["signals"]["entry"]
+    for side in ("long", "short"):
+        if side not in sides:
+            entry.pop(side, None)
+    return yaml.safe_dump(example, allow_unicode=True, sort_keys=False)
+
+
 def build_system_prompt(
     kind: str = "trade", intent: IntentDecision | None = None,
 ) -> str:
     if kind not in {"trade", "selection"}:
         raise ValueError("strategy kind must be trade or selection, got %r" % kind)
     if kind == "selection":
+        if intent is not None and intent.candidate_trade_requested:
+            return _candidate_trade_selection_prompt(intent)
+        if intent is not None and "open_interest" in intent.sources:
+            return (
+                "你是一個把自然語言選幣需求轉成 StandardBot YAML 的轉換器。"
+                "只輸出一份合法 YAML,不要 markdown、解釋或多餘文字。\n\n"
+                "這次需求指定跨幣別 open interest。頂層只用 selection:,不得產生"
+                " signals:、sizing:、risk: 或 backtest:。使用 data.symbol=BTCUSDT"
+                " 作排程代表標的,它不是候選結果。open interest 沒有全市場端點,"
+                "所以必須先用 universe.filter_quote_volume 收窄名單,再使用"
+                " universe.augment_with_open_interest 並精確寫"
+                " with: [open_interest_snapshot]。selection.score 必須使用"
+                " oi_notional_usd,因為 oi_base 是不同幣種的合約數量,不能跨幣比較。"
+                "不得改用新聞、成交量排名或技術指標。top_k 必須依使用者要求,"
+                "未指定時為 5。\n\n"
+                "=== 可用的 open interest 選幣 BLOCKS / 欄位 ===\n"
+                "universe.filter_quote_volume\n"
+                "universe.augment_with_open_interest "
+                "(with: [open_interest_snapshot])\n"
+                "universe.filter_open_interest\n"
+                "oi_base, oi_notional_usd, quoteVolume\n\n"
+                "=== 範例輸出 ===\n" + OPEN_INTEREST_SELECTION_EXAMPLE_YAML
+            )
         if intent is not None and "funding" in intent.sources:
             # Three states, not two. ``ascending = score_order == "asc"`` used to
             # collapse "the user did not say" into "the user said desc".
@@ -477,6 +697,29 @@ def build_system_prompt(
         )
 
     schema = SCHEMA_PATH.read_text(encoding="utf-8")
+    prompt_sides = _trade_prompt_sides(intent)
+    if prompt_sides == ("short",) and intent is not None \
+            and "long" in intent.excluded_directions:
+        direction_note = (
+            "使用者明確禁止做多且只允許做空:只能給 signals.entry.short,"
+            "不得產生 signals.entry.long。\n\n"
+        )
+    elif prompt_sides == ("short",):
+        direction_note = "使用者只要求做空:只能給 signals.entry.short。\n\n"
+    elif prompt_sides == ("long",) and intent is not None \
+            and intent.directions == ("long",):
+        direction_note = "使用者只要求做多:只能給 signals.entry.long。\n\n"
+    elif prompt_sides == ("long",):
+        direction_note = (
+            "使用者未指定方向,採 long-only:只能給 signals.entry.long,"
+            "不得擅自加入 signals.entry.short。\n\n"
+        )
+    else:
+        direction_note = (
+            "使用者同時明確要求多空兩邊:必須同時給 signals.entry.long 與 "
+            "signals.entry.short。\n\n"
+        )
+    prompt_example = _trade_prompt_example(prompt_sides)
     return (
         "你是一個把「自然語言交易策略描述」轉成 YAML 規格的轉換器。"
         "只輸出一份合法 YAML,不要有 markdown 圍欄(```)、不要解釋、不要多餘文字。\n\n"
@@ -484,10 +727,10 @@ def build_system_prompt(
         "不要使用 data.htf(單一時間框即可)。若使用者沒指定,採保守預設:"
         "market_type=futures、interval=1h、fees commission_bps=4 slippage_bps=2、size=0.95、"
         "出場預設 pct_stop_tp{stop_pct:0.02,tp_pct:0.04,max_bars:96}。\n"
-        "若使用者語意含『下穿做空 / 空方』就同時給 entry.long 與 entry.short;否則 long-only(只給 long)。\n\n"
+        + direction_note +
         "=== SCHEMA ===\n" + schema + "\n\n"
         "=== 可用 BLOCKS ===\n" + BLOCKS_CHEATSHEET + "\n\n"
-        "=== 範例輸出 ===\n" + EXAMPLE_YAML
+        "=== 範例輸出 ===\n" + prompt_example
     )
 
 
@@ -533,8 +776,9 @@ def convert_nl(api_base: str, api_key: str, model: str, nl: str) -> dict:
     if intent.kind == "ambiguous":
         compound = "compound_selection_execution" in intent.evidence
         message = (
-            "目前一份 YAML 不能同時表達『先跨幣別選幣，再對每個候選執行交易規則』;"
-            "請拆成選幣與交易兩個需求"
+            "這個『先選幣再交易』要求缺少目前 candidate_trade 可驗證的逐候選"
+            "進場條件;請補 RSI 門檻/技術買賣點。直接買入與 EMA 跨越等逐根事件"
+            "不會被偷偷改寫成另一個策略"
             if compound else
             "無法可靠判斷你要『挑選一組候選幣』還是『為單一標的建立交易規則』;"
             "系統已停止,不會預設成技術分析"
@@ -940,17 +1184,16 @@ def run_selection(yaml_text: str) -> dict:
 
     import time
 
-    from cyqnt_trd.standard_bot.data.live_snapshot import build_live_snapshot
     from cyqnt_trd.standard_bot.yaml_pipeline.bundle_runner import (
-        live_sections_for_spec, run_bundle)
+        collect_live_bundle_for_spec, run_bundle)
 
     market_type = (spec.get("data") or {}).get("market_type", "futures")
     started = time.time()
     data = spec.get("data") or {}
     symbol = str(data.get("symbol") or "BTCUSDT").upper()
     interval = str((data.get("primary") or {}).get("interval") or "1h")
-    _snapshot_obj, bundle = build_live_snapshot(
-        sections=live_sections_for_spec(spec), symbol=symbol, interval=interval,
+    bundle = collect_live_bundle_for_spec(
+        spec, symbol=symbol, interval=interval,
         market_type=market_type,
     )
     batch = run_bundle(spec, bundle)

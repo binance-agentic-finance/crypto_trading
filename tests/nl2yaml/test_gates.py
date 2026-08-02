@@ -87,8 +87,10 @@ NEWS_CONDITIONS = [
 ]
 
 CASES = [
-    pytest.param(SPEC_NEWS, NL_NEWS, NEWS_CONDITIONS, id="example_selection"),
+    pytest.param(SPEC_NEWS, NL_NEWS, NEWS_CONDITIONS, gates.STATUS_PASSED,
+                 id="example_selection"),
     pytest.param(SPEC_USER_CHAT, NL_USER_CHAT, USER_CHAT_CONDITIONS,
+                 "condition_unresolved",
                  id="example_from_user_chat"),
 ]
 
@@ -98,8 +100,10 @@ CASES = [
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.parametrize("spec_path, nl, conditions", CASES)
-def test_all_five_gates_run_on_a_shipped_example(spec_path, nl, conditions, capsys):
+@pytest.mark.parametrize("spec_path, nl, conditions, expected_status", CASES)
+def test_all_five_gates_run_on_a_shipped_example(
+    spec_path, nl, conditions, expected_status, capsys,
+):
     report = gates.run_gates(_spec(spec_path), nl=nl, bundle=_bundle(),
                              conditions=conditions)
 
@@ -107,7 +111,7 @@ def test_all_five_gates_run_on_a_shipped_example(spec_path, nl, conditions, caps
         print("\n=== %s ===\n%s" % (spec_path.name, report.summary()))
 
     assert [result.gate for result in report.results] == list(gates.GATES)
-    assert report.status == gates.STATUS_PASSED, report.summary()
+    assert report.status == expected_status, report.summary()
     # G1d really executed: a report that skipped it would have no batch and no
     # candidates, and would still pass every assertion above.
     assert report.batch is not None
@@ -118,9 +122,10 @@ def test_all_five_gates_run_on_a_shipped_example(spec_path, nl, conditions, caps
     assert all(item.detail for item in report.condition_verdicts)
 
 
-@pytest.mark.parametrize("spec_path, nl, conditions", CASES)
-def test_the_gates_are_replayable_and_touch_no_network(spec_path, nl, conditions,
-                                                       monkeypatch):
+@pytest.mark.parametrize("spec_path, nl, conditions, expected_status", CASES)
+def test_the_gates_are_replayable_and_touch_no_network(
+    spec_path, nl, conditions, expected_status, monkeypatch,
+):
     """A gate result that depends on today's market is not a gate.
 
     Recording as well as raising is deliberate: ``data_cli.rest_source`` catches
@@ -149,7 +154,7 @@ def test_the_gates_are_replayable_and_touch_no_network(spec_path, nl, conditions
                              conditions=conditions)
 
     assert calls == []
-    assert first.status == second.status == gates.STATUS_PASSED
+    assert first.status == second.status == expected_status
     assert (json.dumps(first.batch, sort_keys=True)
             == json.dumps(second.batch, sort_keys=True))
 
@@ -207,7 +212,7 @@ def test_an_undeclared_reading_fails_g1e_even_when_every_predicate_holds():
     output participates — which is why this catches the case the reviewer in the
     first demo missed on all three specs it appeared in.
     """
-    conditions = [dict(item) for item in USER_CHAT_CONDITIONS]
+    conditions = [dict(USER_CHAT_CONDITIONS[0])]
     conditions[0]["ambiguity_type"] = "unit"
 
     report = gates.run_gates(_spec(SPEC_USER_CHAT), nl=NL_USER_CHAT,
@@ -234,7 +239,7 @@ def test_declaring_the_reading_clears_the_gate():
     ways would look identical in the test above while making the feature
     unusable.
     """
-    conditions = [dict(item) for item in USER_CHAT_CONDITIONS]
+    conditions = [dict(USER_CHAT_CONDITIONS[0])]
     conditions[0]["ambiguity_type"] = "unit"
     spec = _spec(SPEC_USER_CHAT)
     spec["strategy"]["assumptions"] = [{
@@ -347,29 +352,36 @@ def test_the_two_ambiguity_vocabularies_are_the_same_vocabulary():
     assert set(cap.AMBIGUITY_TYPES) == {member.value for member in AmbiguityType}
 
 
-def test_a_forgotten_condition_is_not_reported_satisfied_by_a_lucky_basket():
-    """Vacuous expression, closed.
-
-    Drop the exclusion step. None of the four majors is among the 30 biggest
-    losers in this cross-section, so the basket is byte-identical and "no
-    candidate is BTC" is perfectly true of it. Reporting that as ``satisfied``
-    would teach the model that the step is optional.
-    """
-    spec = _spec(SPEC_USER_CHAT)
-    spec["selection"]["universe"] = [
-        step for step in spec["selection"]["universe"]
-        if step["block"] != "universe.exclude_symbols"]
-
-    report = gates.run_gates(spec, nl=NL_USER_CHAT, bundle=_bundle(),
+def test_a_forgotten_condition_fails_g1e_instead_of_soft_passing():
+    """An omitted condition is retryable feedback, never a successful run."""
+    report = gates.run_gates(_spec(SPEC_USER_CHAT), nl=NL_USER_CHAT, bundle=_bundle(),
                              conditions=USER_CHAT_CONDITIONS)
-    verdict = {item.condition.id: item for item in report.condition_verdicts}["majors"]
+    verdict = {item.condition.id: item for item in report.condition_verdicts}["lsr"]
 
     assert verdict.verdict == gates.NOT_EXPRESSED
-    assert "universe.exclude_symbols" in verdict.detail
-    # The gate itself still passes — nothing was violated — so `clean` is the
-    # property a caller picking gold specs has to filter on, not `ok`.
-    assert report.ok is True
+    assert "universe.augment_with_long_short_ratio" in verdict.detail
+    assert report.failed_gate == "G1e"
+    assert report.status == "condition_unresolved"
+    assert "lsr" in "\n".join(report.results[-1].errors)
+    assert report.ok is False
     assert report.clean is False
+
+
+def test_an_impossible_condition_names_the_capability_gap():
+    condition = {
+        "id": "cap", "subject": "market_cap", "scope": "cross_section",
+        "operator": "compare", "value": {"op": ">", "threshold": 1_000_000},
+        "quantified": True,
+    }
+
+    report = gates.run_gates(_spec(SPEC_NEWS), nl=NL_NEWS, bundle=_bundle(),
+                             conditions=[condition])
+
+    assert report.status == "condition_unresolved"
+    error = report.results[-1].errors[0]
+    assert "GAP-MARKET-CAP" in error
+    assert "mark the request unsupported" in error
+    assert "do not replace" in error
 
 
 def test_an_empty_basket_is_unverifiable_and_never_vacuously_satisfied():
@@ -388,6 +400,7 @@ def test_an_empty_basket_is_unverifiable_and_never_vacuously_satisfied():
     # A ceiling really is satisfied by zero, and this predicate says so rather
     # than pretending it cannot tell.
     assert verdicts["five"].verdict == gates.SATISFIED
+    assert report.status == "condition_unresolved"
 
 
 def test_the_supertrend_condition_is_reported_silently_proxied():
@@ -397,8 +410,8 @@ def test_the_supertrend_condition_is_reported_silently_proxied():
     ``universe.top_losers(n=30)``. The run succeeds, the basket looks healthy,
     and the emitted reason strings say ``quoteVolume=..., rank N of 5`` and
     nothing about a stand-in. So the condition is ``not_expressed`` AND
-    ``silently_proxied``, and the report is not clean even though all five gates
-    pass.
+    ``silently_proxied``. G1e must stop the run instead of accepting that
+    semantically incomplete answer.
 
     What changed on 2026-08-02 is the REASON, not the verdict.
     ``universe.augment_with_indicator`` landed, so the capability row flipped to
@@ -411,7 +424,8 @@ def test_the_supertrend_condition_is_reported_silently_proxied():
                              bundle=_bundle(), conditions=USER_CHAT_CONDITIONS)
     verdicts = {item.condition.id: item for item in report.condition_verdicts}
 
-    assert report.status == gates.STATUS_PASSED
+    assert report.status == "condition_unresolved"
+    assert report.failed_gate == "G1e"
     assert verdicts["supertrend"].verdict == gates.NOT_EXPRESSED
     assert verdicts["supertrend"].silently_proxied is True
     assert verdicts["supertrend"].detail == (
@@ -451,6 +465,7 @@ def test_a_condition_the_output_could_never_confirm_is_unverifiable_not_satisfie
     assert verdicts["tradfi"].verdict == gates.NOT_EXPRESSED
     assert not any(item.verdict == gates.SATISFIED
                    for item in (verdicts["lsr"], verdicts["tradfi"]))
+    assert report.status == "condition_unresolved"
 
 
 def test_a_basket_ranked_on_a_different_column_than_requested_is_violated():
@@ -773,12 +788,54 @@ def test_the_retry_loop_accepts_a_fix_and_reports_the_attempt_count():
         return _spec(SPEC_USER_CHAT)
 
     outcome = gates.run_with_retries(convert, nl=NL_USER_CHAT, bundle=_bundle(),
-                                     conditions=USER_CHAT_CONDITIONS,
+                                     conditions=USER_CHAT_CONDITIONS[:5],
                                      max_attempts=3)
 
     assert outcome.status == gates.STATUS_PASSED
     assert outcome.attempts == 2
     assert outcome.playbook_gap is None
+
+
+def test_the_retry_loop_does_not_accept_an_unresolved_first_output():
+    calls = []
+
+    def convert(attempt, previous):
+        calls.append(attempt)
+        if attempt == 0:
+            assert previous is None
+        else:
+            assert previous is not None
+            assert previous.status == "condition_unresolved"
+            assert previous.clean is False
+        return _spec(SPEC_USER_CHAT)
+
+    outcome = gates.run_with_retries(
+        convert, nl=NL_USER_CHAT, bundle=_bundle(),
+        conditions=USER_CHAT_CONDITIONS, max_attempts=3)
+
+    assert calls == [0, 1]
+    assert [report.status for report in outcome.reports] == [
+        "condition_unresolved", "condition_unresolved"]
+    assert outcome.status == "stuck"
+    assert outcome.report.clean is False
+
+
+def test_a_retried_impossible_condition_keeps_its_capability_gap_label():
+    condition = {
+        "id": "cap", "subject": "market_cap", "scope": "cross_section",
+        "operator": "compare", "value": {"op": ">", "threshold": 1_000_000},
+        "quantified": True,
+    }
+
+    outcome = gates.run_with_retries(
+        lambda _attempt, _previous: _spec(SPEC_NEWS),
+        nl=NL_NEWS, bundle=_bundle(), conditions=[condition], max_attempts=3)
+
+    assert outcome.status == "stuck"
+    assert outcome.attempts == 2
+    assert "GAP-MARKET-CAP" in outcome.playbook_gap
+    assert "capability backlog" in outcome.playbook_gap
+    assert "do not file a capability gap" not in outcome.playbook_gap
 
 
 def test_two_different_failures_are_allowed_to_use_the_whole_budget():

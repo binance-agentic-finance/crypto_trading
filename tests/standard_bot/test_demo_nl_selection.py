@@ -30,8 +30,14 @@ TRADE_YAML = ROOT / "docs" / "strategy_yaml_spec" / "example_single_ma.yaml"
 CHAT_SELECTION_YAML = (
     ROOT / "docs" / "strategy_yaml_spec" / "example_from_user_chat.yaml"
 )
+CANDIDATE_TRADE_YAML = (
+    ROOT / "docs" / "strategy_yaml_spec" / "example_selection_candidate_trade.yaml"
+)
 SAMPLE_BUNDLE = (
     ROOT / "docs" / "standard_bot_io" / "samples" / "input_bundle_example.json"
+)
+UNIVERSE_DERIVATIVES_BUNDLE = (
+    ROOT / "tests" / "standard_bot" / "fixtures" / "universe_derivatives.json"
 )
 
 ENGLISH_DISCOVERY_REQUEST = (
@@ -88,6 +94,14 @@ def _prompt_example(demo_server, intent):
     _instructions, marker, example = prompt.partition("=== 範例輸出 ===")
     assert marker and example.strip(), prompt
     return example
+
+
+def _prompt_yaml(prompt: str) -> dict:
+    _instructions, marker, example = prompt.partition("=== 範例輸出 ===")
+    assert marker and example.strip(), prompt
+    parsed = yaml.safe_load(example)
+    assert isinstance(parsed, dict), example
+    return parsed
 
 
 def test_prompt_teaches_the_model_the_news_selection_dialect(demo_server):
@@ -170,7 +184,384 @@ def test_compound_selection_and_execution_fails_closed(
     assert result["status"] == "needs_clarification"
     assert result["strategy_kind"] == "ambiguous"
     assert result["yaml"] == ""
-    assert any("兩個需求" in str(error) for error in result["errors"])
+    assert any("請補 RSI 門檻/技術買賣點" in str(error)
+               for error in result["errors"])
+
+
+@pytest.mark.parametrize(
+    ("phrase", "directions", "thresholds", "entry_sides"),
+    [
+        (
+            "選成交量最大的五個幣，RSI14 低於30做多，高於70做空",
+            ("long", "short"),
+            (("below", 30.0), ("above", 70.0)),
+            {"long_when", "short_when"},
+        ),
+        (
+            "選成交量最大的五個幣，RSI14低於30做多",
+            ("long",),
+            (("below", 30.0),),
+            {"long_when"},
+        ),
+        (
+            "選成交量最大的五個幣，還要 RSI14 低於30買點，高於70賣點，"
+            "停損2%，停利4%，倉位5%",
+            (),
+            (("below", 30.0), ("above", 70.0)),
+            {"long_when", "short_when"},
+        ),
+    ],
+)
+def test_rsi_candidate_trade_clauses_route_to_selection_without_losing_context(
+    demo_server, phrase, directions, thresholds, entry_sides,
+):
+    intent = demo_server.classify_request(phrase)
+
+    assert intent.kind == "selection"
+    assert intent.candidate_trade_requested is True
+    assert intent.requested_count == 5
+    assert intent.sources == frozenset({"liquidity"})
+    assert intent.directions == directions
+    assert intent.rsi_thresholds == thresholds
+
+    generated = _prompt_yaml(demo_server.build_system_prompt("selection", intent))
+    present = {
+        key for key in ("long_when", "short_when")
+        if key in generated["selection"]
+    }
+    assert present == entry_sides
+    if "long_when" in present:
+        assert generated["selection"]["long_when"]["args"] == ["rsi14", 30]
+    if "short_when" in present:
+        assert generated["selection"]["short_when"]["args"] == ["rsi14", 70]
+
+
+@pytest.mark.parametrize(
+    ("point_text", "sides", "condition_keys", "expected_cids"),
+    [
+        (
+            "技術分析買賣點",
+            ("long", "short"),
+            {"long_when", "short_when"},
+            {"default_candidate_indicator", "candidate_sell_point_as_short_entry"},
+        ),
+        (
+            "技術分析買點",
+            ("long",),
+            {"long_when"},
+            {"default_candidate_indicator"},
+        ),
+        (
+            "技術分析賣點",
+            ("short",),
+            {"short_when"},
+            {"default_candidate_indicator", "candidate_sell_point_as_short_entry"},
+        ),
+    ],
+)
+def test_generic_candidate_trade_points_use_declared_rsi_defaults_and_correct_side(
+    demo_server, point_text, sides, condition_keys, expected_cids,
+):
+    request = "選成交量最大的五個幣，還要" + point_text
+    intent = demo_server.classify_request(request)
+
+    assert intent.kind == "selection"
+    assert intent.candidate_trade_requested is True
+    plan = demo_server.candidate_trade_plan(intent)
+    assert plan["sides"] == sides
+
+    generated = _prompt_yaml(demo_server.build_system_prompt("selection", intent))
+    present = {
+        key for key in ("long_when", "short_when")
+        if key in generated["selection"]
+    }
+    assert present == condition_keys
+    cids = {item["cid"] for item in generated["strategy"]["assumptions"]}
+    assert expected_cids <= cids
+    if "candidate_sell_point_as_short_entry" in expected_cids:
+        sell = next(item for item in generated["strategy"]["assumptions"]
+                    if item["cid"] == "candidate_sell_point_as_short_entry")
+        assert "intent=open_short" in sell["reading"]
+        assert "not close_long" in sell["reading"]
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        "現貨選成交量最大的五個幣，還要技術分析買賣點",
+        "選成交量最大的五個幣，不要 RSI，但要技術分析買賣點",
+        "選成交量最大的五個幣，還要 MACD 技術分析買賣點",
+    ],
+)
+def test_candidate_trade_points_that_cannot_be_represented_need_clarification(
+    demo_server, monkeypatch, phrase,
+):
+    monkeypatch.setattr(
+        demo_server,
+        "call_llm",
+        lambda *_, **__: (_ for _ in ()).throw(
+            AssertionError("an unsupported candidate trade meaning must stop first")
+        ),
+    )
+
+    result = demo_server.convert_nl("http://llm/v1", "", "model", phrase)
+
+    assert result["status"] == "needs_clarification"
+    assert result["strategy_kind"] == "ambiguous"
+    assert result["yaml"] == ""
+
+
+def test_negated_candidate_trade_points_remain_a_plain_selection(demo_server):
+    intent = demo_server.classify_request(
+        "選成交量最大的五個幣，不要 RSI 也不要技術分析買賣點"
+    )
+
+    assert intent.kind == "selection"
+    assert intent.candidate_trade_requested is False
+    assert "rsi" in intent.excluded_indicator_names
+
+
+def _declare_candidate_defaults(demo_server, request: str, spec: dict) -> dict:
+    plan = demo_server.candidate_trade_plan(demo_server.classify_request(request))
+    assumptions = [copy.deepcopy(item) for item in plan["assumptions"]]
+    if assumptions:
+        spec["strategy"]["assumptions"] = assumptions
+    else:
+        spec["strategy"].pop("assumptions", None)
+    return spec
+
+
+def _fixture_candidate_trade_yaml(demo_server, request: str) -> dict:
+    """Make the shipped hybrid example match the frozen bars capture roster.
+
+    The fixture deliberately contains per-candidate bars for exactly five
+    instruments.  Naming those same five instruments in the request/spec keeps
+    this golden path honest: no missing bars are silently treated as a market
+    fact and no unrequested allowlist is smuggled into the generated YAML.
+    """
+    spec = yaml.safe_load(CANDIDATE_TRADE_YAML.read_text(encoding="utf-8"))
+    spec["selection"]["universe"][0] = {
+        "block": "universe.only_symbols",
+        "params": {
+            "symbols": [
+                "ALLOUSDT", "TAGUSDT", "UAIUSDT", "UBUSDT", "USUSDT",
+            ],
+        },
+    }
+    return _declare_candidate_defaults(demo_server, request, spec)
+
+
+def test_selection_with_rsi_trade_points_stays_selection_through_runtime(
+    demo_server, monkeypatch,
+):
+    """Golden NL -> mocked YAML -> real Blocks -> nested trade contracts."""
+    request = (
+        "從 ALLO、TAG、UAI、UB、US 中選成交量最大的五個幣，"
+        "還要技術分析買賣點"
+    )
+    generated = _fixture_candidate_trade_yaml(demo_server, request)
+    monkeypatch.setattr(
+        demo_server,
+        "call_llm",
+        lambda *_, **__: yaml.safe_dump(generated, sort_keys=False),
+    )
+
+    converted = demo_server.convert_nl("http://llm/v1", "", "model", request)
+
+    assert converted["valid"] is True, converted
+    assert converted["strategy_kind"] == "selection"
+    assert converted["generated_strategy_kind"] == "selection"
+    assert converted["intent"]["candidate_trade_requested"] is True
+
+    # ``run_bundle`` accepts a mapping or a path.  Parse the model text here so
+    # this test cannot accidentally reinterpret a YAML document as a filename.
+    from cyqnt_trd.standard_bot.yaml_pipeline.bundle_runner import run_bundle
+
+    batch = run_bundle(
+        yaml.safe_load(converted["yaml"]), str(UNIVERSE_DERIVATIVES_BUNDLE)
+    )
+    assert batch["schema"] == "cyqnt.signal-batch/v1"
+    assert batch["signal_count"] == 1
+    signal = batch["signals"][0]
+    assert signal["schema"] == "cyqnt.signal/v2"
+    assert signal["kind"] == "selection"
+    assert len(signal["candidates"]) == 5
+    assert all(candidate["trade"]["schema"] == "cyqnt.signal/v2"
+               for candidate in signal["candidates"])
+    assert all(candidate["trade"]["kind"] == "trade"
+               for candidate in signal["candidates"])
+    assert all(candidate["trade"]["auto_trade_eligible"] is False
+               for candidate in signal["candidates"])
+    assert all(candidate["trade"]["requires_confirmation"] is True
+               for candidate in signal["candidates"])
+    expected_cids = {
+        "default_candidate_indicator",
+        "candidate_sell_point_as_short_entry",
+        "default_candidate_rsi_long",
+        "default_candidate_rsi_short",
+        "default_candidate_size",
+        "default_candidate_stop",
+        "default_candidate_take_profit",
+    }
+    assert all(any("assumption (%s)" % cid in warning
+                   for warning in signal["warnings"])
+               for cid in expected_cids)
+    assert all(any("assumption (%s)" % cid in warning
+                   for warning in signal["candidates"][0]["trade"]["warnings"])
+               for cid in expected_cids)
+
+
+@pytest.mark.parametrize(
+    ("mutate", "needle"),
+    [
+        (
+            lambda spec: (
+                spec["selection"].pop("candidate_trade"),
+                spec.pop("sizing"),
+                spec.pop("risk"),
+            ),
+            "沒有 selection.candidate_trade",
+        ),
+        (
+            lambda spec: (
+                spec["selection"].__setitem__(
+                    "long_when",
+                    {"cond": "conditions.value_below", "args": ["quoteVolume", 30]},
+                ),
+                spec["selection"].__setitem__(
+                    "short_when",
+                    {"cond": "conditions.value_above", "args": ["quoteVolume", 70]},
+                ),
+            ),
+            "沒有實際影響 long_when/short_when",
+        ),
+        (
+            lambda spec: spec["selection"].pop("short_when"),
+            "沒有 selection.short_when 賣點",
+        ),
+    ],
+    ids=["missing_candidate_trade", "computed_rsi_is_unused", "missing_sell_point"],
+)
+def test_hybrid_semantic_mismatches_fail_closed(
+    demo_server, monkeypatch, mutate, needle,
+):
+    request = "選成交量最大的五個幣，還要 RSI14 技術分析買賣點"
+    generated = yaml.safe_load(CANDIDATE_TRADE_YAML.read_text(encoding="utf-8"))
+    _declare_candidate_defaults(demo_server, request, generated)
+    mutate(generated)
+    monkeypatch.setattr(
+        demo_server,
+        "call_llm",
+        lambda *_, **__: yaml.safe_dump(generated, sort_keys=False),
+    )
+
+    result = demo_server.convert_nl("http://llm/v1", "", "model", request)
+
+    assert result["strategy_kind"] == "selection"
+    assert result["valid"] is False
+    assert any(needle in str(error) for error in result["errors"]), result
+
+
+@pytest.mark.parametrize(
+    ("mutate", "needle"),
+    [
+        (
+            lambda spec: spec["strategy"]["assumptions"].pop(),
+            "缺少 cid=default_candidate_take_profit",
+        ),
+        (
+            lambda spec: spec["strategy"]["assumptions"][0].__setitem__(
+                "reading", "RSI defaults, trust me"
+            ),
+            "必須精確宣告",
+        ),
+        (
+            lambda spec: spec["sizing"].__setitem__("size", 0.10),
+            "sizing.size 必須是 0.05",
+        ),
+    ],
+    ids=["missing_declaration", "mutated_declaration", "value_disagrees"],
+)
+def test_hybrid_defaults_require_exact_machine_readable_assumptions(
+    demo_server, monkeypatch, mutate, needle,
+):
+    request = "選成交量最大的五個幣，還要 RSI14 技術分析買賣點"
+    intent = demo_server.classify_request(request)
+    generated = _prompt_yaml(demo_server.build_system_prompt("selection", intent))
+    assert len(generated["strategy"]["assumptions"]) == 6
+    mutate(generated)
+    monkeypatch.setattr(
+        demo_server,
+        "call_llm",
+        lambda *_, **__: yaml.safe_dump(generated, allow_unicode=True, sort_keys=False),
+    )
+
+    result = demo_server.convert_nl("http://llm/v1", "", "model", request)
+
+    assert result["valid"] is False
+    assert any(needle in str(error) for error in result["errors"]), result
+
+
+def test_contextual_second_rsi_threshold_is_semantically_enforced(
+    demo_server, monkeypatch,
+):
+    request = (
+        "選成交量最大的五個幣，還要 RSI14 低於30買點，高於70賣點，"
+        "停損2%，停利4%，倉位5%"
+    )
+    prompt_spec = _prompt_yaml(
+        demo_server.build_system_prompt(
+            "selection", demo_server.classify_request(request)
+        )
+    )
+    assumptions = prompt_spec["strategy"]["assumptions"]
+    assert [item["cid"] for item in assumptions] == [
+        "candidate_sell_point_as_short_entry"
+    ]
+    wrong = yaml.safe_load(CANDIDATE_TRADE_YAML.read_text(encoding="utf-8"))
+    wrong["selection"]["short_when"]["args"][1] = 65
+    monkeypatch.setattr(
+        demo_server,
+        "call_llm",
+        lambda *_, **__: yaml.safe_dump(wrong, sort_keys=False),
+    )
+
+    result = demo_server.convert_nl("http://llm/v1", "", "model", request)
+
+    assert result["valid"] is False
+    assert any("above 70" in str(error) for error in result["errors"]), result
+
+
+@pytest.mark.parametrize(
+    ("phrase", "source_block", "source_input"),
+    [
+        (
+            "選 open interest 最大的五個幣，還要 RSI14 技術分析買賣點",
+            "universe.augment_with_open_interest",
+            "open_interest_snapshot",
+        ),
+        (
+            "選 funding rate 最高的五個幣，還要 RSI14 技術分析買賣點",
+            "universe.augment_with_funding",
+            "funding_info",
+        ),
+    ],
+)
+def test_hybrid_prompt_precedes_plain_source_selection_prompt(
+    demo_server, phrase, source_block, source_input,
+):
+    intent = demo_server.classify_request(phrase)
+    assert intent.kind == "selection"
+    assert intent.candidate_trade_requested is True
+
+    prompt = demo_server.build_system_prompt("selection", intent)
+
+    assert "selection.candidate_trade" in prompt
+    assert "sizing: { size:" in prompt
+    assert "risk:" in prompt
+    assert source_block in prompt
+    assert source_input in prompt
+    assert "不得產生 signals:、sizing:、risk:" not in prompt
 
 
 def test_generic_selection_without_a_ranking_criterion_fails_closed(
@@ -202,6 +593,100 @@ def test_trade_prompt_uses_the_running_macd_block_signature(demo_server):
     assert actual == ("series", "fast", "slow", "signal")
     assert "indicators.macd(series,fast,slow,signal)" in prompt
     assert "indicators.macd(series,fast_period,slow_period,signal_period)" not in prompt
+
+
+def test_unspecified_trade_direction_is_long_only_in_prompt_and_reconciliation(
+    demo_server, monkeypatch,
+):
+    request = "BTC 1h EMA10 上穿 EMA30"
+    intent = demo_server.classify_request(request)
+    assert intent.kind == "trade"
+    assert intent.directions == ()
+
+    prompt = demo_server.build_system_prompt("trade", intent)
+    assert "使用者未指定方向,採 long-only" in prompt
+    assert set(_prompt_yaml(prompt)["signals"]["entry"]) == {"long"}
+
+    generated = yaml.safe_load(TRADE_YAML.read_text(encoding="utf-8"))
+    monkeypatch.setattr(
+        demo_server,
+        "call_llm",
+        lambda *_, **__: yaml.safe_dump(generated, sort_keys=False),
+    )
+    rejected = demo_server.convert_nl("http://llm/v1", "", "model", request)
+    assert rejected["valid"] is False
+    assert any("預設 long-only" in str(error) for error in rejected["errors"])
+
+    generated["signals"]["entry"].pop("short")
+    monkeypatch.setattr(
+        demo_server,
+        "call_llm",
+        lambda *_, **__: yaml.safe_dump(generated, sort_keys=False),
+    )
+    accepted = demo_server.convert_nl("http://llm/v1", "", "model", request)
+    assert accepted["valid"] is True, accepted
+
+
+def test_negated_indicator_is_forbidden_not_required(demo_server, monkeypatch):
+    request = "BTC 1h EMA10 上穿 EMA30 買進，不要使用 RSI"
+    intent = demo_server.classify_request(request)
+    assert intent.indicator_names == ("ema",)
+    assert intent.excluded_indicator_names == ("rsi",)
+    assert intent.technical_periods == (("ema", 10), ("ema", 30))
+
+    faithful = yaml.safe_load(TRADE_YAML.read_text(encoding="utf-8"))
+    faithful["signals"]["entry"].pop("short")
+    monkeypatch.setattr(
+        demo_server, "call_llm", lambda *_, **__: yaml.safe_dump(faithful, sort_keys=False)
+    )
+    accepted = demo_server.convert_nl("http://llm/v1", "", "model", request)
+    assert accepted["valid"] is True, accepted
+
+    forbidden = copy.deepcopy(faithful)
+    forbidden["signals"]["indicators"]["rsi14"] = {
+        "block": "indicators.rsi", "input": "close", "params": {"period": 14},
+    }
+    forbidden["signals"]["entry"]["long"] = {
+        "all_of": [
+            forbidden["signals"]["entry"]["long"],
+            {"cond": "conditions.value_below", "args": ["rsi14", 30]},
+        ]
+    }
+    monkeypatch.setattr(
+        demo_server, "call_llm", lambda *_, **__: yaml.safe_dump(forbidden, sort_keys=False)
+    )
+    rejected = demo_server.convert_nl("http://llm/v1", "", "model", request)
+    assert rejected["valid"] is False
+    assert any("不要使用 RSI" in str(error) for error in rejected["errors"])
+
+
+def test_negated_long_direction_leaves_short_as_the_only_allowed_side(
+    demo_server, monkeypatch,
+):
+    request = "BTC 1h 不要做多，只允許做空，EMA10 下穿 EMA30"
+    intent = demo_server.classify_request(request)
+    assert intent.directions == ("short",)
+    assert intent.excluded_directions == ("long",)
+    prompt = demo_server.build_system_prompt("trade", intent)
+    assert "只能給 signals.entry.short" in prompt
+    assert "不得產生 signals.entry.long" in prompt
+    assert set(_prompt_yaml(prompt)["signals"]["entry"]) == {"short"}
+
+    faithful = yaml.safe_load(TRADE_YAML.read_text(encoding="utf-8"))
+    faithful["signals"]["entry"].pop("long")
+    monkeypatch.setattr(
+        demo_server, "call_llm", lambda *_, **__: yaml.safe_dump(faithful, sort_keys=False)
+    )
+    accepted = demo_server.convert_nl("http://llm/v1", "", "model", request)
+    assert accepted["valid"] is True, accepted
+
+    forbidden = yaml.safe_load(TRADE_YAML.read_text(encoding="utf-8"))
+    monkeypatch.setattr(
+        demo_server, "call_llm", lambda *_, **__: yaml.safe_dump(forbidden, sort_keys=False)
+    )
+    rejected = demo_server.convert_nl("http://llm/v1", "", "model", request)
+    assert rejected["valid"] is False
+    assert any("不要做多" in str(error) for error in rejected["errors"])
 
 
 def test_macd_yaml_taught_by_prompt_passes_real_dry_run_and_old_names_fail(
@@ -529,30 +1014,33 @@ def test_news_request_rejects_selection_that_does_not_use_news(
         "幫我選五個未平倉量最高的幣",
     ],
 )
-def test_unsupported_cross_section_source_is_not_replaced_with_news(
+def test_open_interest_cross_section_uses_the_now_supported_fanout_path(
     demo_server, monkeypatch, phrase,
 ):
-    """Open interest has no whole-market endpoint, so it must stay a refusal.
+    """The front door must track the narrowed-roster OI Blocks that now run."""
+    intent = demo_server.classify_request(phrase)
+    assert intent.sources == frozenset({"open_interest"})
+    prompt = demo_server.build_system_prompt("selection", intent)
+    assert "universe.augment_with_open_interest" in prompt
+    assert "with: [open_interest_snapshot]" in prompt
+    assert "score: oi_notional_usd" in prompt
 
-    ``GET /fapi/v1/openInterest`` requires a symbol; there is no cross-section
-    frame to rank on. Answering with news buzz instead would look like a coin
-    list built from open interest.
-    """
     monkeypatch.setattr(
         demo_server,
         "call_llm",
-        lambda *_, **__: (_ for _ in ()).throw(
-            AssertionError("unsupported selection source must stop before LLM")
-        ),
+        lambda *_, **__: demo_server.OPEN_INTEREST_SELECTION_EXAMPLE_YAML,
     )
+    accepted = demo_server.convert_nl("http://llm/v1", "", "model", phrase)
+    assert accepted["status"] == "valid", accepted
+    assert accepted["valid"] is True, accepted
 
-    result = demo_server.convert_nl("http://llm/v1", "", "model", phrase)
-
-    assert result["status"] == "unsupported"
-    assert result["valid"] is False
-    assert result["yaml"] == ""
-    assert "open_interest" in result["intent"]["sources"]
-    assert any("open_interest" in str(error) for error in result["errors"])
+    # A plausible news basket is still the wrong answer to an OI request.
+    monkeypatch.setattr(
+        demo_server, "call_llm", lambda *_, **__: demo_server.SELECTION_EXAMPLE_YAML
+    )
+    rejected = demo_server.convert_nl("http://llm/v1", "", "model", phrase)
+    assert rejected["valid"] is False
+    assert any("open interest" in str(error) for error in rejected["errors"])
 
 
 def test_lowest_funding_is_expressed_with_ascending_order(
@@ -1157,6 +1645,71 @@ def test_unrequested_single_symbol_allowlist_is_rejected(demo_server, monkeypatc
 
     assert result["valid"] is False
     assert any("SUIUSDT" in str(error) for error in result["errors"])
+
+
+def test_requested_symbol_allowlist_cannot_be_silently_dropped(demo_server, monkeypatch):
+    request = "幫我從 BTC、ETH、SOL 中選新聞最熱門的兩個幣"
+    intent = demo_server.classify_request(request)
+    assert intent.included_symbols == ("BTC", "ETH", "SOL")
+    assert intent.excluded_symbols == ()
+
+    generated = yaml.safe_load(demo_server.SELECTION_EXAMPLE_YAML)
+    generated["selection"]["top_k"] = 2
+    monkeypatch.setattr(
+        demo_server, "call_llm", lambda *_, **__: yaml.safe_dump(generated, sort_keys=False)
+    )
+    rejected = demo_server.convert_nl("http://llm/v1", "", "model", request)
+    assert rejected["valid"] is False
+    assert any("only_symbols" in str(error) for error in rejected["errors"])
+
+
+def test_requested_symbol_exclusion_must_be_expressed(demo_server, monkeypatch):
+    request = "依新聞熱度選五個幣，排除 BTC"
+    intent = demo_server.classify_request(request)
+    assert intent.included_symbols == ()
+    assert intent.excluded_symbols == ("BTC",)
+
+    generated = yaml.safe_load(demo_server.SELECTION_EXAMPLE_YAML)
+    monkeypatch.setattr(
+        demo_server, "call_llm", lambda *_, **__: yaml.safe_dump(generated, sort_keys=False)
+    )
+    rejected = demo_server.convert_nl("http://llm/v1", "", "model", request)
+    assert rejected["valid"] is False
+    assert any("exclude_symbols" in str(error) for error in rejected["errors"])
+
+    generated["selection"]["universe"].insert(
+        0,
+        {"block": "universe.exclude_symbols", "params": {"symbols": ["BTCUSDT"]}},
+    )
+    monkeypatch.setattr(
+        demo_server, "call_llm", lambda *_, **__: yaml.safe_dump(generated, sort_keys=False)
+    )
+    accepted = demo_server.convert_nl("http://llm/v1", "", "model", request)
+    assert accepted["valid"] is True, accepted
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        "排除 BTC / ETH / SOL / XRP",
+        "排除 BTC、ETH、SOL、XRP",
+        "exclude BTC, ETH, SOL and XRP",
+    ],
+)
+def test_symbol_exclusion_propagates_across_a_joined_list(demo_server, phrase):
+    intent = demo_server.classify_request(phrase)
+
+    assert intent.included_symbols == ()
+    assert intent.excluded_symbols == ("BTC", "ETH", "SOL", "XRP")
+
+
+def test_symbol_exclusion_stops_at_a_new_selection_clause(demo_server):
+    intent = demo_server.classify_request(
+        "排除 BTC / ETH，選 SOL 與 XRP 中成交量最大的兩個幣"
+    )
+
+    assert intent.excluded_symbols == ("BTC", "ETH")
+    assert intent.included_symbols == ("SOL", "XRP")
 
 
 def test_requested_base_assets_allow_matching_usdt_pairs(demo_server, monkeypatch):

@@ -442,7 +442,14 @@ def eval_node(df, env: Dict[str, Any], node: Any):
 
 SELECTION_KEYS = frozenset({"universe", "features", "score", "top_k", "long_when",
                             "short_when", "min_score", "max_score", "dedupe_by",
-                            "order"})
+                            "order", "candidate_trade"})
+
+# ``candidate_trade`` is intentionally small.  The direction still comes from
+# ``long_when`` / ``short_when`` and the exit/size still use the same top-level
+# ``risk.exit`` / ``sizing.size`` grammar as a single-instrument trade.  Growing
+# a second trade DSL inside ``selection`` would give the LLM two spellings for
+# the same stop and let them drift apart again.
+CANDIDATE_TRADE_KEYS = frozenset({"entry_type"})
 
 #: how to collapse rows that are the same bet before taking the top K.
 #:
@@ -620,6 +627,17 @@ def build_selection_fn(spec: Dict[str, Any]) -> Callable[..., List[Dict[str, Any
     max_score = section.get("max_score")
     long_node = section.get("long_when")
     short_node = section.get("short_when")
+    candidate_trade = section.get("candidate_trade")
+    candidate_trade_plan = None
+    if isinstance(candidate_trade, dict):
+        candidate_trade_plan = {
+            "entry_type": str(candidate_trade.get("entry_type") or "market").lower(),
+            "exit_cfg": dict(((spec.get("risk") or {}).get("exit") or {})),
+            "size": (spec.get("sizing") or {}).get("size"),
+            "market_type": str((spec.get("data") or {}).get("market_type") or "futures"),
+            "interval": str((((spec.get("data") or {}).get("primary") or {})
+                             .get("interval") or "1h")),
+        }
     dedupe_by = str(section.get("dedupe_by", "base_asset")).lower()
     if dedupe_by not in DEDUPE_MODES:
         raise SpecError(
@@ -748,11 +766,22 @@ def build_selection_fn(spec: Dict[str, Any]) -> Callable[..., List[Dict[str, Any
         kept: List[Dict[str, Any]] = []
         for index, row in ranked.iterrows():
             side = "neutral"
-            if long_mask is not None and bool(long_mask.get(index, False)):
+            long_active = long_mask is not None and bool(long_mask.get(index, False))
+            short_active = short_mask is not None and bool(short_mask.get(index, False))
+            if long_active and short_active:
+                symbol = str(row.get("symbol") or row.get("instrument_id") or index)
+                raise SpecError(
+                    "selection.long_when and selection.short_when are both true "
+                    "for %s. A candidate cannot be opened long and short by one "
+                    "signal; make the conditions mutually exclusive instead of "
+                    "depending on evaluation order." % symbol
+                )
+            if long_active:
                 side = "long"
-            elif short_mask is not None and bool(short_mask.get(index, False)):
+            elif short_active:
                 side = "short"
-            elif long_mask is not None or short_mask is not None:
+            elif (long_mask is not None or short_mask is not None) \
+                    and candidate_trade_plan is None:
                 continue          # a direction was asked for and neither held
             features = {
                 name: (float(value) if isinstance(value, (int, float)) else str(value))
@@ -771,8 +800,17 @@ def build_selection_fn(spec: Dict[str, Any]) -> Callable[..., List[Dict[str, Any
                     continue
                 features[name] = (float(value) if isinstance(value, (int, float))
                                   and not isinstance(value, bool) else str(value))
-            kept.append({"symbol": row["symbol"], "score": round(float(row["score"]), 6),
-                         "side": side, "features": features})
+            kept.append({
+                "symbol": row["symbol"],
+                "score": round(float(row["score"]), 6),
+                "side": side,
+                "features": features,
+                # This is an internal, normalised plan.  SelectionStrategyPlugin
+                # turns it into a complete nested cyqnt.signal/v2 after snapshot
+                # provenance and the decision clock are available.
+                "_candidate_trade": (dict(candidate_trade_plan)
+                                     if candidate_trade_plan is not None else None),
+            })
 
         # Rank AFTER the direction filter, so the numbers are contiguous and
         # "rank N of M" counts the basket that was actually returned. Numbering

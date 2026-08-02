@@ -117,19 +117,20 @@ selection:                            # 选币 / 截面排名
   # signals:   軸是時間,一根 K 一個決策,一個標的        → kind=trade
   # selection: 軸是幣,  一個時點一個決策,整個宇宙        → kind=selection
   #
-  # ★ 兩者互斥:同時給 signals: 與 selection: 會被 validate 擋掉
-  #   ("a spec is either a trade strategy (signals:) or a selection strategy"),
-  #   因為它們輸出不同的 signal kind。「先跨幣種選幣、再對每個候選跑交易規則」
-  #   目前必須拆成兩份 spec。
+  # ★ 頂層 signals: 與 selection: 仍互斥:同時給會被 validate 擋掉,因為外層輸出
+  #   的 kind 不同。「先跨幣種選幣、再對每個候選給交易規則」不要再塞一個頂層
+  #   signals:,而是使用下面的 selection.candidate_trade。外層仍是 selection,
+  #   每個 candidates[].trade 則是一份完整 cyqnt.signal/v2(kind=trade)。
   #
   # ★ 選幣是「單一時點決策」:此刻對整個宇宙排一次名。沒有逐根 K 的權益曲線,
   #   這個 repo 也沒有截面回測引擎。所以即使寫 run.mode: backtest,run 也是
   #   「真的跑一次選幣、印出籃子、輸出 cyqnt.signal/v2」,不會產生權益曲線、
   #   不會有 trades / win_rate —— 而且它會明講,不會回一條 trades=0 的假回測。
   #
-  # 選幣型只讀 strategy / run / data / selection 四段;sizing / risk / backtest
-  # 不影響選幣輸出(倉位與出場由下游執行端決定)。data.symbol 仍要給一個代表標的
-  # (排程與計價用);宇宙本身來自 input bundle 的 universe frame。
+  # 純選幣只讀 strategy / run / data / selection,此時 sizing / risk 不影響籃子。
+  # 宣告 candidate_trade 時例外:sizing.size 與 risk.exit 會被套到每個觸發進場的
+  # 候選,而且兩者都必填,避免一份「可執行」訊號沒有倉位或退出方式。
+  # data.symbol 仍只是排程與計價代表標的;宇宙來自 input bundle 的 universe frame。
 
   universe:                           # 依序套用的 pipeline;每一步吃上一步的輸出 frame
     - block: <str>                    # "universe.<fn>";清單見檔尾附錄
@@ -236,10 +237,22 @@ selection:                            # 选币 / 截面排名
   # 只給一邊   → 它同時是方向標註**與過濾器**:兩邊都不符合的列會被**丟棄**,
   #              不會退化成 neutral。所以「排名 + 標註方向」要兩邊都給;
   #              「只留符合條件的做多候選」就只給 long_when。
+  # candidate_trade 存在時例外:top_k 的候選不因目前沒有進場點而消失;未觸發者
+  # 仍留在籃子,side=neutral,candidates[].trade.intent=hold。觸發 long/short 的列
+  # 則得到 open_long/open_short 與完整 entry / exit_plan / size。
   # score 算不出來(NaN)的幣一律丟棄、不補預設值:NaN 與真數字一起排序位置隨機,
   # 而輸出到最後會被當成一個推薦來讀。
 
-  # 輸出:每個候選 = { symbol, score, side, rank, reason, features }。
+  candidate_trade:                    # ? 讓每個候選帶完整的巢狀交易訊號
+    entry_type: <market>               # 首版只允許 market;limit/stop 沒有價格就拒絕
+  # candidate_trade 的方向只由 long_when / short_when 決定,不得在這裡再寫一套。
+  # 同時必須在頂層提供:
+  #   sizing: { size: <0..1> }
+  #   risk: { exit: { type: ..., ... } }
+  # 系統永遠輸出 auto_trade_eligible=false、requires_confirmation=true;這個欄位
+  # 建立的是可檢查的交易計畫,不是授權自動下單。
+
+  # 輸出:每個候選 = { symbol, score, side, rank, reason, features, trade }。
   #   rank 在方向過濾之後才編號(所以連號,"rank N of M" 的 M 就是實際回傳的籃子大小);
   #   reason 會帶上 order=desc|asc —— 只寫 "rank 1 of 5" 分不出第一名是資金費率最高
   #   還是最低,而那正好是做空篩選與做多篩選的差別。

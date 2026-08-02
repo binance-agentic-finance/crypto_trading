@@ -197,7 +197,10 @@ TABLE_DERIVED_FROM: Dict[str, Any] = {
         "time, same day, when the per-candidate kline fan-out landed "
         "(universe.augment_with_indicator + the `universe_bars` node): this is "
         "the revision that clears ``pending_review``, and it is written out in "
-        "the comment block immediately below this dict entry."
+        "the comment block immediately below this dict entry. REVISED a fifth "
+        "time after selection.candidate_trade landed: entry/exit plans for each "
+        "selected candidate and compound select-then-trade now emit nested, "
+        "confirmation-required cyqnt.signal/v2 trades."
     ),
     #: The fourth revision, in full, because it is the one that retires this
     #: table's flagship example.
@@ -911,18 +914,22 @@ CAPABILITY_TABLE: Tuple[Capability, ...] = (
          why="probed: risk.exit atr_stop_tp validates clean. EXIT_KEYS is closed "
              "because an unknown key used to be defaulted past in silence — "
              "'stop_pctt' cost a real stop-loss"),
-    _row("entry_exit_plan", "cross_section", "plan", NOT_EXPRESSIBLE,
-         gap_id="GAP-ENTRY-EXIT-PER-CANDIDATE",
-         why="the candidate contract has a `trade` slot and the YAML selection "
-             "path never fills it — every candidate comes back trade: null. "
-             "'give me five shorts with entry and stop' answers the first half "
-             "and silently drops the second"),
-    _row("compound_select_then_trade", "*", "execute", NOT_EXPRESSIBLE,
-         gap_id="GAP-COMPOUND-SELECT-THEN-TRADE",
-         why="one spec is either selection: or signals: — validate_spec refuses "
-             "both, because they emit different signal kinds. classify_request "
-             "returns kind='ambiguous' for these and generation stops there, "
-             "which is right: picking a half would discard the other in silence"),
+    _row("entry_exit_plan", "cross_section", "plan", EXPRESSIBLE,
+         fields=("selection.candidate_trade.entry_type", "selection.long_when",
+                 "selection.short_when", "risk.exit.type", "risk.exit.stop_pct",
+                 "risk.exit.tp_pct", "sizing.size", "candidates[].trade"),
+         why="selection.candidate_trade now turns each qualified row into a full "
+             "nested cyqnt.signal/v2 trade with the same risk.exit and sizing "
+             "grammar as a single-symbol trade; it is confirmation-required and "
+             "never auto-trade eligible"),
+    _row("compound_select_then_trade", "*", "execute", EXPRESSIBLE,
+         block_refs=("universe.augment_with_indicator",),
+         fields=("selection.candidate_trade.entry_type", "selection.long_when",
+                 "selection.short_when", "candidates[].trade"),
+         requires_sources=("universe_bars",),
+         why="one outer selection may now attach a complete nested trade to every "
+             "candidate. The outer kind remains selection and each nested payload "
+             "is kind=trade with requires_confirmation=true"),
     _row("alert_notify", "side_channel", "notify", NOT_EXPRESSIBLE,
          gap_id="GAP-ALERT-NOTIFY",
          why="'tell me when X happens' has no output slot: a spec emits signals, "
