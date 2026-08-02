@@ -244,6 +244,13 @@ def test_the_supertrend_condition_is_reported_silently_proxied():
     nothing about a stand-in. So the condition is ``not_expressed`` AND
     ``silently_proxied``, and the report is not clean even though all five gates
     pass.
+
+    What changed on 2026-08-02 is the REASON, not the verdict.
+    ``universe.augment_with_indicator`` landed, so the capability row flipped to
+    ``expressible`` and G1e no longer reports a capability gap here — it reports
+    that the spec names none of the blocks that row grants. The accident is now a
+    conversion failure rather than a capability one, which is a strictly sharper
+    thing to be told: the fix is to regenerate the spec, not to build a block.
     """
     report = gates.run_gates(_spec(SPEC_USER_CHAT), nl=NL_USER_CHAT,
                              bundle=_bundle(), conditions=USER_CHAT_CONDITIONS)
@@ -252,7 +259,16 @@ def test_the_supertrend_condition_is_reported_silently_proxied():
     assert report.status == gates.STATUS_PASSED
     assert verdicts["supertrend"].verdict == gates.NOT_EXPRESSED
     assert verdicts["supertrend"].silently_proxied is True
-    assert "GAP-PER-SYMBOL-INDICATOR" in verdicts["supertrend"].detail
+    assert verdicts["supertrend"].detail == (
+        "the spec names none of ['universe.augment_with_indicator']")
+    # And the detection survives ONLY because that row keeps its generic
+    # combinators out of block_refs. The spec does use conditions.value_below —
+    # on priceChangePercent, for a different condition — so listing it as a block
+    # ref would let this very spec claim it had expressed the indicator.
+    row = cap.lookup("technical_indicator", "cross_section", "compare")
+    assert row.verdict == cap.EXPRESSIBLE
+    assert row.block_refs == ("universe.augment_with_indicator",)
+    assert "conditions.value_below" in row.fields
 
     # Nothing in the basket admits it, which is precisely why a human reviewer
     # could not have caught this one.
@@ -325,17 +341,25 @@ def test_g1e_agrees_with_the_capability_plan_about_what_never_got_converted():
     reported = {item.condition.id for item in report.condition_verdicts
                 if item.verdict == gates.NOT_EXPRESSED}
 
-    # Only the per-candidate indicator is genuinely unconvertible now: the
-    # cross-sectional long/short snapshot landed on 2026-08-02 and "lsr" moved out
-    # of this set the same day the sector condition did.
-    assert planned == {"supertrend"}
-    # Two conditions are now extras rather than one, and for the same reason: the
-    # capability landed, the plan knows, and the shipped spec has not caught up.
-    # G1e finding MORE than the plan predicted is the healthy direction — the
-    # opposite (plan claims unconvertible, output claims handled) would mean a
-    # condition got answered by something the plan never authorised.
+    # NOTHING is unconvertible any more. "lsr" and "tradfi" left this set when
+    # the long/short snapshot and the contract-metadata blocks landed, and
+    # "supertrend" left it when universe.augment_with_indicator did, all on
+    # 2026-08-02. Every condition in the request that started this table now has
+    # a real spelling.
+    assert planned == set()
+    # So all three are extras: the capability landed, the plan knows, and the
+    # shipped spec has not caught up. G1e finding MORE than the plan predicted is
+    # the healthy direction — the opposite (plan claims unconvertible, output
+    # claims handled) would mean a condition got answered by something the plan
+    # never authorised.
     assert planned <= reported
-    assert reported - planned == {"tradfi", "lsr"}
+    assert reported - planned == {"tradfi", "lsr", "supertrend"}
+    # And the divergence is entirely "the spec predates the capability", not
+    # "the two halves disagree": every extra is a block the plan grants and the
+    # spec does not name.
+    details = {item.condition.id: item.detail for item in report.condition_verdicts}
+    assert all(detail.startswith("the spec names none of")
+               for cond_id, detail in details.items() if cond_id in reported)
 
 
 def test_the_predicate_registry_covers_every_quantifiable_subject():

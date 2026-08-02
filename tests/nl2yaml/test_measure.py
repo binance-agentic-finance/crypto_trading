@@ -197,13 +197,35 @@ def test_indicator_in_a_trade_request_is_expressible():
 
 
 def test_indicator_in_a_selection_request_is_the_supertrend_accident():
-    """The whole reason the capability table exists: the same words, the other
-    frame, and the answer is a withheld proxy rather than a spec."""
+    """The accident this suite is named after, and the fact that it is over.
+
+    "Supertrend bearish, screen the market for it" used to score
+    GAP-PER-SYMBOL-INDICATOR: the table had no way to put a per-symbol indicator
+    on the cross-section, so a selection request holding one was a withheld
+    proxy. ``universe.augment_with_indicator`` landed and computes the indicator
+    per symbol from bars before the join, so the same words now convert.
+
+    Kept as a closure test rather than deleted, because the point it made is
+    still the point: the frame decides. The half that still withholds is
+    asserted in the test below, so this pair fails loudly if either half moves.
+    """
     verdict = measure.plan_row(record([cond("indicator", "supertrend")],
                                       shape="selection"))
+    assert verdict.gap_ids == ()
+    assert verdict.n_convertible == 1
+    assert not verdict.has_not_expressible
+
+
+def test_the_series_half_of_the_indicator_gap_is_still_open():
+    """Resonance on a bar series is still a withheld proxy, so the gap id stays
+    reachable. ``conditions.multi_timeframe_alignment`` can be fed HTF SMAs and
+    nothing else, so "Supertrend bearish on H4" degrades to "close below the 4h
+    SMA" — a different statement about a different indicator."""
+    verdict = measure.plan_row(record(
+        [cond("timeframe", "interval", value="4h"),
+         cond("timeframe", "interval", value="1h")], shape="trade"))
+    assert verdict.scope == measure.SERIES
     assert verdict.gap_ids == ("GAP-PER-SYMBOL-INDICATOR",)
-    assert verdict.n_convertible == 0
-    assert verdict.has_not_expressible
 
 
 def test_universe_filter_keeps_its_frame_inside_a_trade_request():
@@ -236,10 +258,17 @@ def test_a_liquidity_filter_is_no_longer_a_gap_in_either_frame():
 
 
 def test_ambiguous_rows_take_the_better_frame():
-    """An unclear row holding an indicator is scored on the series frame, where
-    the indicator is expressible - the upward choice, and it is the choice this
-    report has to make to stay a bound."""
-    verdict = measure.plan_row(record([cond("indicator", "rsi")], shape="unclear"))
+    """An unclear row holding a stop-loss is scored on the series frame, where
+    an entry/exit plan is expressible - the upward choice, and it is the choice
+    this report has to make to stay a bound.
+
+    This used to use an indicator. It cannot any more: augment_with_indicator
+    made the indicator expressible in BOTH frames, so that row now ties and
+    tie-breaks to the cross-section, which tests nothing about choosing. An
+    entry/exit plan is the asymmetry that is left - a stop is a per-candidate
+    order, and the cross-section returns a basket, not orders.
+    """
+    verdict = measure.plan_row(record([cond("risk", "stop_loss")], shape="unclear"))
     assert verdict.scope == measure.SERIES
     assert verdict.gap_ids == ()
 
@@ -486,21 +515,22 @@ def test_report_json_is_serialisable_and_ascii():
 
 
 def test_gap_ranking_is_sorted_by_dup_weighted_count():
-    # The second gap used to be GAP-SPREAD-DEPTH via ('universe_filter',
-    # 'liquidity'); that condition is expressible now, so a per-symbol indicator
-    # inside a SELECTION request is the second blocked condition here. It is
-    # blocked for a different reason than market_cap (no per-candidate bar series
-    # rather than no source at all), which is what makes it a distinct gap id.
+    # Second gap, third occupant. It was GAP-SPREAD-DEPTH until the book
+    # cross-section landed, then GAP-PER-SYMBOL-INDICATOR until
+    # augment_with_indicator landed. What is left blocked in a SELECTION request
+    # is a per-candidate entry/exit plan, blocked for a different reason than
+    # market_cap (the frame returns a basket rather than orders, not a missing
+    # source), which is what makes it a distinct gap id.
     rows = [record([cond("universe_filter", "market_cap")], shape="selection")
             for _ in range(3)]
-    rows += [record([cond("indicator", "rsi")], shape="selection")]
+    rows += [record([cond("risk", "stop_loss")], shape="selection")]
     for index, row in enumerate(rows):
         row["split_group_key"] = "dup:%d" % index
     verdicts = {id(r): measure.plan_row(r) for r in rows}
     gaps = [g for g in measure.build_gaps(rows, verdicts)
             if g["detectable_by_this_pass"]]
     assert [g["gap_id"] for g in gaps] == ["GAP-MARKET-CAP",
-                                           "GAP-PER-SYMBOL-INDICATOR"]
+                                           "GAP-ENTRY-EXIT-PER-CANDIDATE"]
     counts = [g["dup_weighted_count"] for g in gaps]
     assert counts == sorted(counts, reverse=True)
 
@@ -508,21 +538,21 @@ def test_gap_ranking_is_sorted_by_dup_weighted_count():
 def test_unlocked_if_closed_counts_only_sole_blockers():
     """A row blocked by two gaps is unlocked by neither on its own, and a
     frequency ranking cannot see that."""
-    # Second gap swapped from GAP-SPREAD-DEPTH to GAP-PER-SYMBOL-INDICATOR for the
-    # reason given in the ranking test above: the book cross-section landed, so a
-    # liquidity filter no longer blocks anything.
+    # Second gap swapped to GAP-ENTRY-EXIT-PER-CANDIDATE for the reason given in
+    # the ranking test above: both of its predecessors got their blocking half
+    # implemented.
     single = record([cond("universe_filter", "market_cap")], shape="selection",
                     split_group_key="dup:1")
     double = record([cond("universe_filter", "market_cap"),
-                     cond("indicator", "rsi")], shape="selection",
+                     cond("risk", "stop_loss")], shape="selection",
                     split_group_key="dup:2")
     rows = [single, double]
     verdicts = {id(r): measure.plan_row(r) for r in rows}
     gaps = {g["gap_id"]: g for g in measure.build_gaps(rows, verdicts)}
     assert gaps["GAP-MARKET-CAP"]["dup_weighted_count"] == 2
     assert gaps["GAP-MARKET-CAP"]["rows_unlocked_if_closed"] == 1
-    assert gaps["GAP-PER-SYMBOL-INDICATOR"]["rows_unlocked_if_closed"] == 0
-    assert (gaps["GAP-PER-SYMBOL-INDICATOR"]["co_occurring_gaps"]
+    assert gaps["GAP-ENTRY-EXIT-PER-CANDIDATE"]["rows_unlocked_if_closed"] == 0
+    assert (gaps["GAP-ENTRY-EXIT-PER-CANDIDATE"]["co_occurring_gaps"]
             == {"GAP-MARKET-CAP": 1})
 
 

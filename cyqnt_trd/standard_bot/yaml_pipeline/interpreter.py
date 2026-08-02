@@ -89,6 +89,37 @@ FETCHES_WITHOUT_SOURCE = {
 #: timeframe set is the union of every occurrence.
 BARS_BLOCK = "universe.augment_with_indicator"
 
+#: Universe augments whose source is captured by fanning out per symbol, because
+#: the public endpoint behind them has no whole-market form (omitting ``symbol``
+#: answers HTTP 400). Capture therefore fans out over the SURVIVORS of the steps
+#: that run before them, which makes their position in the pipeline load-bearing:
+#: placed before any narrowing step, a live capture tries the whole cross-section
+#: and trips the fan-out cost ceiling, while a replay meets a source frame built
+#: from a narrower roster and trips the join's coverage floor.
+#:
+#: Both of those are runtime failures. The ordering itself is a structural
+#: property of the spec, so :func:`spec.validate_spec` checks it statically —
+#: relying on the dry-run's coverage arithmetic caught only one of these four,
+#: and only because the synthetic roster happened to land at 87%: below the
+#: open-interest join's 95% floor, above the 50% floor the other two use.
+FAN_OUT_AUGMENTS = frozenset({
+    "universe.augment_with_open_interest",
+    "universe.augment_with_oi_change",
+    "universe.augment_with_long_short_ratio",
+    BARS_BLOCK,
+})
+
+
+def narrows_the_universe(block_ref: str) -> bool:
+    """Whether a universe step can reduce the row count.
+
+    An ``augment_*`` joins columns onto the frame it is given and returns the same
+    rows, so it cannot serve as the narrowing a fan-out needs; everything else in
+    the namespace is a filter or a top-N, both of which can.
+    """
+    name = str(block_ref or "").split(".")[-1]
+    return name.startswith(("filter_", "top_", "only_", "exclude_"))
+
 #: Columns that only exist once a SECOND source is supplied to the step that
 #: produces them: ``column -> (block, the ``with:`` name that produces it)``.
 #:

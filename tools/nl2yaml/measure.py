@@ -382,7 +382,7 @@ def _reachable_gaps() -> set[str]:
     changed set rather than as a quietly shorter ranking.
     """
     reachable: set[str] = set()
-    synthetic = (("multi_timeframe", "resonance", SERIES),
+    synthetic = (("multi_timeframe", "resonance", None),
                  ("compound_select_then_trade", "execute", "*"))
     keys = [(row.cap_subject, row.cap_operator, row.scope)
             for row in PROXY_MAP.values() if row.fidelity != "non_condition"]
@@ -462,14 +462,25 @@ class Mapped:
     source: str       # the "family/subject" it came from
 
 
-def _timeframe_conditions(intervals: list[str], index: int) -> list[Mapped]:
+def _timeframe_conditions(intervals: list[str], index: int, scope: str) -> list[Mapped]:
     """Timeframes, decided per row rather than per condition.
 
     One stated interval is ``data.interval``, a spec key. Two or more is a
     different request entirely — "Supertrend bearish on H4 *and* H1 *and* M15" —
-    and that is ``multi_timeframe``, which the table rules a withheld proxy at
-    best. Scoring three intervals as three independent spec keys would turn the
+    and that is ``multi_timeframe``, which the table rules in the row's own
+    frame. Scoring three intervals as three independent spec keys would turn the
     single most expensive shape in this corpus into the cheapest.
+
+    The frame is load-bearing and the two halves now disagree, so this takes the
+    caller's frame rather than pinning one — the same ``scope is None`` contract
+    :func:`map_condition` uses. On the cross-section the table rules resonance
+    expressible (three ``augment_with_indicator`` steps differing only in
+    ``timeframe``/``as``, joined by ``all_of``); on a bar series it is still a
+    withheld proxy, because the only per-series combinator can be fed HTF SMAs
+    and nothing else. Pinning the series frame — as this did until the
+    cross-sectional half landed — scored every multi-interval SELECTION request
+    as blocked by GAP-PER-SYMBOL-INDICATOR, which is the one direction this
+    report is not allowed to err in: it undercounts what the system can do.
     """
     distinct = sorted(set(intervals))
     if not distinct:
@@ -477,7 +488,7 @@ def _timeframe_conditions(intervals: list[str], index: int) -> list[Mapped]:
     if len(distinct) >= 2:
         return [Mapped(
             cap.Condition(subject="multi_timeframe", operator="resonance",
-                          scope=SERIES, value=len(distinct), quantified=True,
+                          scope=scope, value=len(distinct), quantified=True,
                           id="c%d" % index),
             "coarse", "timeframe/interval[multi]")]
     return [Mapped(
@@ -534,7 +545,7 @@ def map_conditions(record: dict, scope: str) -> list[Mapped]:
         item = map_condition(cond, index, scope)
         if item is not None:
             mapped.append(item)
-    mapped.extend(_timeframe_conditions(intervals, len(record["conditions"])))
+    mapped.extend(_timeframe_conditions(intervals, len(record["conditions"]), scope))
     if record["spec_shape"] == "both":
         mapped.append(Mapped(
             cap.Condition(subject="compound_select_then_trade", operator="execute",

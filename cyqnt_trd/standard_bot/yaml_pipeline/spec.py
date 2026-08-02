@@ -20,9 +20,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 from .interpreter import (
+    FAN_OUT_AUGMENTS,
     COLUMN_REQUIRES_SOURCE,
     INDICATOR_KEYS,
     SELECTION_KEYS,
+    narrows_the_universe,
     UNIVERSE_STEP_KEYS,
     SpecError,
     build_make_signals,
@@ -1168,6 +1170,24 @@ def validate_spec(spec: Dict[str, Any]) -> Tuple[List[str], List[str]]:
                 resolve_block(step["block"])
             except SpecError as exc:
                 err("selection.universe[%d]: %s" % (position, exc))
+            # Ordering is a structural property, so it is checked here rather than
+            # left to the dry-run: coverage arithmetic caught only one of the four
+            # fan-out augments, and only because the synthetic roster happened to
+            # land between two different floors. Misordered, the other three
+            # validated green and raised in production.
+            if str(step["block"]) in FAN_OUT_AUGMENTS and not any(
+                    narrows_the_universe(str(prior.get("block")))
+                    for prior in (selection.get("universe") or [])[:position]
+                    if isinstance(prior, dict)):
+                err("selection.universe[%d] is %s, whose source is captured by "
+                    "fanning out one request per surviving symbol — so it must "
+                    "come AFTER at least one step that narrows the universe "
+                    "(filter_* / top_* / only_symbols / exclude_symbols). Here it "
+                    "runs against the whole cross-section: a live capture would "
+                    "exceed the fan-out ceiling, and a replay would meet a source "
+                    "frame built from a narrower roster and fail the join's "
+                    "coverage floor. Move a narrowing step above it."
+                    % (position, step["block"]))
         for name, fspec in (selection.get("features") or {}).items():
             if not isinstance(fspec, dict) or "block" not in fspec:
                 err("selection.features.%s must be a mapping with a 'block'" % name)

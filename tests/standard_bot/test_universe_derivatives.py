@@ -77,7 +77,10 @@ from cyqnt_trd.standard_bot.yaml_pipeline.bundle_runner import (
     run_bundle,
 )
 from cyqnt_trd.standard_bot.yaml_pipeline.interpreter import (
+    BARS_BLOCK,
+    FAN_OUT_AUGMENTS,
     FETCHES_WITHOUT_SOURCE,
+    narrows_the_universe,
 )
 from cyqnt_trd.standard_bot.yaml_pipeline.spec import (
     _synthetic_contract_meta,
@@ -1172,20 +1175,58 @@ def test_the_stand_in_roster_is_narrower_than_the_stand_in_universe():
     assert 0 < len(roster) < len(universe)
 
 
-def test_the_dry_run_catches_a_spec_that_augments_before_it_narrows():
-    """The ordering mistake fails ``validate``, offline, with the fix in the text."""
+@pytest.mark.parametrize("block_ref", sorted(FAN_OUT_AUGMENTS))
+def test_validate_catches_every_fan_out_augment_placed_before_a_narrowing_step(
+        block_ref):
+    """The ordering mistake fails ``validate``, offline, with the fix in the text.
+
+    Parametrised over the whole set because the version of this test that
+    covered only ``augment_with_open_interest`` was worse than no test: it
+    passed, and the three blocks it did not name validated green when misordered
+    and raised in production. They were caught by the dry-run's coverage
+    arithmetic only for open interest, and only by accident — the synthetic
+    roster lands at 87%, under that join's 0.95 floor but over the 0.50 floor the
+    other two use, and the bars join has no coverage floor at all.
+
+    So the ordering is checked statically now. Any block added to
+    ``FAN_OUT_AUGMENTS`` gets a case here for free, which is the property the
+    hand-written single-block version did not have.
+    """
     spec = load_spec(str(SPEC_OI))
     steps = spec["selection"]["universe"]
-    augment = next(step for step in steps
-                   if step["block"] == "universe.augment_with_open_interest")
-    steps.remove(augment)
+    augment = {"block": block_ref, "with": ["universe_bars"],
+               "params": {"indicator": "rsi", "timeframe": "1d", "as": "probe"}}
+    if block_ref != BARS_BLOCK:
+        augment = next((step for step in steps if step["block"] == block_ref),
+                       {"block": block_ref})
+        steps.remove(augment) if augment in steps else None
     steps.insert(0, augment)
 
     errors, _warnings = validate_spec(spec)
 
-    assert any("covers only" in error for error in errors), errors
-    assert any("AFTER the steps that narrow the universe" in error
+    assert any("must come AFTER at least one step that narrows" in error
                for error in errors), errors
+    assert any(block_ref in error for error in errors), errors
+
+
+def test_a_narrowing_step_above_the_augment_is_what_clears_it():
+    """The mutation test for the check above: it must accept the fixed spec.
+
+    A check that rejects the misordered spec AND the correct one would pass the
+    test above while making the block unusable, so the accept side is asserted
+    on the same spec with only the order changed back.
+    """
+    spec = load_spec(str(SPEC_OI))
+    assert validate_spec(spec)[0] == []
+
+    steps = spec["selection"]["universe"]
+    assert any(narrows_the_universe(step["block"]) for step in steps), (
+        "SPEC_OI must contain a narrowing step or this asserts nothing")
+
+    # ...and an augment_* is not one, however much it looks like a step.
+    assert not narrows_the_universe("universe.augment_with_open_interest")
+    assert narrows_the_universe("universe.filter_crypto_only")
+    assert narrows_the_universe("universe.top_gainers")
 
 
 def test_the_dry_run_catches_a_spec_that_filters_without_augmenting():

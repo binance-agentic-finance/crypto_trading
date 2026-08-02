@@ -93,9 +93,14 @@ VERDICTS = frozenset({EXPRESSIBLE, PROXY_ONLY, NOT_EXPRESSIBLE, UNKNOWN})
 #:     ``signals:`` evaluates.
 #: ``per_candidate_series``
 #:     a bar series for each of many candidates. This is the shape "scan the
-#:     market, then run an indicator on each survivor" needs, and the repo has
-#:     no such object at all — which is why it is its own scope rather than a
-#:     variation of the two above.
+#:     market, then run an indicator on each survivor" needs. It EXISTS as of
+#:     2026-08-02 — the ``universe_bars`` bundle node is one row per (instrument,
+#:     timeframe, bar) — but it is still its own scope rather than a variation of
+#:     the two above, because what a spec can do with it is different: the series
+#:     never reaches a condition, it is collapsed by
+#:     ``universe.augment_with_indicator`` into ONE number per instrument and
+#:     joined onto the cross-section. So "RSI below 30" is expressible here and
+#:     "RSI crossed 30 two bars ago, per candidate" is not.
 #: ``account``
 #:     positions / balance / leverage. Present in the runtime, absent from YAML.
 #: ``side_channel``
@@ -158,12 +163,14 @@ GAP_IDS = frozenset({
 #: the probes ran against, and :func:`assert_table_is_current` re-runs the part of
 #: that grounding a test can afford.
 TABLE_DERIVED_FROM: Dict[str, Any] = {
-    "commit": "2d2100620dd1e46d65aeba4ec8efd17bf9b79e54",
+    "commit": "3e247b01e0f0c459602e373e0d8a4f9b96a12005",
     "working_tree": (
-        "dirty — cyqnt_trd/blocks/universe.py, yaml_pipeline/{interpreter,spec}.py "
-        "and docs/strategy_yaml_spec/* carried uncommitted changes from parallel "
-        "work when this table was derived (2026-08-02). The contract-metadata "
-        "blocks below exist only in that working tree. REVISED later the same day "
+        "clean at 3e247b0, which committed the whole 13-block landing the "
+        "revisions below were probed against. Originally derived against a DIRTY "
+        "tree at 2d2100620dd1e46d65aeba4ec8efd17bf9b79e54, when "
+        "cyqnt_trd/blocks/universe.py, yaml_pipeline/{interpreter,spec}.py and "
+        "docs/strategy_yaml_spec/* carried uncommitted changes from parallel "
+        "work (2026-08-02). REVISED later the same day "
         "after the derivatives fan-out landed: open_interest / "
         "open_interest_change / long_short_ratio flipped from not_expressible to "
         "expressible at cross_section scope, each re-probed to errors == []. "
@@ -176,44 +183,59 @@ TABLE_DERIVED_FROM: Dict[str, Any] = {
         "four ways to errors == []), and the funding rank row moved from "
         "fundingRatePct to fundingRateApr with funding_info as a second required "
         "source. Unlike the fan-outs, book_ticker is whole-market in ONE request, "
-        "so its augment step carries no ordering requirement. TOUCHED a third time "
-        "the same day for `universe_blocks` ONLY, when the per-candidate kline "
-        "fan-out landed — the verdict rows it affects are NOT updated; see "
-        "``pending_review``."
+        "so its augment step carries no ordering requirement. REVISED a fourth "
+        "time, same day, when the per-candidate kline fan-out landed "
+        "(universe.augment_with_indicator + the `universe_bars` node): this is "
+        "the revision that clears ``pending_review``, and it is written out in "
+        "the comment block immediately below this dict entry."
     ),
-    #: ★ FOUR ROWS IN THIS TABLE ARE KNOWN STALE AND ARE STILL SAYING NO.
+    #: The fourth revision, in full, because it is the one that retires this
+    #: table's flagship example.
     #:
-    #: ``universe.augment_with_indicator`` and the ``universe_bars`` catalog node
-    #: landed on 2026-08-02. They make these four rows wrong, in the direction this
-    #: table calls the worse one — refusing a request the repo can now serve, where
-    #: refusals are not retried and the case is lost silently:
+    #: FOUR ROWS WERE KNOWN STALE AND SAYING NO. Refusing a request the repo can
+    #: serve is the failure this table calls the worse one: refusals are not
+    #: retried, so the case is lost in silence. All four are now flipped, each
+    #: re-probed on 2026-08-02 to ``validate_spec -> errors == []``:
     #:
-    #: ================================================  ===============  ==========
-    #: row                                               says             should be
-    #: ================================================  ===============  ==========
-    #: technical_indicator / cross_section / compare      proxy_only       expressible
-    #: technical_indicator / per_candidate_series / *     not_expressible  expressible
-    #: multi_timeframe / cross_section / resonance        not_expressible  expressible
-    #: historical_range / cross_section / window          not_expressible  expressible
-    #: ================================================  ===============  ==========
+    #: ==============================================  ===============  ===========
+    #: row                                             was              now
+    #: ==============================================  ===============  ===========
+    #: technical_indicator / cross_section / compare   proxy_only       expressible
+    #: technical_indicator / per_candidate_series / *  not_expressible  expressible
+    #: multi_timeframe / cross_section / resonance     not_expressible  expressible
+    #: historical_range / cross_section / window       not_expressible  expressible
+    #: ==============================================  ===============  ===========
     #:
-    #: The vocabulary each should grant: ``universe.augment_with_indicator`` with
-    #: ``requires_sources=("universe_bars",)``, fields ``indicator / timeframe / agg
-    #: / window_bars / output / column / input / min_bars_multiple / as``, plus
-    #: ``entry.all_of`` and ``conditions.value_below`` for the resonance row and
-    #: ``indicators.range_gain_pct`` for the history row. ``universe.top_losers``
-    #: should NOT survive as a fallback: the honest spelling exists now, and a proxy
-    #: left in the vocabulary is a proxy that gets picked again.
+    #: Seven rows were ADDED alongside them, and none is padding:
+    #: ``technical_indicator/cross_section/rank``, ``multi_timeframe/
+    #: per_candidate_series/resonance`` and ``historical_range/
+    #: per_candidate_series/window`` are capabilities the same probes proved and
+    #: no existing row granted; the four ``*/*`` catch-alls on
+    #: technical_indicator, multi_timeframe, historical_range and
+    #: spread_liquidity exist because :func:`lookup` returns ``unknown`` for an
+    #: unlisted key, and ``unknown`` shelves the case for a human. A subject this
+    #: table understands should never be shelved — it should name its gap. The
+    #: spread_liquidity catch-all closes a hole that pre-dates this revision.
     #:
-    #: WHY IT IS NOT DONE HERE. The proxy_only verdict on the first row is the
-    #: worked example eleven tests in ``tests/nl2yaml/`` are built on — the
-    #: withheld-vocabulary mechanism, the G1e silent-proxy gate, the gap ranking and
-    #: the corpus measurement all use it as their flagship case. Flipping it turns
-    #: those red, and choosing their replacement example is a decision about that
-    #: dataset, not about the blocks package. So the capability is real, the
-    #: evidence is below, and the flip is left to the owner of this table.
+    #: ``universe.top_losers`` did NOT survive as a fallback on the flipped row.
+    #: The honest spelling exists now, and a proxy left in a vocabulary is a proxy
+    #: that gets picked again. It is still granted by ``price_change_24h /
+    #: cross_section / top_k``, which is its honest use.
     #:
-    #: EVIDENCE, so the review does not have to re-derive it:
+    #: WHAT THIS COSTS THE DATASET, stated because it is the reason the flip was
+    #: deferred once. The Supertrend accident was this table's worked example of a
+    #: WITHHELD PROXY, and that reading is now retired: the request is expressible,
+    #: so ``plan_conversion`` grants it a real vocabulary instead of refusing it.
+    #: The accident itself is not retired — ``tests/nl2yaml/test_gates.py`` still
+    #: reproduces it end to end, but as the sharper thing it has become: the
+    #: shipped spec names none of the blocks the row grants, so G1e reports it
+    #: ``not_expressed`` + ``silently_proxied`` with the detail "the spec names
+    #: none of [...]" rather than a capability gap id. A conversion failure, not a
+    #: capability failure. ``proxy_only`` survives in the table on
+    #: ``multi_timeframe / per_symbol_series / resonance``, which is a genuine
+    #: remaining instance (HTF SMAs only), so the mechanism keeps a live case.
+    #:
+    #: EVIDENCE, so a review need not re-derive it:
     #: ``docs/strategy_yaml_spec/example_multi_timeframe_supertrend.yaml`` and
     #: ``example_three_month_runup_screen.yaml`` both validate to errors == [] and
     #: both run end to end against
@@ -224,12 +246,17 @@ TABLE_DERIVED_FROM: Dict[str, Any] = {
     #: 3 of 5 were bearish on at least one, so ``all_of`` and ``any_of`` are
     #: genuinely different answers and a 24h loser list is neither.
     #: ``tests/standard_bot/test_universe_indicator.py`` pins all of it.
-    "pending_review": (
-        "technical_indicator/cross_section/compare, "
-        "technical_indicator/per_candidate_series/*, "
-        "multi_timeframe/cross_section/resonance, "
-        "historical_range/cross_section/window"
-    ),
+    #:
+    #: ONE THING THE FLIP DOES NOT REACH, recorded so the next reader does not
+    #: mistake a measurement artifact for a capability: ``measure.py``'s
+    #: ``_timeframe_conditions`` pins every multi-interval request to
+    #: ``per_symbol_series`` scope. That was harmless while BOTH multi_timeframe
+    #: scopes were blocked; now that the cross-section one is expressible, a
+    #: selection-shaped resonance request is still scored against the HTF-SMA
+    #: proxy row and still counted as refusal gold. ``measure.py`` is outside this
+    #: module and is not edited here; the effect is quantified in
+    #: ``dataset/gold_ceiling.md``.
+    "pending_review": "",
     "probed_on": "2026-08-02",
     "how": (
         "every 'expressible' row for the per_symbol_series scope was proved by "
@@ -615,39 +642,107 @@ CAPABILITY_TABLE: Tuple[Capability, ...] = (
                      "indicators.atr", "indicators.bollinger", "indicators.donchian",
                      "conditions.value_above", "conditions.value_below",
                      "conditions.ma_cross_above", "conditions.ma_cross_below",
-                     "conditions.rsi_oversold", "conditions.rsi_overbought"),
-         fields=("open", "high", "low", "close", "volume"),
+                     "conditions.rsi_oversold", "conditions.rsi_overbought",
+                     "conditions.price_above_ma", "conditions.price_below_ma",
+                     "conditions.multi_timeframe_alignment"),
+         fields=("open", "high", "low", "close", "volume", "data.htf",
+                 "_htf_<interval>_sma_<period>"),
          why="probed: indicators.supertrend(10, 3) on the primary interval "
-             "validates clean. This is the ONE scope where the request the "
-             "Supertrend accident came from is fully expressible"),
-    # ⚠️ THESE TWO ROWS ARE STALE AS OF 2026-08-02 AND ARE LEFT THAT WAY
-    # DELIBERATELY — see TABLE_DERIVED_FROM["pending_review"] for the whole reason
-    # and for the flip that is already written out there. universe.augment_with_
-    # indicator + the `universe_bars` node exist and were probed to errors == [],
-    # so BOTH of these are now expressible; the verdict is wired into eleven tests
-    # in tests/nl2yaml/ whose subject IS this gap, and flipping it is a decision
-    # about that dataset rather than about the blocks package.
-    _row("technical_indicator", "cross_section", "compare", PROXY_ONLY,
+             "validates clean. The last three block refs and the data.htf field "
+             "were added 2026-08-02 to close a hole the proxy row below pointed "
+             "AT this row to fill: its degradation note routes SMA-alignment "
+             "requests here, and until now this row granted no way to reach a "
+             "higher timeframe, so the routing led nowhere and the converter's "
+             "only spelling was the withheld proxy. Probed: data.htf with two "
+             "(interval, sma_period) entries -> two price_above_ma steps on "
+             "_htf_4h_sma_50 / _htf_1h_sma_50 -> multi_timeframe_alignment "
+             "validates with errors == []. The combinator is honest HERE because "
+             "the request really is about SMAs; it is a proxy below because that "
+             "is the only thing data.htf can attach"),
+    # These two were PROXY_ONLY / NOT_EXPRESSIBLE under GAP-PER-SYMBOL-INDICATOR
+    # until universe.augment_with_indicator + the `universe_bars` node landed
+    # (2026-08-02). Re-probed to errors == [] and flipped; the proxy is NOT kept
+    # as a fallback, because the honest spelling exists now and a proxy left in a
+    # vocabulary is a proxy that gets picked again.
+    _row("technical_indicator", "cross_section", "compare", EXPRESSIBLE,
+         # ONE block ref, deliberately. `block_refs` is not just vocabulary — it
+         # is what gates.evaluate_conditions checks the emitted spec against, and
+         # the check passes on ANY one match. Listing conditions.value_below here
+         # would mean a spec that used it on priceChangePercent, for a different
+         # condition entirely, counted as having expressed this one; the shipped
+         # user-chat example does exactly that. augment_with_indicator is the step
+         # that IS this condition, so it is the only honest thing to require. The
+         # generic combinators stay in `fields`, which G1e deliberately does not
+         # match on, and are granted to the converter just the same
+         # (Capability.granted concatenates the two).
+         block_refs=("universe.augment_with_indicator",),
+         fields=("indicator", "timeframe", "agg", "window_bars", "output",
+                 "column", "input", "min_bars_multiple", "as",
+                 "conditions.value_above", "conditions.value_below",
+                 "conditions.value_in_range",
+                 "selection.score", "selection.order", "selection.min_score",
+                 "selection.max_score"),
+         requires_sources=("universe_bars",),
+         why="probed 2026-08-02: rsi(14)@4h -> conditions.value_below(rsi_4h, 30) "
+             "validates with errors == []. The block computes ONE indicator per "
+             "instrument off the bar series and joins it as ONE column, so the "
+             "frame gains a real reading instead of a stand-in — this is the row "
+             "the Supertrend accident needed and did not have. `with: "
+             "[universe_bars]` is mandatory; the interpreter's "
+             "FETCHES_WITHOUT_SOURCE refuses the step without it rather than "
+             "letting validate fan out over the network. ORDERING: the bars "
+             "roster is DERIVED from the surviving prefix "
+             "(bundle_runner.plan_bars_capture), so an indicator step placed "
+             "before the narrowing steps plans a 727-instrument fan-out and "
+             "raises at capture — measured, fetch_klines_cross_section refuses "
+             "727 against FAN_OUT_MAX_SYMBOLS=200, and 127 x 3 timeframes at "
+             "limit 200 costs 762 weight against KLINE_FAN_OUT_MAX_WEIGHT=600. "
+             "Unlike the derivatives fan-outs this is NOT caught by "
+             "validate_spec: the synthetic universe_bars source covers the "
+             "stand-in universe totally, on purpose, because a real roster does "
+             "too. So the ordering rule here is a cost ceiling enforced at "
+             "capture, not a coverage guard enforced at dry-run"),
+    _row("technical_indicator", "per_candidate_series", "*", EXPRESSIBLE,
+         block_refs=("universe.augment_with_indicator",),   # see the row above
+         fields=("indicator", "timeframe", "agg", "window_bars", "output",
+                 "column", "input", "min_bars_multiple", "as",
+                 "conditions.value_above", "conditions.value_below",
+                 "conditions.value_in_range"),
+         requires_sources=("universe_bars",),
+         why="'scan the market, then run the indicator on each survivor' was the "
+             "single most common shape in the selection corpus with no object "
+             "behind it; universe_bars IS that object as of 2026-08-02. Probed: "
+             "supertrend(10,3)@4h output:1 + ema(50)@4h, two steps on one frame, "
+             "errors == []. What is expressible is the COLLAPSED reading — "
+             "agg over the last window_bars bars, one number per instrument. A "
+             "condition that needs the series itself per candidate (a cross two "
+             "bars ago, a divergence between two candidates) is still not "
+             "expressible, and belongs in a narrower row than this one when the "
+             "corpus produces it"),
+
+    _row("technical_indicator", "cross_section", "rank", EXPRESSIBLE,
+         block_refs=("universe.augment_with_indicator",),
+         fields=("selection.score", "selection.order", "selection.min_score",
+                 "selection.max_score"),
+         requires_sources=("universe_bars",),
+         why="'the five most oversold coins' is score: <the joined column> + "
+             "order: asc, which the same probe covered (score: rsi_4h validates "
+             "with errors == []). Split from the compare row because it grants a "
+             "different vocabulary: a ranking needs no threshold and no "
+             "conditions.* block, and min_score/max_score are absolute bounds "
+             "that do NOT flip with order"),
+    # Catch-all AFTER the three specific rows, so an unlisted scope/operator gets
+    # a NAMED gap instead of `unknown`. Without it, technical_indicator at
+    # account / side_channel scope goes to human triage, and a case shelved for a
+    # human is a case nobody looks at again.
+    _row("technical_indicator", "*", "*", NOT_EXPRESSIBLE,
          gap_id="GAP-PER-SYMBOL-INDICATOR",
-         proxy_block_refs=("universe.top_losers", "universe.top_gainers",
-                           "universe.filter_change_pct"),
-         degradation=(
-             "24h change stands in for a trend indicator. It loses the "
-             "indicator's period, its timeframe, its state (a Supertrend flip is "
-             "not a percentage), and the distinction between 'downtrend' and "
-             "'one bad hour'. THIS IS THE SUBSTITUTION THAT SHIPPED: "
-             "'Supertrend(10,3) bearish on H4/H1/M15' became top_losers(n=30), "
-             "the spec validated, the run succeeded, and the output named no proxy"),
-         why="the cross-sectional frame has one row per instrument and no bars, "
-             "so there is nothing to compute an indicator over. Withheld by "
-             "default: with 'top_losers' absent from the prompt the substitution "
-             "is unwritable, and the condition is recorded unconvertible instead"),
-    _row("technical_indicator", "per_candidate_series", "*", NOT_EXPRESSIBLE,
-         gap_id="GAP-PER-SYMBOL-INDICATOR",
-         why="'scan the market, then run the indicator on each survivor' is the "
-             "single most common shape in the selection corpus and the repo has "
-             "no object for it: selection sees no bars, and signals: sees one "
-             "declared symbol. Needs universe.augment_with_indicator"),
+         why="the three frames above are ruled and cover every place bars exist. "
+             "What reaches this row is a mis-scoped condition: an indicator at "
+             "account scope, or 'alert me when RSI drops' at side_channel — those "
+             "belong to account_ops and alert_notify, and answering them from an "
+             "indicator row would produce a strategy where the user asked for a "
+             "notification"),
 
     # -- multi-timeframe ----------------------------------------------------
     _row("multi_timeframe", "per_symbol_series", "resonance", PROXY_ONLY,
@@ -663,10 +758,42 @@ CAPABILITY_TABLE: Tuple[Capability, ...] = (
              "HTF SMAs, so it is honest for SMA alignment and a proxy for "
              "everything else. An SMA request should be routed to the "
              "technical_indicator / per_symbol_series row instead"),
-    # ⚠️ ALSO STALE as of 2026-08-02 — see TABLE_DERIVED_FROM["pending_review"].
-    _row("multi_timeframe", "cross_section", "resonance", NOT_EXPRESSIBLE,
+    # Was NOT_EXPRESSIBLE ("no bars in the frame at one timeframe, let alone
+    # three") until universe.augment_with_indicator landed. Note this row is
+    # STRICTLY BETTER than the per_symbol_series proxy above, which is the
+    # opposite of the usual direction: the cross-section can resonate any
+    # indicator, the bar series can only resonate HTF SMAs.
+    _row("multi_timeframe", "cross_section", "resonance", EXPRESSIBLE,
+         block_refs=("universe.augment_with_indicator",),   # see technical_indicator
+         fields=("timeframe", "as", "entry.all_of", "entry.any_of",
+                 "conditions.value_above", "conditions.value_below",
+                 "selection.long_when", "selection.short_when"),
+         requires_sources=("universe_bars",),
+         why="probed 2026-08-02: three augment_with_indicator steps differing "
+             "only in timeframe/as, plus all_of([value_below(st_dir_4h, 0), "
+             "value_below(st_dir_1h, 0), value_below(st_dir_15m, 0)]), validates "
+             "with errors == []. No resonance combinator is needed and none was "
+             "added — once each timeframe is a column, 'at the same time' is "
+             "all_of over columns, which is one fewer thing to get wrong. all_of "
+             "and any_of are genuinely different answers: on the measured "
+             "capture 0 of 5 candidates were bearish on 4h AND 1h AND 15m while "
+             "3 of 5 were bearish on at least one, so the converter must not "
+             "pick whichever one returns a non-empty basket"),
+    _row("multi_timeframe", "per_candidate_series", "resonance", EXPRESSIBLE,
+         block_refs=("universe.augment_with_indicator",),   # see technical_indicator
+         fields=("timeframe", "as", "entry.all_of", "entry.any_of",
+                 "conditions.value_above", "conditions.value_below"),
+         requires_sources=("universe_bars",),
+         why="the same spec as the cross_section row — the bars are per candidate "
+             "and the verdict lands on the cross-section — kept as its own row "
+             "because a request phrased 'for each coin that survives, check 4h "
+             "and 1h' is scoped per candidate by whoever writes the condition, "
+             "and it must not fall through to the wildcard and be refused"),
+    _row("multi_timeframe", "*", "*", NOT_EXPRESSIBLE,
          gap_id="GAP-PER-SYMBOL-INDICATOR",
-         why="no bars in the frame at one timeframe, let alone three"),
+         why="catch-all so an unlisted scope names a gap instead of shelving the "
+             "case. Only the three frames above have bars at more than one "
+             "timeframe"),
 
     # -- history ------------------------------------------------------------
     _row("historical_range", "per_symbol_series", "window", EXPRESSIBLE,
@@ -676,13 +803,45 @@ CAPABILITY_TABLE: Tuple[Capability, ...] = (
          fields=("high", "low", "close"),
          why="probed: indicators.highest(high, 30) + conditions.close_above "
              "validates clean. 'near its 30-day high' is a rolling window"),
-    # ⚠️ ALSO STALE as of 2026-08-02 — see TABLE_DERIVED_FROM["pending_review"].
-    _row("historical_range", "cross_section", "window", NOT_EXPRESSIBLE,
+    # Was NOT_EXPRESSIBLE ("the universe frame is ONE instant") until
+    # universe.augment_with_indicator landed: the frame is still one instant, but
+    # a window over the bars behind it now collapses into a column on it.
+    _row("historical_range", "cross_section", "window", EXPRESSIBLE,
+         block_refs=("universe.augment_with_indicator",),   # see technical_indicator
+         fields=("indicator", "timeframe", "period", "input", "as",
+                 "min_bars_multiple", "range_gain_pct", "highest", "lowest",
+                 "conditions.value_above", "conditions.value_below",
+                 "conditions.value_in_range",
+                 "selection.score", "selection.min_score", "selection.max_score"),
+         requires_sources=("universe_bars",),
+         why="probed 2026-08-02, two ways, both errors == []: "
+             "range_gain_pct@1d period 90 -> score/min_score reproduces "
+             "'3-month low-to-high gain >= 100%', and highest/lowest@1d period 90 "
+             "fed input: high / input: low gives the '% off its yearly high' "
+             "reading. TWO TRAPS the vocabulary above is chosen to keep visible. "
+             "(1) period is in BARS, not days: 90 on 1d is three months and 90 on "
+             "4h is fifteen days, so timeframe and period have to be read "
+             "together. (2) range_gain_pct is a RANGE, not an ordered run-up — it "
+             "does not require the low to precede the high, and on the measured "
+             "capture 2 of 5 candidates had their high first, which inflated "
+             "589%->351% and 330%->192% versus the literal reading. priceChange"
+             "Percent remains the wrong answer here whatever the window: it is a "
+             "24h number wearing the same words"),
+    _row("historical_range", "per_candidate_series", "window", EXPRESSIBLE,
+         block_refs=("universe.augment_with_indicator",),
+         fields=("indicator", "timeframe", "period", "input", "as",
+                 "min_bars_multiple"),
+         requires_sources=("universe_bars",),
+         why="the same block; separate row because 'for each survivor, look back "
+             "N bars' is scoped per candidate and must not fall through to the "
+             "wildcard. min_bars_multiple matters most here: the default 3 is for "
+             "the RMA/EMA-seeded family and would demand 270 daily bars for a "
+             "90-bar window, which raises on exactly the newly-listed coins a "
+             "run-up screen is looking for"),
+    _row("historical_range", "*", "*", NOT_EXPRESSIBLE,
          gap_id="GAP-HISTORICAL-WINDOW",
-         why="the universe frame is ONE instant. 'coins down 50% from their "
-             "yearly high' needs a per-symbol history the frame does not carry, "
-             "and priceChangePercent is a 24h number — a 20x shorter window "
-             "wearing the same words"),
+         why="catch-all so an unlisted scope names a gap instead of shelving the "
+             "case. The three frames above are the ones with bars behind them"),
 
     # -- book / spread ------------------------------------------------------
     # Both cross_section rows were NOT_EXPRESSIBLE / GAP-SPREAD-DEPTH until the
@@ -715,9 +874,24 @@ CAPABILITY_TABLE: Tuple[Capability, ...] = (
              "touch are NaN and are dropped by the ranker, never ranked first"),
     _row("spread_liquidity", "per_symbol_series", "compare", NOT_EXPRESSIBLE,
          gap_id="GAP-SPREAD-DEPTH",
-         why="probed: microstructure.order_imbalance resolves, but its inputs "
-             "(taker_buy_volume / taker_sell_volume) are in no DATA_SECTIONS, so "
-             "the dry-run frame has no such columns and the spec cannot be fed"),
+         why="re-probed 2026-08-02: microstructure.order_imbalance resolves, but "
+             "its inputs (taker_buy_volume / taker_sell_volume) are in no "
+             "DATA_SECTIONS, so the dry-run frame has no such columns and the "
+             "spec dies with \"order_imbalance() missing 1 required positional "
+             "argument: 'sell_volume'\". A block you cannot feed is not a "
+             "capability. Unaffected by the cross-sectional flip above: "
+             "book_ticker is a snapshot, not a series"),
+    # Catch-all AFTER the three specific rows. Added 2026-08-02 to close the same
+    # hole the long_short_ratio wildcard closes: without it spread_liquidity at
+    # per_candidate_series / account / side_channel scope, or at
+    # per_symbol_series with any operator other than compare, resolves to
+    # `unknown` and the case is shelved for a human — for a subject the table
+    # understands perfectly well.
+    _row("spread_liquidity", "*", "*", NOT_EXPRESSIBLE,
+         gap_id="GAP-SPREAD-DEPTH",
+         why="only the cross-sectional snapshot is served (bookTicker, whole "
+             "market in one request). Every other frame would need depth or a "
+             "quote history, and this repo captures neither"),
 
     # -- what to do about it ------------------------------------------------
     _row("entry_exit_plan", "per_symbol_series", "plan", EXPRESSIBLE,

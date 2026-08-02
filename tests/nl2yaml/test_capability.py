@@ -193,42 +193,76 @@ USER_CHAT_CONDITIONS = (
 )
 
 
-def test_the_supertrend_accident_cannot_be_written_when_the_proxy_is_withheld():
-    """The whole design, in one assertion.
+#: The SAME request, re-scoped to the bar-series frame. This is the shape that
+#: still needs the withheld proxy after ``universe.augment_with_indicator``
+#: landed: on ONE declared symbol, ``data.htf`` can only attach HTF SMAs, so
+#: "Supertrend bearish on 4h/1h/15m" is still answerable only by a stand-in.
+#:
+#: The companion condition is deliberately ``quote_volume_24h`` and NOT an
+#: indicator: an indicator at this scope GRANTS
+#: ``conditions.multi_timeframe_alignment`` (it is the honest spelling for SMA
+#: alignment), and grant beats withhold within a case — which is its own test
+#: below, and would silently empty ``refused_vocabulary`` here.
+SERIES_RESONANCE_CONDITIONS = (
+    {"id": "vol", "subject": "quote_volume_24h", "scope": "cross_section",
+     "operator": "compare", "value": {"op": ">", "threshold": 2_000_000},
+     "quantified": True},
+    {"id": "reson", "subject": "multi_timeframe", "scope": "per_symbol_series",
+     "operator": "resonance", "value": ["4h", "1h", "15m"], "quantified": False},
+)
+
+
+def test_the_supertrend_accident_is_now_expressible_and_names_no_proxy():
+    """The accident's request, converted against the table that can serve it.
 
     ``universe.top_losers`` was the block that stood in for "Supertrend(10,3)
-    bearish on H4/H1/M15". The spec validated, the run succeeded, and the output
-    admitted nothing. With the proxy withheld the name is simply not in the
-    converter's vocabulary for that condition, and the condition is recorded
-    unconvertible under a closed gap id instead of being answered wrongly.
+    bearish on H4/H1/M15". It is still absent from this request's vocabulary —
+    but for the opposite reason to before. It used to be WITHHELD, because the
+    condition was unconvertible and the model would have reached for the nearest
+    runnable name. Now ``universe.augment_with_indicator`` exists, so the honest
+    spelling is granted and the proxy is not in the row at all: there is nothing
+    left to withhold, and nothing left to refuse.
     """
     plan = cap.plan_conversion(USER_CHAT_CONDITIONS)
 
     assert "universe.top_losers" not in plan.vocabulary
-    assert "universe.top_losers" in plan.refused_vocabulary
+    assert "universe.top_losers" not in plan.refused_vocabulary
+    assert "universe.augment_with_indicator" in plan.vocabulary
+    assert "universe_bars" in plan.required_sources
 
-    unconvertible = {cond.id: gap for cond, gap in plan.unconvertible}
-    assert unconvertible["c6"] == "GAP-PER-SYMBOL-INDICATOR"
-    assert unconvertible["c7"] == "GAP-PER-SYMBOL-INDICATOR"
-    # And the conditions that cannot be converted are ABSENT from what the
-    # converter sees, not annotated inside it: a "cannot do this" note left in
-    # the prompt is a condition the model will try to satisfy anyway.
-    # c5 (retail long/short ratio) joined this set when the cross-sectional
-    # snapshot landed. c6/c7 have not: those need a per-candidate indicator, and
-    # the point of the assertion is that they stay OUT of the vocabulary rather
-    # than being answered by whatever is nearest.
+    # Every condition now reaches the converter, c6 (the indicator) and c7 (the
+    # three-timeframe resonance) included. Nothing is dropped, so nothing has to
+    # be answered by whatever is nearest.
+    assert plan.unconvertible == ()
     assert {cond.id for cond in plan.converter_conditions} == {
-        "c1", "c2", "c3", "c4", "c5", "c8", "c9"}
+        "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9"}
+
+
+def test_the_same_request_on_a_bar_series_still_withholds_its_proxy():
+    """The mechanism itself, on the one proxy row the table still carries.
+
+    The flip above removed the table's flagship proxy case, so the withheld
+    vocabulary is asserted here instead — on the frame where the degradation is
+    real. ``data.htf`` attaches HTF SMAs and nothing else, so a Supertrend
+    resonance on one declared symbol is answerable only by
+    ``conditions.multi_timeframe_alignment`` fed the wrong indicator.
+    """
+    plan = cap.plan_conversion(SERIES_RESONANCE_CONDITIONS)
+
+    assert "conditions.multi_timeframe_alignment" in plan.refused_vocabulary
+    assert "conditions.multi_timeframe_alignment" not in plan.vocabulary
+    assert [gap for _cond, gap in plan.unconvertible] == ["GAP-PER-SYMBOL-INDICATOR"]
+    assert {cond.id for cond in plan.converter_conditions} == {"vol"}
 
 
 def test_the_gaps_the_same_request_still_hits_are_named_not_approximated():
     plan = cap.plan_conversion(USER_CHAT_CONDITIONS)
 
-    # Down to one. GAP-LONG-SHORT-RATIO left this list when the cross-sectional
-    # snapshot landed, the same way GAP-SECTOR-LABEL left it when the
-    # contract-metadata blocks did. What remains is the per-candidate indicator,
-    # which is the request's real blocker.
-    assert plan.gap_ids == ("GAP-PER-SYMBOL-INDICATOR",)
+    # Down to zero. GAP-SECTOR-LABEL left this list when the contract-metadata
+    # blocks landed, GAP-LONG-SHORT-RATIO when the cross-sectional snapshot did,
+    # and GAP-PER-SYMBOL-INDICATOR when universe.augment_with_indicator did. The
+    # request that started this whole table is now fully convertible.
+    assert plan.gap_ids == ()
     assert cap.lookup("long_short_ratio", "cross_section", "*").verdict == cap.EXPRESSIBLE
     assert "universe.filter_long_short_ratio" in plan.vocabulary
     assert "long_short_ratio_snapshot" in plan.required_sources
@@ -242,18 +276,22 @@ def test_the_gaps_the_same_request_still_hits_are_named_not_approximated():
 def test_opening_the_proxy_is_per_condition_and_never_per_subject():
     """A reviewer accepting one degradation must not open it everywhere.
 
-    Ids, not subjects, precisely so that "yes, 24h change is close enough THIS
+    Ids, not subjects, precisely so that "yes, an HTF SMA is close enough THIS
     time" cannot become a standing permission.
     """
-    plan = cap.plan_conversion(USER_CHAT_CONDITIONS, allow_proxy_for=["c6"])
+    conditions = SERIES_RESONANCE_CONDITIONS + (
+        {"id": "reson2", "subject": "multi_timeframe", "scope": "per_symbol_series",
+         "operator": "resonance", "value": ["1d", "4h"], "quantified": False},
+    )
+    plan = cap.plan_conversion(conditions, allow_proxy_for=["reson"])
 
-    assert "universe.top_losers" in plan.vocabulary
-    assert {cond.id for cond in plan.proxied} == {"c6"}
-    # c7 asked for the same gap and was not opened, so it is still refused.
-    assert "c7" in {cond.id for cond, _gap in plan.unconvertible}
+    assert "conditions.multi_timeframe_alignment" in plan.vocabulary
+    assert {cond.id for cond in plan.proxied} == {"reson"}
+    # reson2 asked for the same gap and was not opened, so it is still refused.
+    assert "reson2" in {cond.id for cond, _gap in plan.unconvertible}
     # Still reported as a proxy, never promoted to expressible: the basket's
     # reader has to keep being told the answer is a stand-in.
-    assert {cond.id for cond in plan.expressible}.isdisjoint({"c6"})
+    assert {cond.id for cond in plan.expressible}.isdisjoint({"reson"})
 
 
 def test_a_typo_in_allow_proxy_for_raises_instead_of_silently_refusing():
@@ -263,22 +301,28 @@ def test_a_typo_in_allow_proxy_for_raises_instead_of_silently_refusing():
 
 
 def test_a_granted_name_beats_a_withheld_one_within_the_same_case():
-    """``top_losers`` is honest for "biggest fallers" and a proxy for Supertrend.
+    """``multi_timeframe_alignment`` is honest for SMAs, a proxy for Supertrend.
 
     Both conditions in one request must not produce a prompt that grants and
     refuses the same name — the caller would have contradictory instructions.
-    Grant wins, and the indicator condition stays unconvertible, which is the
+    Grant wins, and the resonance condition stays unconvertible, which is the
     honest reading: the block is there for the condition that asked for it.
+
+    This used to be told with ``universe.top_losers`` (honest for "biggest
+    fallers", a proxy for Supertrend in the cross-section). That pair stopped
+    overlapping when the cross-section row was flipped, so the same invariant is
+    asserted on the pair that still does.
     """
     plan = cap.plan_conversion([
-        {"id": "a", "subject": "price_change_24h", "scope": "cross_section",
-         "operator": "top_k", "value": 30, "quantified": True},
-        {"id": "b", "subject": "technical_indicator", "scope": "cross_section",
-         "operator": "compare", "value": {"op": "<", "threshold": 0}},
+        {"id": "a", "subject": "technical_indicator", "scope": "per_symbol_series",
+         "operator": "compare", "value": {"op": ">", "threshold": 0},
+         "quantified": True},
+        {"id": "b", "subject": "multi_timeframe", "scope": "per_symbol_series",
+         "operator": "resonance", "value": ["4h", "1h"]},
     ])
 
-    assert "universe.top_losers" in plan.vocabulary
-    assert "universe.top_losers" not in plan.refused_vocabulary
+    assert "conditions.multi_timeframe_alignment" in plan.vocabulary
+    assert "conditions.multi_timeframe_alignment" not in plan.refused_vocabulary
     assert [gap for _cond, gap in plan.unconvertible] == ["GAP-PER-SYMBOL-INDICATOR"]
 
 
@@ -317,11 +361,11 @@ def test_a_misspelt_condition_key_raises_rather_than_being_ignored():
 
 
 def test_with_proxy_opened_shows_a_reviewer_the_cost_it_is_accepting():
-    row = cap.lookup("technical_indicator", "cross_section", "compare")
+    row = cap.lookup("multi_timeframe", "per_symbol_series", "resonance")
     opened = cap.with_proxy_opened(row)
 
     assert opened.verdict == cap.EXPRESSIBLE
-    assert "universe.top_losers" in opened.block_refs
-    assert "PROXY OPENED" in opened.why and "top_losers(n=30)" in opened.why
+    assert "conditions.multi_timeframe_alignment" in opened.block_refs
+    assert "PROXY OPENED" in opened.why and "_htf_<tf>_sma_<period>" in opened.why
     with pytest.raises(ValueError, match="not a proxy row"):
         cap.with_proxy_opened(cap.lookup("market_cap"))
