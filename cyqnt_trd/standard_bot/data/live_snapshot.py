@@ -58,9 +58,13 @@ __all__ = ["build_live_snapshot", "requests_for_sections", "SECTION_NODES"]
 SECTION_NODES: Dict[str, Tuple[str, ...]] = {
     "derivatives": ("funding", "open_interest", "taker_volume", "long_short_ratio",
                     "top_trader_ratio"),
+    "liquidations": ("liquidations",),
     "orderbook": ("orderbook_depth",),
-    "news": ("news", "hot_post", "topic_trending", "sentiment"),
-    "universe": ("universe", "ticker_rank"),
+    "news": ("news", "hot_post", "topic_trending", "sentiment", "ticker_rank"),
+    "universe": ("universe",),
+    # Selection needs one current value for every symbol.  This is deliberately
+    # not the historical per-symbol ``funding`` node used by trade strategies.
+    "selection_funding": ("funding_snapshot",),
 }
 
 
@@ -79,12 +83,21 @@ def requests_for_sections(
     vocabulary owns validation, and refusing here would turn a naming drift into
     a crash in the data layer.
     """
+    requested_sections = {str(section) for section in (sections or ())}
     plan = default_live_requests(symbol=symbol, interval=interval, limit=limit,
                                  market_type=market_type)
     wanted = {"klines"}
-    for section in sections or ():
-        wanted.update(SECTION_NODES.get(str(section), ()))
-    return [req for req in plan if req[0] in wanted]
+    for section in requested_sections:
+        wanted.update(SECTION_NODES.get(section, ()))
+    selected = [req for req in plan if req[0] in wanted]
+    if "selection_funding" in requested_sections:
+        # The default plan's ``funding`` request is a BTCUSDT history.  Keeping
+        # it here would either pass a single-symbol frame to a cross-sectional
+        # block or overwrite the same logical key, depending on request order.
+        selected = [req for req in selected
+                    if not (req[0] == "funding" and req[2] == "funding")]
+        selected.append(("funding_snapshot", {}, "funding"))
+    return selected
 
 
 def build_live_snapshot(

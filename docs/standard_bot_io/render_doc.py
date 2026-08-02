@@ -88,7 +88,7 @@ doc = (tpl
                                              "source_status","warnings","inferred_availability")}))
   .replace("@@CTX_TYPED@@", j({k: {kk: vv for kk, vv in v.items()
                                    if kk in ("kind","schema","rows","status","availability")}
-                               for k, v in list(ctx["typed"].items())[:2]}))
+                               for k, v in list(ctx["frames"].items())[:2]}))
   .replace("@@EXEC@@", j(out_exec))
   .replace("@@OPEN@@", j(out_long))
   .replace("@@CLOSE@@", j({k: out_close[k] for k in ("intent","target_side","closes_side","order_side",

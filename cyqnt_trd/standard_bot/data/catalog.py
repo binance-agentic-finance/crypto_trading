@@ -492,6 +492,43 @@ _NODES: List[DataNodeSpec] = [
               "books were actually validated on.",
     ),
     DataNodeSpec(
+        name="funding_snapshot",
+        emits=FrameKind.METRIC,
+        column_map={
+            "symbol": "instrument_id",
+            "lastFundingRate": "funding_rate",
+        },
+        constants={
+            "unit": "ratio",
+            "source_id": "binance.premiumIndex",
+        },
+        value_columns=("funding_rate",),
+        description=(
+            "Current funding-rate snapshot across every USDM perpetual; this is "
+            "the cross-section a funding-based SELECTION strategy joins."
+        ),
+        strategy_types=("D", "L", "P"),
+        source_path=SourcePath.PUBLIC_BINANCE,
+        availability=Availability.FORWARD_ONLY,
+        endpoint="fapi.binance.com/fapi/v1/premiumIndex (all symbols)",
+        returns=ReturnSpec(
+            "pd.DataFrame",
+            "one current row per perpetual symbol",
+            ("symbol", "lastFundingRate", "markPrice", "indexPrice", "time"),
+        ),
+        params=(),
+        pit_hazard=(
+            "Current all-market snapshot only; capture it forward. It must not be "
+            "replayed as historical funding at earlier decision times."
+        ),
+        fetcher="cyqnt_trd.blocks.data.fetch_premium_index",
+        notes=(
+            "Transport-only node. Live YAML selection stores it under the logical "
+            "bundle key `funding`; the existing `funding` node remains the "
+            "single-symbol settlement history used by trade strategies."
+        ),
+    ),
+    DataNodeSpec(
         name="funding_current",
         emits=FrameKind.METRIC,
         constants={"metric": "funding_rate_8h", "unit": "ratio", "source_id": "binance.premiumIndex"},

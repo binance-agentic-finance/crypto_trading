@@ -3393,9 +3393,9 @@
       "file": "cyqnt_trd/blocks/universe.py",
       "category": "universe",
       "paradigm": "scalar",
-      "params": "tickers: pd.DataFrame",
-      "returns": "pd.DataFrame — tickers merged (left join on 'symbol') with a new 'fundingRatePct' column = premium_index['lastFundingRate'] * 100.0. If the fetched premium-index snapshot is empty or lacks a 'symbol' column, returns tickers.copy() with 'fundingRatePct' set to NaN for all rows instead of merging.",
-      "notes": "Live network call via cyqnt_trd/blocks/data.fetch_premium_index -> Binance futures premium-index REST endpoint (mark price / funding rate). Public (no leading underscore) but NOT included in the module's __all__ list, unlike the other 8 functions/class — likely an oversight since UniverseFilter.with_funding() depends on it and filter_funding_rate's docstring references it directly by name.",
+      "params": "tickers: pd.DataFrame, funding_df: Optional[pd.DataFrame] = None",
+      "returns": "pd.DataFrame — tickers left-joined with fundingRatePct. Accepts raw Binance premium-index, a wide canonical funding frame, or long MetricFrame@1.0 and keeps the latest row per instrument.",
+      "notes": "Replay-safe YAML passes with: [funding] from cyqnt.input/v1 and performs no I/O. Direct Python callers may omit funding_df to fetch the current all-symbol Binance premium-index snapshot. Included in __all__.",
       "possible_duplicate_of": ""
     },
     {

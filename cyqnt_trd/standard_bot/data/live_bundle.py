@@ -245,9 +245,17 @@ def build_live_bundle(
                                "reason": exc.reason}
                 status[key] = "error: %s" % exc.reason
                 continue
+            fetched_at = int(time.time() * 1000)
             try:
                 normalized, notes, inferred = spec.normalize(
-                    raw, available_time=as_of, params=params)
+                    raw,
+                    # A live snapshot becomes knowable when its response is in
+                    # hand, not when collection of the whole bundle began.
+                    # Historical frames derive availability per row from their
+                    # event timestamp, so this only changes true snapshots.
+                    available_time=fetched_at if not replaying else as_of,
+                    params=params,
+                )
             except Exception as exc:                     # shape mismatch, bad melt…
                 frames[key] = {"shape": shape, "status": "unnormalised", "rows": [],
                                "reason": "%s: %s" % (type(exc).__name__, exc)}

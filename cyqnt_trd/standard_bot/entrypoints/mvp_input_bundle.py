@@ -62,6 +62,10 @@ def build_parser() -> argparse.ArgumentParser:
                         help="write the bundle JSON here (enables replay)")
     parser.add_argument("--strategy", default=None,
                         help="registered strategy id to run on the bundle")
+    parser.add_argument("--strategy-yaml", default=None,
+                        help="YAML strategy to run through the canonical bundle runner")
+    parser.add_argument("--signal-out", default=None,
+                        help="write cyqnt.signal-batch/v1 JSON here")
     parser.add_argument("--replay", default=None,
                         help="load this bundle instead of fetching (no network)")
     parser.add_argument("--include-account", action="store_true",
@@ -158,8 +162,19 @@ def _column_count(snapshot, *, symbol: str, interval: str) -> Optional[int]:
 def main(argv: Optional[List[str]] = None) -> int:
     args = build_parser().parse_args(argv)
 
+    if args.strategy and args.strategy_yaml:
+        raise SystemExit("choose --strategy or --strategy-yaml, not both")
+    if args.signal_out and not args.strategy_yaml:
+        raise SystemExit("--signal-out requires --strategy-yaml")
+
     from ..data import load_input_bundle
     from ..data.live_snapshot import build_live_snapshot
+
+    yaml_spec = None
+    if args.strategy_yaml:
+        from ..yaml_pipeline.spec import load_spec
+
+        yaml_spec = load_spec(args.strategy_yaml)
 
     if args.replay:
         with open(args.replay, encoding="utf-8") as handle:
@@ -169,6 +184,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     else:
         sections = ([s.strip() for s in args.sections.split(",") if s.strip()]
                     if args.sections else None)
+        if sections is None and yaml_spec is not None:
+            from ..yaml_pipeline.bundle_runner import live_sections_for_spec
+
+            sections = live_sections_for_spec(yaml_spec)
         snapshot, bundle = build_live_snapshot(
             sections=sections, symbol=args.symbol, interval=args.interval,
             limit=args.limit, market_type=args.market_type,
@@ -196,6 +215,21 @@ def main(argv: Optional[List[str]] = None) -> int:
             snapshot, args.strategy, symbol=args.symbol,
             interval=args.interval, market_type=args.market_type))
 
+    signal_batch = None
+    if yaml_spec is not None:
+        from ..yaml_pipeline.bundle_runner import run_bundle, write_signal_batch
+
+        signal_batch = run_bundle(yaml_spec, bundle)
+        if args.signal_out:
+            write_signal_batch(signal_batch, args.signal_out)
+
+    # For the canonical path, JSON stdout is the same object downstream teams
+    # receive in --signal-out. Bundle diagnostics remain available in the input
+    # artifact itself and in text mode.
+    if args.format == "json" and signal_batch is not None:
+        print(json.dumps(signal_batch, ensure_ascii=False, indent=2, default=str))
+        return 0
+
     if args.format == "json":
         print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
         return 0
@@ -212,6 +246,16 @@ def main(argv: Optional[List[str]] = None) -> int:
         print("  ! %s" % warning)
     if result.get("bundle_path"):
         print("  bundle -> %s" % result["bundle_path"])
+
+    if signal_batch is not None:
+        print("  output=%s strategy=%s signals=%d"
+              % (signal_batch["schema"], signal_batch["strategy_id"],
+                 signal_batch["signal_count"]))
+        if args.signal_out:
+            print("  signals -> %s" % args.signal_out)
+        for payload in signal_batch["signals"]:
+            print("  %s %s %s" % (payload["schema"], payload["kind"],
+                                  payload.get("symbol") or ""))
 
     for signal in result.get("signals", []):
         payload = signal["payload"]

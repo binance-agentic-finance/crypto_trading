@@ -79,8 +79,17 @@ def test_bundle_is_one_json_with_every_declared_source():
 
 
 def test_round_trip_rebuilds_a_usable_snapshot(tmp_path):
-    bundle = _build(universe_frame=pd.DataFrame(
-        {"instrument_id": ["BTCUSDT"], "available_time": [DT], "quote_volume": [5e8]}))
+    bundle = _build(
+        universe_frame=pd.DataFrame(
+            {"instrument_id": ["BTCUSDT"], "available_time": [DT],
+             "quote_volume": [5e8]}),
+        positions={"BTCUSDT": 0.25}, equity=12345.0,
+        extra_frames={"internal_metrics": pd.DataFrame({
+            "event_time": [DT], "available_time": [DT],
+            "instrument_id": ["BTCUSDT"], "metric": ["alpha"],
+            "value": [0.7],
+        })},
+    )
     path = write_input_bundle(bundle, str(tmp_path / "b.json"))
     snap = load_input_bundle(path)
     assert snap.meta.decision_as_of == DT
@@ -89,6 +98,16 @@ def test_round_trip_rebuilds_a_usable_snapshot(tmp_path):
     # asserting that the gate leaked.
     assert len(snap.require_market().bars[MarketBundle.key("BTCUSDT", "1h")]) == 100
     assert snap.universe is not None
+    assert snap.positions == {"BTCUSDT": 0.25}
+    assert snap.equity == 12345.0
+    assert snap.typed["internal_metrics"].metric("alpha", instrument="BTCUSDT") == 0.7
+
+    from strategies.standard.blocks_reference_bots import BlocksEmaCrossBot
+
+    ctx = BlocksEmaCrossBot()._coerce_context(snap, None)
+    assert ctx.positions == {"BTCUSDT": 0.25}
+    assert ctx.equity == 12345.0
+    assert ctx.view("internal_metrics").metric("alpha", instrument="BTCUSDT") == 0.7
 
 
 # --------------------------------------------------------------------------- #

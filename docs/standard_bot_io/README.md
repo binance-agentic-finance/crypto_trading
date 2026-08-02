@@ -4,6 +4,27 @@
 
 ## 是什么
 
+### 目前可交付的主路径
+
+现在对外只认这一条决策路径：
+
+```
+自然语言 → YAML → cyqnt.input/v1 → Blocks → cyqnt.signal-batch/v1
+                                             └─ signals[]: cyqnt.signal/v2
+```
+
+`signals` 可以是空数组（本次没有动作）、一笔交易讯号，或一笔选币篮子。CLI、8799 demo
+与离线 replay 都调用 `yaml_pipeline.bundle_runner.run_bundle()`；paper/live 执行层目前不在这条
+交付声明内。
+
+```bash
+python -m cyqnt_trd.standard_bot.entrypoints.mvp_input_bundle \
+  --replay input.json --strategy-yaml strategy.yaml --signal-out output.json
+```
+
+`UniversalBot` 是完整能力目录与另一种策略作者接口，目前不是 YAML/Blocks 这条主路径的
+执行入口；不要用它的存在推断某支 production 策略已经接线。
+
 一个 Standard Bot 处理全部数据源，一支实际策略是它激活一部分。
 
 ```
@@ -555,17 +576,15 @@ ctx.require("orderbook_depth")     # 没声明就报错
   },
   "warnings": [
     "klines: klines: declared source column(s) absent from the response: symbol",
-    "klines: klines: available_time inferred from fetch time — the source states no publication lag, so a replay may be optimistic by that lag",
-    "funding: funding: available_time inferred from fetch time — the source states no publication lag, so a replay may be optimistic by that lag",
-    "open_interest: open_interest: available_time inferred from fetch time — the source states no publication lag, so a replay may be optimistic by that lag",
-    "news: news: available_time inferred from fetch time — the source states no publication lag, so a replay may be optimistic by that lag",
+    "funding: funding: available_time derived per row from event_time — the source states no publication lag, so a replay may be optimistic by that lag",
+    "open_interest: open_interest: available_time derived per row from event_time — the source states no publication lag, so a replay may be optimistic by that lag",
+    "news: news: available_time derived per row from event_time — the source states no publication lag, so a replay may be optimistic by that lag",
     "contract_positions: contract_positions: declared source column(s) absent from the response: entryPrice, positionAmt",
-    "contract_positions: contract_positions: available_time inferred from fetch time — the source states no publication lag, so a replay may be optimistic by that lag"
+    "contract_positions: contract_positions: available_time taken from the fetch time — this source is a snapshot with no per-row event time, so it cannot be replayed bar by bar"
   ],
   "inferred_availability": [
     "contract_positions",
     "funding",
-    "klines",
     "news",
     "open_interest"
   ]
@@ -577,95 +596,91 @@ typed 视图（截前两个）：
 ```json
 {
   "klines": {
-    "kind": "bar",
-    "schema": "BarFrame@1.0",
+    "status": "ok",
+    "availability": "BACKTESTABLE",
     "rows": [
       {
-        "open_time": "2026-08-06T05:06:40.000Z",
+        "open_time": 1785992800000,
         "open": 61100.0,
         "high": 61300.0,
         "low": 61010.0,
         "close": 61250.0,
         "volume": 744.1,
         "quote_volume": 45500000.0,
-        "close_time": "2026-08-06T06:06:40.000Z",
+        "close_time": 1785996400000,
         "trades": 19004,
         "instrument_id": "BTCUSDT",
         "timeframe": "1h",
-        "available_time": "2026-08-06T07:06:40.000Z",
-        "event_time": "2026-08-06T07:06:40.000Z"
+        "available_time": 1785996400000,
+        "event_time": 1785996400000
       },
       {
-        "open_time": "2026-08-06T06:06:40.000Z",
+        "open_time": 1785996400000,
         "open": 61250.0,
         "high": 61480.0,
         "low": 61120.0,
         "close": 61390.0,
         "volume": 812.4,
         "quote_volume": 49871233.0,
-        "close_time": "2026-08-06T07:06:40.000Z",
+        "close_time": 1786000000000,
         "trades": 21044,
         "instrument_id": "BTCUSDT",
         "timeframe": "1h",
-        "available_time": "2026-08-06T07:06:40.000Z",
-        "event_time": "2026-08-06T07:06:40.000Z"
+        "available_time": 1786000000000,
+        "event_time": 1786000000000
       },
       {
-        "open_time": "2026-08-06T06:06:40.000Z",
+        "open_time": 1785996400000,
         "open": 61390.0,
         "high": 61520.0,
         "low": 61280.0,
         "close": 61460.0,
         "volume": 690.2,
         "quote_volume": 42400000.0,
-        "close_time": "2026-08-06T08:06:40.000Z",
+        "close_time": 1786003600000,
         "trades": 17322,
         "instrument_id": "BTCUSDT",
         "timeframe": "1h",
-        "available_time": "2026-08-06T07:06:40.000Z",
-        "event_time": "2026-08-06T07:06:40.000Z"
+        "available_time": 1786003600000,
+        "event_time": 1786003600000
       }
-    ],
-    "status": "ok",
-    "availability": "BACKTESTABLE"
+    ]
   },
   "funding": {
-    "kind": "metric",
-    "schema": "MetricFrame@1.0",
+    "status": "ok",
+    "availability": "BACKTESTABLE",
     "rows": [
       {
         "instrument_id": "BTCUSDT",
-        "event_time": "2026-08-05T15:06:40.000Z",
+        "event_time": 1785942400000,
         "unit": "ratio",
         "window": "8h",
         "source_id": "binance.funding_rate",
         "metric": "rate",
         "value": 9e-05,
-        "available_time": "2026-08-06T07:06:40.000Z"
+        "available_time": 1785942400000
       },
       {
         "instrument_id": "BTCUSDT",
-        "event_time": "2026-08-05T23:06:40.000Z",
+        "event_time": 1785971200000,
         "unit": "ratio",
         "window": "8h",
         "source_id": "binance.funding_rate",
         "metric": "rate",
         "value": 0.00011,
-        "available_time": "2026-08-06T07:06:40.000Z"
+        "available_time": 1785971200000
       },
       {
         "instrument_id": "BTCUSDT",
-        "event_time": "2026-08-06T07:06:40.000Z",
+        "event_time": 1786000000000,
         "unit": "ratio",
         "window": "8h",
         "source_id": "binance.funding_rate",
         "metric": "rate",
         "value": 0.00012,
-        "available_time": "2026-08-06T07:06:40.000Z"
+        "available_time": 1786000000000
       }
-    ],
-    "status": "ok",
-    "availability": "BACKTESTABLE"
+    ]
   }
 }
 ```
@@ -768,6 +783,7 @@ typed 视图（截前两个）：
 ```json
 {
   "schema": "cyqnt.signal/v2",
+  "kind": "trade",
   "bot_id": "sample_bot",
   "bot_version": "v1",
   "signal_id": "ba83c3b0-8376-59e3-aef4-6e6c0138c90b",

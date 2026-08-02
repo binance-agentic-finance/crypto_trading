@@ -426,7 +426,8 @@ def _refuse_implicit_fetch(step: Dict[str, Any]) -> None:
     """
     ref = step.get("block")
     needed = FETCHES_WITHOUT_SOURCE.get(ref)
-    if needed and not (step.get("with") or []):
+    provided = set(step.get("with") or [])
+    if needed and needed not in provided:
         raise SpecError(
             "universe step %r fetches %s itself when no source is given, which "
             "would make validate hit the network and a backtest read live data. "
@@ -469,18 +470,38 @@ def build_selection_fn(spec: Dict[str, Any]) -> Callable[..., List[Dict[str, Any
             "selection.dedupe_by must be one of %s, got %r"
             % (", ".join(DEDUPE_MODES), dedupe_by))
 
-    def selection_fn(universe_df, ticker_rank_df=None, **_: Any) -> List[Dict[str, Any]]:
+    def selection_fn(
+        universe_df,
+        ticker_rank_df=None,
+        *,
+        frames=None,
+        **runtime_extras: Any,
+    ) -> List[Dict[str, Any]]:
         import pandas as pd
 
         frame = universe_df
         if frame is None or not len(frame):
             return []
-        extras = {"ticker_rank": ticker_rank_df, "universe": universe_df}
+        # Every named non-market frame in cyqnt.input/v1 is available to a
+        # selection step through ``with: [...]``.  This is the generic bridge
+        # colleague-provided sources use; funding is the first consumer, not a
+        # one-off field added to UniverseBundle.
+        extras = dict(frames or {})
+        extras.update(runtime_extras)
+        extras.update({"ticker_rank": ticker_rank_df, "universe": universe_df})
 
         for step in steps:
             _refuse_implicit_fetch(step)
             fn = resolve_block(step["block"])
-            args = [frame] + [extras.get(name) for name in (step.get("with") or [])]
+            source_names = list(step.get("with") or [])
+            missing = [name for name in source_names
+                       if name not in extras or extras[name] is None]
+            if missing:
+                raise SpecError(
+                    "universe step %r requires source(s) %s from the input bundle, "
+                    "but they were not provided; `with:` never falls back to live "
+                    "network data" % (step["block"], missing))
+            args = [frame] + [extras[name] for name in source_names]
             try:
                 frame = fn(*args, **dict(step.get("params") or {}))
             except TypeError as exc:

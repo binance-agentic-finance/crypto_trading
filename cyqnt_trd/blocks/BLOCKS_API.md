@@ -619,7 +619,7 @@ from cyqnt_trd.blocks import universe
 | `top_losers(tickers, n=10)` | Top N by 24h loss |
 | `exclude_symbols(tickers, [list])` | Drop blacklisted symbols |
 | `only_symbols(tickers, [list])` | Keep only these symbols |
-| `augment_with_funding(tickers)` | Add `fundingRatePct` column |
+| `augment_with_funding(tickers, funding_df=None)` | Add `fundingRatePct`; YAML supplies the bundle's cross-sectional `funding` frame, while direct Python use may fetch live when omitted |
 
 ### Fluent builder
 

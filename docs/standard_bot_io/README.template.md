@@ -4,6 +4,27 @@
 
 ## 是什么
 
+### 目前可交付的主路径
+
+现在对外只认这一条决策路径：
+
+```
+自然语言 → YAML → cyqnt.input/v1 → Blocks → cyqnt.signal-batch/v1
+                                             └─ signals[]: cyqnt.signal/v2
+```
+
+`signals` 可以是空数组（本次没有动作）、一笔交易讯号，或一笔选币篮子。CLI、8799 demo
+与离线 replay 都调用 `yaml_pipeline.bundle_runner.run_bundle()`；paper/live 执行层目前不在这条
+交付声明内。
+
+```bash
+python -m cyqnt_trd.standard_bot.entrypoints.mvp_input_bundle \
+  --replay input.json --strategy-yaml strategy.yaml --signal-out output.json
+```
+
+`UniversalBot` 是完整能力目录与另一种策略作者接口，目前不是 YAML/Blocks 这条主路径的
+执行入口；不要用它的存在推断某支 production 策略已经接线。
+
 一个 Standard Bot 处理全部数据源，一支实际策略是它激活一部分。
 
 ```

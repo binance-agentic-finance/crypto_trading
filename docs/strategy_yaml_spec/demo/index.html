@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>自然語言 → YAML 策略 → 回測 Demo</title>
+<title>自然語言 → YAML 策略 → 訊號 Demo</title>
 <style>
   :root{--bg:#0f1420;--panel:#161d2e;--panel2:#1c2740;--ink:#e6ebf5;--muted:#9aa7c2;
     --line:#2a3552;--accent:#5aa9ff;--green:#39d98a;--amber:#ffcc66;--red:#ff6b6b;--chip:#233150}
@@ -57,8 +57,8 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>自然語言 → YAML 策略 → 回測</h1>
-  <div class="sub">單純用你的語言模型(LiteLLM / OpenAI 相容)把一句話轉成策略 YAML,直接跑回測,對照 BTC buy&amp;hold 基準。非 agent。</div>
+  <h1>自然語言 → YAML 策略 → 訊號</h1>
+  <div class="sub">用你的語言模型(LiteLLM / OpenAI 相容)把一句話轉成交易或選幣 YAML；交易可回測或產生訊號，選幣會直接輸出候選籃子。非 agent。</div>
 
   <!-- 1. LLM 設定 -->
   <div class="card">
@@ -68,7 +68,7 @@
       <div><label>API Key</label><input id="apiKey" type="password" placeholder="sk-..." class="mono"></div>
       <div><label>Model</label><input id="model" placeholder="gpt-4o / claude-sonnet-4 ..." class="mono"></div>
     </div>
-    <div class="hint">會組成 <span class="mono">{Base}/chat/completions</span>;key 只送到本機後端,不外流。設定存在瀏覽器 localStorage。</div>
+    <div class="hint">會組成 <span class="mono">{Base}/chat/completions</span>；本機後端會把 key 轉送到你指定的 LLM 端點。Base URL 與 model 會保存在瀏覽器，API key 不保存。</div>
   </div>
 
   <!-- 2. 馬上抓資料 -->
@@ -99,17 +99,17 @@
 
   <!-- 3. 自然語言 -->
   <div class="card">
-    <h2><span class="num">3</span> 用自然語言描述你的策略</h2>
-    <textarea id="nl" rows="3" placeholder="例:BTC 1h,EMA12 上穿 EMA26 做多、下穿做空,RSI 過熱(>75)時不追多,停損 2% 停利 4%,最多持有 4 天。"></textarea>
+    <h2><span class="num">3</span> 用自然語言描述交易或選幣需求</h2>
+    <textarea id="nl" rows="3" placeholder="交易例：BTC 1h，EMA12 上穿 EMA26 做多。選幣例：幫我挑選最近 Binance Square 新聞常提到的五個幣種。"></textarea>
     <button id="btnConvert" onclick="convert()">轉換成 YAML →</button>
     <span id="convBadge"></span>
     <div class="flowmsg" id="convMsg"></div>
-    <details><summary>看轉換用的 schema(LLM 依這份規格輸出)</summary><pre id="schemaBox" class="mono">載入中…</pre></details>
+    <details><summary>看交易 YAML schema（選幣會使用專用 selection prompt）</summary><pre id="schemaBox" class="mono">載入中…</pre></details>
   </div>
 
   <!-- 4. YAML -->
   <div class="card">
-    <h2><span class="num">4</span> 產生的 YAML(可手動修改)</h2>
+    <h2><span class="num">4</span> 交易 YAML(可手動修改)</h2>
     <textarea id="yaml" rows="16" class="mono" placeholder="按上面「轉換成 YAML」後會出現在這裡,你也可以直接貼/改。"></textarea>
     <button id="btnRun" onclick="backtest()">執行回測 ▶</button>
     <button id="btnSignal" class="sec" onclick="signal()">產生訊號(現在該做什麼)→</button>
@@ -131,14 +131,14 @@
   </div>
 
   <!-- 6. 選幣 -->
-  <div class="card">
+  <div class="card" id="selectionCard">
     <h2><span class="num">6</span> 選幣(截面)—— 同一份 schema,不同的 <span class="mono">kind</span></h2>
     <div class="hint" style="margin-bottom:6px">
       <span class="mono">signals:</span> 逐根評估一個標的 → <span class="mono">kind=trade</span>;
       <span class="mono">selection:</span> 一次評估整個宇宙 → <span class="mono">kind=selection</span>。
       兩者<b>頂層欄位完全相同</b>,消費端只認 <span class="mono">kind</span> 一個欄位。
     </div>
-    <textarea id="selYaml" rows="14" class="mono" placeholder="按「載入選幣範例」帶入,或自己貼一份含 selection: 的 spec。"></textarea>
+    <textarea id="selYaml" rows="14" class="mono" placeholder="自然語言被識別為選幣時會自動放到這裡並執行；也可載入範例或手動貼入 selection: spec。"></textarea>
     <button id="btnLoadSel" class="sec" onclick="loadExample('selection')">載入選幣範例</button>
     <button id="btnSel" onclick="selection()">執行選幣(抓即時宇宙)▶</button>
     <span id="selBadge"></span>
@@ -167,8 +167,9 @@
 <script>
 const $ = id => document.getElementById(id);
 
-// --- persist LLM 設定 ---
-["apiBase","apiKey","model"].forEach(k=>{
+// --- persist non-secret LLM settings; remove legacy persisted API keys ---
+localStorage.removeItem("demo_apiKey");
+["apiBase","model"].forEach(k=>{
   $(k).value = localStorage.getItem("demo_"+k) || "";
   $(k).addEventListener("input", ()=>localStorage.setItem("demo_"+k, $(k).value));
 });
@@ -178,20 +179,43 @@ fetch("/api/schema").then(r=>r.json()).then(d=>{$("schemaBox").textContent = d.s
   .catch(()=>{$("schemaBox").textContent="(載入 schema 失敗)";});
 
 function setBadge(el, ok, text){el.innerHTML = ` <span class="badge ${ok?'b-ok':'b-bad'}">${text}</span>`;}
+function setFlow(el, text, isError=false){
+  el.textContent = String(text||"");
+  el.classList.toggle("err", isError);
+}
 
 async function convert(){
   const nl = $("nl").value.trim();
-  if(!nl){ $("convMsg").innerHTML='<span class="err">請先輸入描述</span>'; return; }
-  $("btnConvert").disabled=true; $("convBadge").innerHTML=""; $("convMsg").textContent="呼叫 LLM 轉換中…";
+  if(!nl){ setFlow($("convMsg"),"請先輸入描述",true); return; }
+  $("btnConvert").disabled=true; $("convBadge").innerHTML=""; setFlow($("convMsg"),"呼叫 LLM 轉換中…");
   try{
     const r = await fetch("/api/convert",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({nl, api_base:$("apiBase").value.trim(), api_key:$("apiKey").value.trim(), model:$("model").value.trim()})});
     const d = await r.json();
-    if(!d.ok){ $("convMsg").innerHTML='<span class="err">'+(d.error||"轉換失敗")+'</span>'; return; }
-    $("yaml").value = d.yaml;
-    if(d.valid){ setBadge($("convBadge"),true,"YAML 驗證通過"); $("convMsg").textContent = d.warnings&&d.warnings.length?("warning: "+d.warnings.join("; ")):""; }
-    else{ setBadge($("convBadge"),false,"YAML 有問題"); $("convMsg").innerHTML='<span class="err">'+(d.errors||[]).join("\n")+'</span>'; }
-  }catch(e){ $("convMsg").innerHTML='<span class="err">'+e+'</span>'; }
+    if(!d.ok){ setFlow($("convMsg"),d.error||"轉換失敗",true); return; }
+    if(d.status === "needs_clarification" || d.status === "unsupported" || d.strategy_kind === "ambiguous"){
+      setBadge($("convBadge"),false,d.status === "unsupported"?"目前尚未支援":"需要確認需求");
+      setFlow($("convMsg"),(d.errors||["無法可靠判斷交易或選幣需求"]).join("\n"),true);
+      return;
+    }
+    const isSelection = d.strategy_kind === "selection";
+    (isSelection ? $("selYaml") : $("yaml")).value = d.yaml;
+    if(d.valid){
+      setBadge($("convBadge"),true,isSelection?"選幣 YAML 驗證通過":"交易 YAML 驗證通過");
+      const warning = d.warnings&&d.warnings.length ? ("warning: "+d.warnings.join("; ")) : "";
+      if(isSelection){
+        setFlow($("convMsg"),warning||"已識別選幣需求，正在抓 Square 資料並產生候選訊號…");
+        $("selectionCard").scrollIntoView({behavior:"smooth",block:"start"});
+        await selection();
+        setFlow($("convMsg"),warning||"選幣 YAML 已產生；執行結果顯示於下方。");
+      }else{
+        setFlow($("convMsg"),warning||"已產生交易 YAML；請人工確認後選擇回測或產生訊號。");
+      }
+    }else{
+      setBadge($("convBadge"),false,"YAML 有問題");
+      setFlow($("convMsg"),(d.errors||[]).join("\n"),true);
+    }
+  }catch(e){ setFlow($("convMsg"),e,true); }
   finally{ $("btnConvert").disabled=false; }
 }
 
@@ -292,16 +316,16 @@ async function signal(){
 // ---------- 選幣 ----------
 async function selection(){
   const y = $("selYaml").value.trim();
-  if(!y){ $("selMsg").innerHTML='<span class="err">沒有選幣 YAML(可按「載入選幣範例」)</span>'; return; }
-  $("btnSel").disabled=true; $("selBadge").innerHTML=""; $("selMsg").textContent="抓即時宇宙 + Square 熱度…";
+  if(!y){ setFlow($("selMsg"),"沒有選幣 YAML（可按「載入選幣範例」）",true); return; }
+  $("btnSel").disabled=true; $("selBadge").innerHTML=""; setFlow($("selMsg"),"抓即時宇宙 + Square 熱度…");
   try{
     const r = await fetch("/api/selection",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({yaml:y})});
     const d = await r.json();
     if(!d.ok){ setBadge($("selBadge"),false,"失敗");
-      $("selMsg").innerHTML='<span class="err">'+(d.error||"")+(d.errors?("\n- "+d.errors.join("\n- ")):"")+'</span>';
+      setFlow($("selMsg"),(d.error||"")+(d.errors?("\n- "+d.errors.join("\n- ")):""),true);
       return; }
-    setBadge($("selBadge"),true,"完成"); $("selMsg").textContent="";
+    setBadge($("selBadge"),true,"完成"); setFlow($("selMsg"),"");
     $("selOut").style.display="block";
     $("selMetrics").innerHTML = [
       ["宇宙大小", num(d.universe_rows)+" 檔"],
@@ -317,8 +341,8 @@ async function selection(){
           `<td class="hint">${c.reason||""}</td></tr>`).join("")
       : "";
     $("selJson").textContent = d.signal ? JSON.stringify(d.signal,null,1) : (d.note||"(無候選)");
-    if(!cs.length) $("selMsg").innerHTML='<span class="badge b-warn">'+(d.note||"無候選")+'</span>';
-  }catch(e){ $("selMsg").innerHTML='<span class="err">'+e+'</span>'; }
+    if(!cs.length) setFlow($("selMsg"),d.note||"無候選");
+  }catch(e){ setFlow($("selMsg"),e,true); }
   finally{ $("btnSel").disabled=false; }
 }
 

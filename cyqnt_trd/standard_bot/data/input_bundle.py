@@ -56,7 +56,8 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence
 from ..core import (
     Bar, DataSnapshot, MarketBundle, SnapshotMeta, UniverseBundle,
 )
-from ..core.input_contract import INPUT_SCHEMA_VERSION
+from ..core.input_contract import (INPUT_SCHEMA_VERSION, FrameKind, TypedFrame,
+                                   schema_for)
 from .internal_slots import (INTERNAL_SLOTS, internal_client_available,
                              normalize_internal_frame, slot_frame_shapes)
 
@@ -451,23 +452,59 @@ def load_input_bundle(bundle: Any) -> DataSnapshot:
             ticker_rank=pd.DataFrame(rank_rows) if rank_rows else None,
         )
 
-    other = {key: pd.DataFrame(spec["rows"])
-             for key, spec in frames_in.items()
-             if key not in ("klines", "universe", "ticker_rank") and spec.get("rows")}
+    frame_tables = {
+        key: pd.DataFrame(spec.get("rows") or [])
+        for key, spec in frames_in.items()
+        if isinstance(spec, dict)
+    }
+    other = {key: table for key, table in frame_tables.items()
+             if key not in ("klines", "universe", "ticker_rank") and not table.empty}
+
+    # The shape name is authoritative.  A colleague-provided custom node can
+    # therefore join the input merely by choosing one of the canonical shapes;
+    # no node-specific loader branch is needed here.
+    shape_to_kind = {
+        schema.name: kind for kind in FrameKind
+        if (schema := schema_for(kind)) is not None
+    }
+    typed = {}
+    statuses = dict(bundle.get("source_status") or {})
+    for key, spec in frames_in.items():
+        if not isinstance(spec, dict):
+            continue
+        kind = shape_to_kind.get(str(spec.get("shape") or ""))
+        if kind is None:
+            continue
+        typed[key] = TypedFrame(
+            node=key,
+            kind=kind,
+            frame=frame_tables.get(key),
+            status=str(statuses.get(key, "ok")),
+            as_of=decision_time,
+            warnings=tuple(spec.get("warnings") or ()),
+        )
 
     return DataSnapshot(
         version="mvp/v1",
         market=market,
         universe=universe,
         frames=other,
+        typed=typed,
+        positions={str(key).upper(): float(value)
+                   for key, value in (bundle.get("positions") or {}).items()},
+        equity=(None if bundle.get("equity") is None else float(bundle["equity"])),
+        config=dict(bundle.get("config") or {}),
+        run_id=str(bundle.get("run_id") or ""),
+        trace_id=str(bundle.get("trace_id") or ""),
         meta=SnapshotMeta(
             snapshot_id=str(bundle.get("snapshot_id") or ""),
             assembled_at=decision_time,
             decision_as_of=decision_time,
             primary_timeframe=interval or None,
-            source_status=dict(bundle.get("source_status") or {}),
+            source_status=statuses,
             warnings=list(bundle.get("warnings") or []),
             partial_ok=True,
+            trace_id=str(bundle.get("trace_id") or "") or None,
         ),
     )
 

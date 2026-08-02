@@ -257,6 +257,17 @@ class DataSnapshot:
     # frames from here (``market_metrics`` / ``news_events``) so they ride the
     # same DataSnapshot -> SignalBatch pipeline as trade/selection strategies.
     frames: Dict[str, Any] = field(default_factory=dict)
+    # The same frames with their canonical shape metadata.  Keeping this on the
+    # snapshot prevents a JSON replay from degrading a Metric/Event/Position
+    # frame back into an untyped DataFrame before a StandardBot sees it.
+    typed: Dict[str, Any] = field(default_factory=dict)
+    # Account and run context are part of cyqnt.input/v1.  They used to be
+    # serialised into the bundle and silently discarded while loading it.
+    positions: Dict[str, float] = field(default_factory=dict)
+    equity: Optional[float] = None
+    config: Dict[str, Any] = field(default_factory=dict)
+    run_id: str = ""
+    trace_id: str = ""
 
     def require_market(self) -> MarketBundle:
         if self.market is None:
