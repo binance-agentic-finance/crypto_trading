@@ -165,6 +165,23 @@ def _git_sha(repo: Path) -> str:
         return "unknown"
 
 
+#: Subject prefixes the extractor uses for asks about the OUTPUT rather than
+#: about which symbols come back — "列出幣名跟現價", "報告照這個順序寫". They are
+#: unmeasurable because there is nothing to measure, not because the criterion is
+#: vague, and the blanket ``vague -> UNDEFINED`` rule below could not tell the
+#: difference: it labelled "show me the price" as an undeclared reading, which
+#: would then demand a strategy.assumptions[] entry for it. Ten of the demo
+#: corpus's 48 UNDEFINED labels were this.
+#:
+#: Deliberately tight — two prefixes, no fuzzy matching. Stripping the label off
+#: a genuinely ambiguous condition turns the gate off for it silently, which is
+#: the worse of the two errors, so a deliverable that does not match a prefix
+#: (``sentiment_logic_writeup``) keeps its UNDEFINED and stays visible. The
+#: reclassification is recorded as ``scope=reporting`` rather than applied
+#: invisibly, so a reviewer can list exactly what moved.
+_REPORTING_PREFIXES = ("output_", "report_")
+
+
 def _conditions(raw: Dict[str, Any]) -> List[S.Condition]:
     """Structured conditions only — ``quote`` stays in the internal record.
 
@@ -209,6 +226,11 @@ def _conditions(raw: Dict[str, Any]) -> List[S.Condition]:
         if meas is S.Measurability.UNMEASURABLE:
             op = S.Operator.UNSPECIFIED
 
+        scope = _SCOPE.get(str(c.get("scope") or "universe"), S.Scope.UNIVERSE)
+        if str(c.get("subject") or "").startswith(_REPORTING_PREFIXES):
+            scope = S.Scope.REPORTING
+            ambiguity = None
+
         gran = _GRANULARITY.get(str(c.get("scope") or "universe"),
                                 S.EvaluationGranularity.UNIVERSE)
         is_rank = bool(c.get("is_ranking") or False)
@@ -225,7 +247,7 @@ def _conditions(raw: Dict[str, Any]) -> List[S.Condition]:
             operator=op,
             value=value,
             unit=unit,
-            scope=_SCOPE.get(str(c.get("scope") or "universe"), S.Scope.UNIVERSE),
+            scope=scope,
             timeframe=c.get("timeframe"),
             measurability=meas,
             is_ranking=is_rank,
@@ -467,6 +489,39 @@ def _gold(verdict: Optional[Dict[str, Any]], yaml_text: Optional[str],
     )
 
 
+
+def _drop_existing(path: Path, shas: set) -> int:
+    """Remove rows for the texts about to be rewritten, so a re-run replaces.
+
+    Matches on the hash of the source text however the record spells it. The
+    public record stores ``text_sha256`` outright; the INTERNAL one does not
+    carry it at all — it holds ``user_text_raw`` — so a lookup of that one
+    key found nothing there and the internal file appended five rows every
+    single run. It had reached forty rows for five conversations before
+    anyone counted, and it looked exactly like a forty-case dataset.
+    """
+    if not path.exists():
+        return 0
+    kept, dropped = [], 0
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            kept.append(line)
+            continue
+        raw = row.get("user_text_raw")
+        keys = {row.get("text_sha256")}
+        if isinstance(raw, str) and raw:
+            keys.add(S.sha256_hex(raw))
+        if keys & shas:
+            dropped += 1
+        else:
+            kept.append(line)
+    path.write_text("".join(l + "\n" for l in kept), encoding="utf-8")
+    return dropped
+
 def ingest(src: Path, public_out: Path, internal_out: Path, repo: Path) -> Dict[str, Any]:
     cases = _read(src / "cases.json") or {}
     if not cases:
@@ -476,31 +531,13 @@ def ingest(src: Path, public_out: Path, internal_out: Path, repo: Path) -> Dict[
 
     # Idempotent by source text. Re-running after a fix must not double the corpus,
     # and case_id is freshly minted each run so it cannot be the dedupe key.
-    def _drop_existing(path: Path, shas: set) -> int:
-        if not path.exists():
-            return 0
-        kept, dropped = [], 0
-        for line in path.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            try:
-                row = json.loads(line)
-            except json.JSONDecodeError:
-                kept.append(line)
-                continue
-            if row.get("text_sha256") in shas:
-                dropped += 1
-            else:
-                kept.append(line)
-        path.write_text("".join(l + "\n" for l in kept), encoding="utf-8")
-        return dropped
 
     incoming = set()
     for _cid, _meta in cases.items():
         _t = f"{_meta.get('first_query','')}\n{_meta.get('user_text','')}".strip()
         incoming.add(S.sha256_hex(_t))
     summary["replaced"] = _drop_existing(public_out, incoming)
-    _drop_existing(internal_out, incoming)
+    summary["replaced_internal"] = _drop_existing(internal_out, incoming)
 
     for cid, meta in sorted(cases.items()):
         conds_raw = _read(src / f"{cid}_conditions.json") or {}
@@ -522,7 +559,8 @@ def ingest(src: Path, public_out: Path, internal_out: Path, repo: Path) -> Dict[
         caps = _capability(report, conds)
         gold = _gold(verdict, yaml_text, conds, caps)
 
-        case_id = S.new_case_id()
+        text_sha = S.sha256_hex(user_text)
+        case_id = S.case_id_for(text_sha)
         pseudo = S.hmac_pseudonym(f"demo:{cid}")
         quantified = sum(1 for c in conds if (c.measurability or "") == "quantified")
         scopes: Dict[str, int] = {}
@@ -531,7 +569,7 @@ def ingest(src: Path, public_out: Path, internal_out: Path, repo: Path) -> Dict[
 
         case = S.CaseRecord(
             case_id=case_id,
-            text_sha256=S.sha256_hex(user_text),
+            text_sha256=text_sha,
             canon_sha256=S.canon_sha256_of(user_text),
             # One-off demo picks, deliberately chosen to be distinct, so each is
             # its own cluster of one. mine.py assigns real clusters over the corpus.

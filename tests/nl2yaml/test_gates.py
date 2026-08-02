@@ -300,6 +300,33 @@ def test_an_unstated_reading_outranks_a_violated_threshold():
         "reported first")
 
 
+def test_a_condition_the_spec_left_out_is_not_an_undeclared_reading():
+    """The boundary, and it is the common case rather than a corner.
+
+    A reading can only be chosen silently if a reading was chosen. A vague
+    condition the spec correctly omitted is already reported ``not_expressed``,
+    which says the stronger thing; demanding a declaration on top would stop
+    every partially-convertible case at this gate and hide the omission behind
+    a complaint about paperwork. 48 of the 81 conditions in the demo corpus are
+    vague ones a correct spec omits, so this is most of the traffic.
+    """
+    conditions = [
+        {"id": "vol", "subject": "quote_volume_24h", "scope": "cross_section",
+         "operator": "compare", "value": {"op": ">", "threshold": 2_000_000},
+         "quantified": True},
+        {"id": "vibes", "subject": "market_cap", "scope": "cross_section",
+         "operator": "compare", "value": None, "ambiguity_type": "undefined"},
+    ]
+    _result, batch = gates._gate_d(_spec(SPEC_USER_CHAT), _bundle())
+    ruled = {item.condition.id: item
+             for item in gates.evaluate_conditions(batch, _spec(SPEC_USER_CHAT),
+                                                   conditions)}
+
+    assert ruled["vibes"].verdict == gates.NOT_EXPRESSED
+    assert not ruled["vibes"].undisclosed_assumption, (
+        "nothing was chosen, so nothing was chosen silently")
+
+
 def test_the_ambiguity_vocabulary_is_closed():
     """An unknown value must raise rather than be carried as an opaque string.
 
@@ -309,6 +336,15 @@ def test_the_ambiguity_vocabulary_is_closed():
     with pytest.raises(ValueError, match="ambiguity_type must be one of"):
         cap.Condition(subject="quote_volume_24h", operator="compare",
                       ambiguity_type="units", id="vol")
+
+
+def test_the_two_ambiguity_vocabularies_are_the_same_vocabulary():
+    """``capability`` gates the run, ``schema`` records the dataset. Drift
+    between them means a case is annotated with a value the gate rejects, or
+    ruled on with one the dataset cannot store."""
+    from tools.nl2yaml.schema import AmbiguityType
+
+    assert set(cap.AMBIGUITY_TYPES) == {member.value for member in AmbiguityType}
 
 
 def test_a_forgotten_condition_is_not_reported_satisfied_by_a_lucky_basket():

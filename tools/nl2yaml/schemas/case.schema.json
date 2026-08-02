@@ -62,7 +62,7 @@
   "properties": {
     "case_id": {
       "type": "string",
-      "pattern": "^([0-9A-HJKMNP-TV-Z]{26}|[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$"
+      "pattern": "^(case_[0-9a-f]{16}|[0-9A-HJKMNP-TV-Z]{26}|[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$"
     },
     "text_sha256": {
       "type": "string",

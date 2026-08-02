@@ -77,7 +77,7 @@ __all__ = [
     "GapRecord", "BundleNode", "Candidate", "RunRecord", "InternalCaseRecord",
     # helpers
     "sha256_hex", "canonicalize_text", "canon_sha256_of", "cluster_id_for",
-    "new_case_id", "hmac_pseudonym", "internal_root", "error_signature_for",
+    "new_case_id", "case_id_for", "hmac_pseudonym", "internal_root", "error_signature_for",
     "verbatim_ngrams", "verbatim_overlap", "NO_SOURCE_TEXT",
     "FORBIDDEN_PUBLIC_KEYS", "FORBIDDEN_PUBLIC_KEY_PREFIXES",
     # io
@@ -639,8 +639,37 @@ def cluster_id_for(canon_sha: str) -> str:
     return "dup_" + canon_sha[:16]
 
 
+#: Deterministic case ids, mirroring :func:`dup_cluster_id_for`'s ``dup_`` form.
+CASE_ID_RE = re.compile(r"^case_[0-9a-f]{16}$")
+
+
+def case_id_for(text_sha: str) -> str:
+    """The case id for a piece of source text — same text, same id, always.
+
+    ``new_case_id`` mints a fresh ULID per call, which is right for a record
+    that has no natural key and wrong for this one: re-deriving the dataset
+    (a fixed labelling rule, a new pass over the same conversations) minted new
+    ids for the same cases and orphaned every foreign key pointing at them —
+    ``attempts.case_id`` and ``gaps.example_case_ids`` both do. A dataset kept
+    so that results can be re-checked later cannot have a primary key that
+    changes when you re-derive it.
+
+    Content-addressed off the same hash ``dup_cluster_id`` uses, so re-ingest is
+    idempotent down to the byte and two independent runs agree without
+    coordinating.
+    """
+    if not SHA256_RE.match(text_sha):
+        raise RecordError("text_sha256 must be 64 lowercase hex chars, got %r"
+                          % (text_sha,))
+    return "case_" + text_sha[:16]
+
+
 def new_case_id() -> str:
-    """A ULID: time-sortable, 26 chars, no dependency, no user data in it."""
+    """A ULID: time-sortable, 26 chars, no dependency, no user data in it.
+
+    For records with no source text to key on. Anything derived from a
+    conversation should use :func:`case_id_for` instead.
+    """
     ms = int(time.time() * 1000)
     value = (ms << 80) | int.from_bytes(secrets.token_bytes(10), "big")
     out = []
@@ -1172,8 +1201,12 @@ class CaseRecord:
 
     # -- identity ---------------------------------------------------------
     def _check_identity(self) -> None:
-        _require(bool(ULID_RE.match(self.case_id) or UUID4_RE.match(self.case_id)),
-                 "case_id %r must be a ULID or a lowercase uuid4" % (self.case_id,))
+        _require(bool(CASE_ID_RE.match(self.case_id)
+                      or ULID_RE.match(self.case_id)
+                      or UUID4_RE.match(self.case_id)),
+                 "case_id %r must be case_<16 hex> (content-addressed, the form "
+                 "anything derived from source text uses), a ULID, or a "
+                 "lowercase uuid4" % (self.case_id,))
         for name in ("text_sha256", "canon_sha256"):
             _require(bool(SHA256_RE.match(getattr(self, name))),
                      "%s must be 64 lowercase hex chars" % name)
@@ -1651,8 +1684,13 @@ class InternalCaseRecord:
     conditions_with_quotes: List[Dict[str, Any]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
-        _require(bool(ULID_RE.match(self.case_id) or UUID4_RE.match(self.case_id)),
-                 "case_id %r must be a ULID or a lowercase uuid4" % (self.case_id,))
+        # The internal half joins to the public half on this key, so the two
+        # accept exactly the same forms or the join breaks on re-derive.
+        _require(bool(CASE_ID_RE.match(self.case_id)
+                      or ULID_RE.match(self.case_id)
+                      or UUID4_RE.match(self.case_id)),
+                 "case_id %r must be case_<16 hex>, a ULID, or a lowercase uuid4"
+                 % (self.case_id,))
         _require(bool(self.user_text_raw), "user_text_raw must be non-empty")
         _require(bool(PSEUDONYM_RE.match(self.pseudonym_id)),
                  "pseudonym_id %r must be hmac_pseudonym() output" % (self.pseudonym_id,))

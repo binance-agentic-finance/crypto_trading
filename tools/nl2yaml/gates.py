@@ -830,6 +830,13 @@ def evaluate_conditions(
 
     for raw in conditions:
         cond = normalize_condition(raw)
+        # Only meaningful once the spec has EXPRESSED the condition: a reading
+        # can only be silently chosen if a reading was chosen. A condition the
+        # spec left out is already reported ``not_expressed``, which says the
+        # stronger thing, and demanding a declaration for it on top would make
+        # every partially-convertible case stop here instead — and 48 of the 81
+        # conditions in the demo corpus are vague ones a correct spec omits, so
+        # that is the common case, not the corner.
         undisclosed = bool(cond.ambiguity_type) and cond.id not in declared
         row = cond.capability
         proxy_tokens = tuple(row.proxy_block_refs) + ((row.gap_id,) if row.gap_id else ())
@@ -838,7 +845,6 @@ def evaluate_conditions(
                 row.verdict == PROXY_ONLY and cond.id not in opened):
             verdicts.append(ConditionVerdict(
                 condition=cond, verdict=NOT_EXPRESSED,
-                undisclosed_assumption=undisclosed,
                 silently_proxied=not _output_admits(batch, proxy_tokens),
                 detail="capability verdict %s (%s); the condition never reached "
                        "the converter" % (row.verdict, row.gap_id)))
@@ -871,7 +877,6 @@ def evaluate_conditions(
         if required and not (set(required) & spec_tokens):
             verdicts.append(ConditionVerdict(
                 condition=cond, verdict=NOT_EXPRESSED,
-                undisclosed_assumption=undisclosed,
                 silently_proxied=not _output_admits(batch, proxy_tokens),
                 detail="the spec names none of %s" % list(required)))
             continue
