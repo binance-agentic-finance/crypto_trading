@@ -1,0 +1,1832 @@
+{
+  "by_shape": {
+    "both": {
+      "no_mappable_condition": {
+        "rows": 0,
+        "split_groups": 0,
+        "unique_canon": 0
+      },
+      "refusal_gold": {
+        "rows": 2363,
+        "split_groups": 1471,
+        "unique_canon": 1653
+      },
+      "strict": {
+        "rows": 0,
+        "split_groups": 0,
+        "unique_canon": 0
+      },
+      "total": {
+        "rows": 2363,
+        "split_groups": 1471,
+        "unique_canon": 1653
+      },
+      "upper_bound": {
+        "rows": 0,
+        "split_groups": 0,
+        "unique_canon": 0
+      },
+      "upper_bound_convertible": {
+        "rows": 0,
+        "split_groups": 0,
+        "unique_canon": 0
+      },
+      "upper_bound_minus_overstated": {
+        "rows": 0,
+        "split_groups": 0,
+        "unique_canon": 0
+      }
+    },
+    "selection": {
+      "no_mappable_condition": {
+        "rows": 635,
+        "split_groups": 536,
+        "unique_canon": 554
+      },
+      "refusal_gold": {
+        "rows": 563,
+        "split_groups": 422,
+        "unique_canon": 433
+      },
+      "strict": {
+        "rows": 385,
+        "split_groups": 298,
+        "unique_canon": 304
+      },
+      "total": {
+        "rows": 1718,
+        "split_groups": 1343,
+        "unique_canon": 1395
+      },
+      "upper_bound": {
+        "rows": 520,
+        "split_groups": 395,
+        "unique_canon": 408
+      },
+      "upper_bound_convertible": {
+        "rows": 451,
+        "split_groups": 340,
+        "unique_canon": 350
+      },
+      "upper_bound_minus_overstated": {
+        "rows": 520,
+        "split_groups": 395,
+        "unique_canon": 408
+      }
+    },
+    "trade": {
+      "no_mappable_condition": {
+        "rows": 1246,
+        "split_groups": 1025,
+        "unique_canon": 1058
+      },
+      "refusal_gold": {
+        "rows": 1231,
+        "split_groups": 866,
+        "unique_canon": 911
+      },
+      "strict": {
+        "rows": 8285,
+        "split_groups": 5581,
+        "unique_canon": 5840
+      },
+      "total": {
+        "rows": 12304,
+        "split_groups": 8579,
+        "unique_canon": 8978
+      },
+      "upper_bound": {
+        "rows": 9827,
+        "split_groups": 6699,
+        "unique_canon": 7009
+      },
+      "upper_bound_convertible": {
+        "rows": 9712,
+        "split_groups": 6599,
+        "unique_canon": 6907
+      },
+      "upper_bound_minus_overstated": {
+        "rows": 8551,
+        "split_groups": 5802,
+        "unique_canon": 6067
+      }
+    },
+    "unclear": {
+      "no_mappable_condition": {
+        "rows": 20821,
+        "split_groups": 11632,
+        "unique_canon": 12255
+      },
+      "refusal_gold": {
+        "rows": 1046,
+        "split_groups": 721,
+        "unique_canon": 754
+      },
+      "strict": {
+        "rows": 7534,
+        "split_groups": 4344,
+        "unique_canon": 4586
+      },
+      "total": {
+        "rows": 31955,
+        "split_groups": 17854,
+        "unique_canon": 18856
+      },
+      "upper_bound": {
+        "rows": 10088,
+        "split_groups": 5527,
+        "unique_canon": 5847
+      },
+      "upper_bound_convertible": {
+        "rows": 9025,
+        "split_groups": 4945,
+        "unique_canon": 5230
+      },
+      "upper_bound_minus_overstated": {
+        "rows": 8537,
+        "split_groups": 4947,
+        "unique_canon": 5224
+      }
+    }
+  },
+  "by_shape_tier": {
+    "both": {
+      "A": {
+        "no_mappable_condition": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "refusal_gold": {
+          "rows": 1857,
+          "split_groups": 1074,
+          "unique_canon": 1236
+        },
+        "strict": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "total": {
+          "rows": 1857,
+          "split_groups": 1074,
+          "unique_canon": 1236
+        },
+        "upper_bound": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "upper_bound_convertible": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "upper_bound_minus_overstated": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        }
+      },
+      "B": {
+        "no_mappable_condition": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "refusal_gold": {
+          "rows": 274,
+          "split_groups": 211,
+          "unique_canon": 222
+        },
+        "strict": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "total": {
+          "rows": 274,
+          "split_groups": 211,
+          "unique_canon": 222
+        },
+        "upper_bound": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "upper_bound_convertible": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "upper_bound_minus_overstated": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        }
+      },
+      "C": {
+        "no_mappable_condition": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "refusal_gold": {
+          "rows": 171,
+          "split_groups": 140,
+          "unique_canon": 140
+        },
+        "strict": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "total": {
+          "rows": 171,
+          "split_groups": 140,
+          "unique_canon": 140
+        },
+        "upper_bound": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "upper_bound_convertible": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "upper_bound_minus_overstated": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        }
+      },
+      "D": {
+        "no_mappable_condition": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "refusal_gold": {
+          "rows": 61,
+          "split_groups": 53,
+          "unique_canon": 55
+        },
+        "strict": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "total": {
+          "rows": 61,
+          "split_groups": 53,
+          "unique_canon": 55
+        },
+        "upper_bound": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "upper_bound_convertible": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "upper_bound_minus_overstated": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        }
+      }
+    },
+    "selection": {
+      "A": {
+        "no_mappable_condition": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "refusal_gold": {
+          "rows": 185,
+          "split_groups": 138,
+          "unique_canon": 141
+        },
+        "strict": {
+          "rows": 25,
+          "split_groups": 20,
+          "unique_canon": 20
+        },
+        "total": {
+          "rows": 255,
+          "split_groups": 182,
+          "unique_canon": 187
+        },
+        "upper_bound": {
+          "rows": 70,
+          "split_groups": 44,
+          "unique_canon": 46
+        },
+        "upper_bound_convertible": {
+          "rows": 70,
+          "split_groups": 44,
+          "unique_canon": 46
+        },
+        "upper_bound_minus_overstated": {
+          "rows": 70,
+          "split_groups": 44,
+          "unique_canon": 46
+        }
+      },
+      "B": {
+        "no_mappable_condition": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "refusal_gold": {
+          "rows": 230,
+          "split_groups": 159,
+          "unique_canon": 161
+        },
+        "strict": {
+          "rows": 77,
+          "split_groups": 65,
+          "unique_canon": 66
+        },
+        "total": {
+          "rows": 343,
+          "split_groups": 257,
+          "unique_canon": 261
+        },
+        "upper_bound": {
+          "rows": 113,
+          "split_groups": 98,
+          "unique_canon": 100
+        },
+        "upper_bound_convertible": {
+          "rows": 98,
+          "split_groups": 85,
+          "unique_canon": 86
+        },
+        "upper_bound_minus_overstated": {
+          "rows": 113,
+          "split_groups": 98,
+          "unique_canon": 100
+        }
+      },
+      "C": {
+        "no_mappable_condition": {
+          "rows": 93,
+          "split_groups": 71,
+          "unique_canon": 72
+        },
+        "refusal_gold": {
+          "rows": 148,
+          "split_groups": 125,
+          "unique_canon": 131
+        },
+        "strict": {
+          "rows": 283,
+          "split_groups": 214,
+          "unique_canon": 218
+        },
+        "total": {
+          "rows": 578,
+          "split_groups": 452,
+          "unique_canon": 465
+        },
+        "upper_bound": {
+          "rows": 337,
+          "split_groups": 256,
+          "unique_canon": 262
+        },
+        "upper_bound_convertible": {
+          "rows": 283,
+          "split_groups": 214,
+          "unique_canon": 218
+        },
+        "upper_bound_minus_overstated": {
+          "rows": 337,
+          "split_groups": 256,
+          "unique_canon": 262
+        }
+      },
+      "D": {
+        "no_mappable_condition": {
+          "rows": 542,
+          "split_groups": 465,
+          "unique_canon": 482
+        },
+        "refusal_gold": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "strict": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "total": {
+          "rows": 542,
+          "split_groups": 465,
+          "unique_canon": 482
+        },
+        "upper_bound": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "upper_bound_convertible": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "upper_bound_minus_overstated": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        }
+      }
+    },
+    "trade": {
+      "A": {
+        "no_mappable_condition": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "refusal_gold": {
+          "rows": 937,
+          "split_groups": 651,
+          "unique_canon": 689
+        },
+        "strict": {
+          "rows": 1036,
+          "split_groups": 704,
+          "unique_canon": 734
+        },
+        "total": {
+          "rows": 2937,
+          "split_groups": 2024,
+          "unique_canon": 2131
+        },
+        "upper_bound": {
+          "rows": 2000,
+          "split_groups": 1378,
+          "unique_canon": 1442
+        },
+        "upper_bound_convertible": {
+          "rows": 1998,
+          "split_groups": 1376,
+          "unique_canon": 1440
+        },
+        "upper_bound_minus_overstated": {
+          "rows": 1330,
+          "split_groups": 924,
+          "unique_canon": 966
+        }
+      },
+      "B": {
+        "no_mappable_condition": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "refusal_gold": {
+          "rows": 239,
+          "split_groups": 180,
+          "unique_canon": 183
+        },
+        "strict": {
+          "rows": 2128,
+          "split_groups": 1498,
+          "unique_canon": 1562
+        },
+        "total": {
+          "rows": 2825,
+          "split_groups": 2021,
+          "unique_canon": 2104
+        },
+        "upper_bound": {
+          "rows": 2586,
+          "split_groups": 1843,
+          "unique_canon": 1921
+        },
+        "upper_bound_convertible": {
+          "rows": 2571,
+          "split_groups": 1829,
+          "unique_canon": 1907
+        },
+        "upper_bound_minus_overstated": {
+          "rows": 2114,
+          "split_groups": 1506,
+          "unique_canon": 1568
+        }
+      },
+      "C": {
+        "no_mappable_condition": {
+          "rows": 65,
+          "split_groups": 55,
+          "unique_canon": 56
+        },
+        "refusal_gold": {
+          "rows": 55,
+          "split_groups": 38,
+          "unique_canon": 39
+        },
+        "strict": {
+          "rows": 5121,
+          "split_groups": 3405,
+          "unique_canon": 3544
+        },
+        "total": {
+          "rows": 5361,
+          "split_groups": 3597,
+          "unique_canon": 3741
+        },
+        "upper_bound": {
+          "rows": 5241,
+          "split_groups": 3505,
+          "unique_canon": 3646
+        },
+        "upper_bound_convertible": {
+          "rows": 5143,
+          "split_groups": 3421,
+          "unique_canon": 3560
+        },
+        "upper_bound_minus_overstated": {
+          "rows": 5107,
+          "split_groups": 3396,
+          "unique_canon": 3533
+        }
+      },
+      "D": {
+        "no_mappable_condition": {
+          "rows": 1181,
+          "split_groups": 970,
+          "unique_canon": 1002
+        },
+        "refusal_gold": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "strict": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "total": {
+          "rows": 1181,
+          "split_groups": 970,
+          "unique_canon": 1002
+        },
+        "upper_bound": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "upper_bound_convertible": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "upper_bound_minus_overstated": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        }
+      }
+    },
+    "unclear": {
+      "A": {
+        "no_mappable_condition": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "refusal_gold": {
+          "rows": 216,
+          "split_groups": 137,
+          "unique_canon": 146
+        },
+        "strict": {
+          "rows": 117,
+          "split_groups": 79,
+          "unique_canon": 79
+        },
+        "total": {
+          "rows": 611,
+          "split_groups": 424,
+          "unique_canon": 454
+        },
+        "upper_bound": {
+          "rows": 395,
+          "split_groups": 289,
+          "unique_canon": 308
+        },
+        "upper_bound_convertible": {
+          "rows": 389,
+          "split_groups": 286,
+          "unique_canon": 303
+        },
+        "upper_bound_minus_overstated": {
+          "rows": 281,
+          "split_groups": 215,
+          "unique_canon": 228
+        }
+      },
+      "B": {
+        "no_mappable_condition": {
+          "rows": 1,
+          "split_groups": 1,
+          "unique_canon": 1
+        },
+        "refusal_gold": {
+          "rows": 363,
+          "split_groups": 253,
+          "unique_canon": 263
+        },
+        "strict": {
+          "rows": 1745,
+          "split_groups": 732,
+          "unique_canon": 768
+        },
+        "total": {
+          "rows": 3426,
+          "split_groups": 1466,
+          "unique_canon": 1539
+        },
+        "upper_bound": {
+          "rows": 3062,
+          "split_groups": 1215,
+          "unique_canon": 1275
+        },
+        "upper_bound_convertible": {
+          "rows": 2949,
+          "split_groups": 1120,
+          "unique_canon": 1178
+        },
+        "upper_bound_minus_overstated": {
+          "rows": 1904,
+          "split_groups": 913,
+          "unique_canon": 950
+        }
+      },
+      "C": {
+        "no_mappable_condition": {
+          "rows": 425,
+          "split_groups": 350,
+          "unique_canon": 357
+        },
+        "refusal_gold": {
+          "rows": 467,
+          "split_groups": 335,
+          "unique_canon": 345
+        },
+        "strict": {
+          "rows": 5672,
+          "split_groups": 3547,
+          "unique_canon": 3739
+        },
+        "total": {
+          "rows": 7523,
+          "split_groups": 4720,
+          "unique_canon": 4966
+        },
+        "upper_bound": {
+          "rows": 6631,
+          "split_groups": 4042,
+          "unique_canon": 4264
+        },
+        "upper_bound_convertible": {
+          "rows": 5687,
+          "split_groups": 3557,
+          "unique_canon": 3749
+        },
+        "upper_bound_minus_overstated": {
+          "rows": 6352,
+          "split_groups": 3834,
+          "unique_canon": 4046
+        }
+      },
+      "D": {
+        "no_mappable_condition": {
+          "rows": 20395,
+          "split_groups": 11285,
+          "unique_canon": 11897
+        },
+        "refusal_gold": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "strict": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "total": {
+          "rows": 20395,
+          "split_groups": 11285,
+          "unique_canon": 11897
+        },
+        "upper_bound": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "upper_bound_convertible": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "upper_bound_minus_overstated": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        }
+      }
+    }
+  },
+  "by_tier": {
+    "A": {
+      "no_mappable_condition": {
+        "rows": 0,
+        "split_groups": 0,
+        "unique_canon": 0
+      },
+      "refusal_gold": {
+        "rows": 3195,
+        "split_groups": 1993,
+        "unique_canon": 2212
+      },
+      "strict": {
+        "rows": 1178,
+        "split_groups": 799,
+        "unique_canon": 833
+      },
+      "total": {
+        "rows": 5660,
+        "split_groups": 3687,
+        "unique_canon": 4008
+      },
+      "upper_bound": {
+        "rows": 2465,
+        "split_groups": 1703,
+        "unique_canon": 1796
+      },
+      "upper_bound_convertible": {
+        "rows": 2457,
+        "split_groups": 1698,
+        "unique_canon": 1789
+      },
+      "upper_bound_minus_overstated": {
+        "rows": 1681,
+        "split_groups": 1176,
+        "unique_canon": 1240
+      }
+    },
+    "B": {
+      "no_mappable_condition": {
+        "rows": 1,
+        "split_groups": 1,
+        "unique_canon": 1
+      },
+      "refusal_gold": {
+        "rows": 1106,
+        "split_groups": 798,
+        "unique_canon": 829
+      },
+      "strict": {
+        "rows": 3950,
+        "split_groups": 2283,
+        "unique_canon": 2396
+      },
+      "total": {
+        "rows": 6868,
+        "split_groups": 3932,
+        "unique_canon": 4126
+      },
+      "upper_bound": {
+        "rows": 5761,
+        "split_groups": 3140,
+        "unique_canon": 3296
+      },
+      "upper_bound_convertible": {
+        "rows": 5618,
+        "split_groups": 3018,
+        "unique_canon": 3171
+      },
+      "upper_bound_minus_overstated": {
+        "rows": 4131,
+        "split_groups": 2505,
+        "unique_canon": 2618
+      }
+    },
+    "C": {
+      "no_mappable_condition": {
+        "rows": 583,
+        "split_groups": 476,
+        "unique_canon": 485
+      },
+      "refusal_gold": {
+        "rows": 841,
+        "split_groups": 638,
+        "unique_canon": 655
+      },
+      "strict": {
+        "rows": 11076,
+        "split_groups": 7147,
+        "unique_canon": 7501
+      },
+      "total": {
+        "rows": 13633,
+        "split_groups": 8888,
+        "unique_canon": 9312
+      },
+      "upper_bound": {
+        "rows": 12209,
+        "split_groups": 7784,
+        "unique_canon": 8172
+      },
+      "upper_bound_convertible": {
+        "rows": 11113,
+        "split_groups": 7173,
+        "unique_canon": 7527
+      },
+      "upper_bound_minus_overstated": {
+        "rows": 11796,
+        "split_groups": 7467,
+        "unique_canon": 7841
+      }
+    },
+    "D": {
+      "no_mappable_condition": {
+        "rows": 22118,
+        "split_groups": 12705,
+        "unique_canon": 13381
+      },
+      "refusal_gold": {
+        "rows": 61,
+        "split_groups": 53,
+        "unique_canon": 55
+      },
+      "strict": {
+        "rows": 0,
+        "split_groups": 0,
+        "unique_canon": 0
+      },
+      "total": {
+        "rows": 22179,
+        "split_groups": 12755,
+        "unique_canon": 13436
+      },
+      "upper_bound": {
+        "rows": 0,
+        "split_groups": 0,
+        "unique_canon": 0
+      },
+      "upper_bound_convertible": {
+        "rows": 0,
+        "split_groups": 0,
+        "unique_canon": 0
+      },
+      "upper_bound_minus_overstated": {
+        "rows": 0,
+        "split_groups": 0,
+        "unique_canon": 0
+      }
+    }
+  },
+  "capability_table_commit": "2d2100620dd1e46d65aeba4ec8efd17bf9b79e54",
+  "capability_table_probed_on": "2026-08-02",
+  "capability_table_staleness": "blocks.universe changed since the capability table was derived (commit 2d2100620dd1e46d65aeba4ec8efd17bf9b79e54): added=['augment_with_long_short_ratio', 'augment_with_oi_change', 'augment_with_open_interest', 'filter_long_short_ratio', 'filter_oi_change', 'filter_open_interest'] removed=[].\nRevisit every not_expressible / proxy_only row a new block might now serve, then update TABLE_DERIVED_FROM['universe_blocks']. Leaving the table alone means refusing requests the repo can now answer.",
+  "condition_fidelity": {
+    "coarse": 27382,
+    "exact": 30336,
+    "overstates": 4260,
+    "unruled": 8044
+  },
+  "detectable_gap_ids": [
+    "GAP-COMPOUND-SELECT-THEN-TRADE",
+    "GAP-ENTRY-EXIT-PER-CANDIDATE",
+    "GAP-MARKET-CAP",
+    "GAP-PER-SYMBOL-INDICATOR",
+    "GAP-SPREAD-DEPTH"
+  ],
+  "gaps": [
+    {
+      "blocking_sources": {
+        "spec_shape/both": 2363
+      },
+      "co_occurring_gaps": {
+        "GAP-MARKET-CAP": 219,
+        "GAP-PER-SYMBOL-INDICATOR": 550,
+        "GAP-SPREAD-DEPTH": 400
+      },
+      "detectable_by_this_pass": true,
+      "distinct_requests": 1471,
+      "distinct_requests_unlocked_if_closed": 1006,
+      "dup_weighted_count": 2363,
+      "gap_id": "GAP-COMPOUND-SELECT-THEN-TRADE",
+      "largest_group_share": 0.0355,
+      "largest_split_group_key": "dup:dup_6d268b7f91d975d8",
+      "rows_unlocked_if_closed": 1435,
+      "shape_rows": {
+        "both": 2363,
+        "selection": 0,
+        "trade": 0,
+        "unclear": 0
+      },
+      "tier_rows": {
+        "A": 1857,
+        "B": 274,
+        "C": 171,
+        "D": 61
+      },
+      "undetectable_reason": null,
+      "unique_canon": 1653
+    },
+    {
+      "blocking_sources": {
+        "indicator/breakout": 93,
+        "indicator/divergence": 46,
+        "indicator/ema": 59,
+        "indicator/rsi": 88,
+        "indicator/sma": 87,
+        "timeframe/interval[multi]": 1825
+      },
+      "co_occurring_gaps": {
+        "GAP-COMPOUND-SELECT-THEN-TRADE": 550,
+        "GAP-MARKET-CAP": 160,
+        "GAP-SPREAD-DEPTH": 334
+      },
+      "detectable_by_this_pass": true,
+      "distinct_requests": 1264,
+      "distinct_requests_unlocked_if_closed": 784,
+      "dup_weighted_count": 1989,
+      "gap_id": "GAP-PER-SYMBOL-INDICATOR",
+      "largest_group_share": 0.0161,
+      "largest_split_group_key": "dup:dup_865b43d830b6bab3",
+      "rows_unlocked_if_closed": 1170,
+      "shape_rows": {
+        "both": 550,
+        "selection": 218,
+        "trade": 805,
+        "unclear": 416
+      },
+      "tier_rows": {
+        "A": 1439,
+        "B": 353,
+        "C": 197,
+        "D": 0
+      },
+      "undetectable_reason": null,
+      "unique_canon": 1384
+    },
+    {
+      "blocking_sources": {
+        "universe_filter/liquidity": 1474
+      },
+      "co_occurring_gaps": {
+        "GAP-COMPOUND-SELECT-THEN-TRADE": 400,
+        "GAP-ENTRY-EXIT-PER-CANDIDATE": 7,
+        "GAP-MARKET-CAP": 97,
+        "GAP-PER-SYMBOL-INDICATOR": 334
+      },
+      "detectable_by_this_pass": true,
+      "distinct_requests": 922,
+      "distinct_requests_unlocked_if_closed": 584,
+      "dup_weighted_count": 1474,
+      "gap_id": "GAP-SPREAD-DEPTH",
+      "largest_group_share": 0.057,
+      "largest_split_group_key": "dup:dup_6d268b7f91d975d8",
+      "rows_unlocked_if_closed": 815,
+      "shape_rows": {
+        "both": 400,
+        "selection": 67,
+        "trade": 508,
+        "unclear": 499
+      },
+      "tier_rows": {
+        "A": 861,
+        "B": 324,
+        "C": 289,
+        "D": 0
+      },
+      "undetectable_reason": null,
+      "unique_canon": 1011
+    },
+    {
+      "blocking_sources": {
+        "threshold/market_cap": 108,
+        "universe_filter/market_cap": 669
+      },
+      "co_occurring_gaps": {
+        "GAP-COMPOUND-SELECT-THEN-TRADE": 219,
+        "GAP-ENTRY-EXIT-PER-CANDIDATE": 15,
+        "GAP-PER-SYMBOL-INDICATOR": 160,
+        "GAP-SPREAD-DEPTH": 97
+      },
+      "detectable_by_this_pass": true,
+      "distinct_requests": 474,
+      "distinct_requests_unlocked_if_closed": 297,
+      "dup_weighted_count": 669,
+      "gap_id": "GAP-MARKET-CAP",
+      "largest_group_share": 0.0269,
+      "largest_split_group_key": "dup:dup_51aafb6cdf65e654",
+      "rows_unlocked_if_closed": 334,
+      "shape_rows": {
+        "both": 219,
+        "selection": 126,
+        "trade": 109,
+        "unclear": 215
+      },
+      "tier_rows": {
+        "A": 391,
+        "B": 141,
+        "C": 137,
+        "D": 0
+      },
+      "undetectable_reason": null,
+      "unique_canon": 505
+    },
+    {
+      "blocking_sources": {
+        "risk/leverage": 90,
+        "risk/position_size": 59,
+        "risk/stop_loss": 113,
+        "risk/take_profit": 80,
+        "risk/trailing_stop": 4
+      },
+      "co_occurring_gaps": {
+        "GAP-MARKET-CAP": 15,
+        "GAP-SPREAD-DEPTH": 7
+      },
+      "detectable_by_this_pass": true,
+      "distinct_requests": 153,
+      "distinct_requests_unlocked_if_closed": 144,
+      "dup_weighted_count": 215,
+      "gap_id": "GAP-ENTRY-EXIT-PER-CANDIDATE",
+      "largest_group_share": 0.0558,
+      "largest_split_group_key": "dup:dup_9c52b00d1e464974",
+      "rows_unlocked_if_closed": 193,
+      "shape_rows": {
+        "both": 0,
+        "selection": 215,
+        "trade": 0,
+        "unclear": 0
+      },
+      "tier_rows": {
+        "A": 75,
+        "B": 81,
+        "C": 59,
+        "D": 0
+      },
+      "undetectable_reason": null,
+      "unique_canon": 156
+    },
+    {
+      "blocking_sources": {},
+      "co_occurring_gaps": {},
+      "detectable_by_this_pass": false,
+      "distinct_requests": 0,
+      "distinct_requests_unlocked_if_closed": 0,
+      "dup_weighted_count": 0,
+      "gap_id": "GAP-ACCOUNT-OPS",
+      "largest_group_share": 0.0,
+      "largest_split_group_key": null,
+      "rows_unlocked_if_closed": 0,
+      "shape_rows": {
+        "both": 0,
+        "selection": 0,
+        "trade": 0,
+        "unclear": 0
+      },
+      "tier_rows": {
+        "A": 0,
+        "B": 0,
+        "C": 0,
+        "D": 0
+      },
+      "undetectable_reason": "no miner family looks for balance / close-my-position / set-leverage-now",
+      "unique_canon": 0
+    },
+    {
+      "blocking_sources": {},
+      "co_occurring_gaps": {},
+      "detectable_by_this_pass": false,
+      "distinct_requests": 0,
+      "distinct_requests_unlocked_if_closed": 0,
+      "dup_weighted_count": 0,
+      "gap_id": "GAP-ALERT-NOTIFY",
+      "largest_group_share": 0.0,
+      "largest_split_group_key": null,
+      "rows_unlocked_if_closed": 0,
+      "shape_rows": {
+        "both": 0,
+        "selection": 0,
+        "trade": 0,
+        "unclear": 0
+      },
+      "tier_rows": {
+        "A": 0,
+        "B": 0,
+        "C": 0,
+        "D": 0
+      },
+      "undetectable_reason": "no miner family looks for 'notify me when' - and this one is a whole product shape, not a column",
+      "unique_canon": 0
+    },
+    {
+      "blocking_sources": {},
+      "co_occurring_gaps": {},
+      "detectable_by_this_pass": false,
+      "distinct_requests": 0,
+      "distinct_requests_unlocked_if_closed": 0,
+      "dup_weighted_count": 0,
+      "gap_id": "GAP-CONTRACT-META",
+      "largest_group_share": 0.0,
+      "largest_split_group_key": null,
+      "rows_unlocked_if_closed": 0,
+      "shape_rows": {
+        "both": 0,
+        "selection": 0,
+        "trade": 0,
+        "unclear": 0
+      },
+      "tier_rows": {
+        "A": 0,
+        "B": 0,
+        "C": 0,
+        "D": 0
+      },
+      "undetectable_reason": "vacant in the capability table as of TABLE_DERIVED_FROM (the contract metadata blocks landed), so nothing should reach it",
+      "unique_canon": 0
+    },
+    {
+      "blocking_sources": {},
+      "co_occurring_gaps": {},
+      "detectable_by_this_pass": false,
+      "distinct_requests": 0,
+      "distinct_requests_unlocked_if_closed": 0,
+      "dup_weighted_count": 0,
+      "gap_id": "GAP-HISTORICAL-WINDOW",
+      "largest_group_share": 0.0,
+      "largest_split_group_key": null,
+      "rows_unlocked_if_closed": 0,
+      "shape_rows": {
+        "both": 0,
+        "selection": 0,
+        "trade": 0,
+        "unclear": 0
+      },
+      "tier_rows": {
+        "A": 0,
+        "B": 0,
+        "C": 0,
+        "D": 0
+      },
+      "undetectable_reason": "no miner family looks for 'N-day high' or '% off its yearly high'; the timeframe family catches intervals, not lookback windows",
+      "unique_canon": 0
+    },
+    {
+      "blocking_sources": {},
+      "co_occurring_gaps": {},
+      "detectable_by_this_pass": false,
+      "distinct_requests": 0,
+      "distinct_requests_unlocked_if_closed": 0,
+      "dup_weighted_count": 0,
+      "gap_id": "GAP-LIQUIDATION-CROSS-SECTION",
+      "largest_group_share": 0.0,
+      "largest_split_group_key": null,
+      "rows_unlocked_if_closed": 0,
+      "shape_rows": {
+        "both": 0,
+        "selection": 0,
+        "trade": 0,
+        "unclear": 0
+      },
+      "tier_rows": {
+        "A": 0,
+        "B": 0,
+        "C": 0,
+        "D": 0
+      },
+      "undetectable_reason": "no miner family looks for liquidations (baocang)",
+      "unique_canon": 0
+    },
+    {
+      "blocking_sources": {},
+      "co_occurring_gaps": {},
+      "detectable_by_this_pass": false,
+      "distinct_requests": 0,
+      "distinct_requests_unlocked_if_closed": 0,
+      "dup_weighted_count": 0,
+      "gap_id": "GAP-LONG-SHORT-RATIO",
+      "largest_group_share": 0.0,
+      "largest_split_group_key": null,
+      "rows_unlocked_if_closed": 0,
+      "shape_rows": {
+        "both": 0,
+        "selection": 0,
+        "trade": 0,
+        "unclear": 0
+      },
+      "tier_rows": {
+        "A": 0,
+        "B": 0,
+        "C": 0,
+        "D": 0
+      },
+      "undetectable_reason": "no miner family looks for the long/short account ratio",
+      "unique_canon": 0
+    },
+    {
+      "blocking_sources": {},
+      "co_occurring_gaps": {},
+      "detectable_by_this_pass": false,
+      "distinct_requests": 0,
+      "distinct_requests_unlocked_if_closed": 0,
+      "dup_weighted_count": 0,
+      "gap_id": "GAP-NEWS-EVENT-TEXT",
+      "largest_group_share": 0.0,
+      "largest_split_group_key": null,
+      "rows_unlocked_if_closed": 0,
+      "shape_rows": {
+        "both": 0,
+        "selection": 0,
+        "trade": 0,
+        "unclear": 0
+      },
+      "tier_rows": {
+        "A": 0,
+        "B": 0,
+        "C": 0,
+        "D": 0
+      },
+      "undetectable_reason": "no miner family looks for news / listing announcements / headlines",
+      "unique_canon": 0
+    },
+    {
+      "blocking_sources": {},
+      "co_occurring_gaps": {},
+      "detectable_by_this_pass": false,
+      "distinct_requests": 0,
+      "distinct_requests_unlocked_if_closed": 0,
+      "dup_weighted_count": 0,
+      "gap_id": "GAP-OI-CROSS-SECTION",
+      "largest_group_share": 0.0,
+      "largest_split_group_key": null,
+      "rows_unlocked_if_closed": 0,
+      "shape_rows": {
+        "both": 0,
+        "selection": 0,
+        "trade": 0,
+        "unclear": 0
+      },
+      "tier_rows": {
+        "A": 0,
+        "B": 0,
+        "C": 0,
+        "D": 0
+      },
+      "undetectable_reason": "no miner family looks for open interest",
+      "unique_canon": 0
+    },
+    {
+      "blocking_sources": {},
+      "co_occurring_gaps": {},
+      "detectable_by_this_pass": false,
+      "distinct_requests": 0,
+      "distinct_requests_unlocked_if_closed": 0,
+      "dup_weighted_count": 0,
+      "gap_id": "GAP-ONCHAIN-CONCENTRATION",
+      "largest_group_share": 0.0,
+      "largest_split_group_key": null,
+      "rows_unlocked_if_closed": 0,
+      "shape_rows": {
+        "both": 0,
+        "selection": 0,
+        "trade": 0,
+        "unclear": 0
+      },
+      "tier_rows": {
+        "A": 0,
+        "B": 0,
+        "C": 0,
+        "D": 0
+      },
+      "undetectable_reason": "no miner family looks for holder distribution; chain data is not in the repo's sources either, so this one is doubly invisible",
+      "unique_canon": 0
+    },
+    {
+      "blocking_sources": {},
+      "co_occurring_gaps": {},
+      "detectable_by_this_pass": false,
+      "distinct_requests": 0,
+      "distinct_requests_unlocked_if_closed": 0,
+      "dup_weighted_count": 0,
+      "gap_id": "GAP-SECTOR-LABEL",
+      "largest_group_share": 0.0,
+      "largest_split_group_key": null,
+      "rows_unlocked_if_closed": 0,
+      "shape_rows": {
+        "both": 0,
+        "selection": 0,
+        "trade": 0,
+        "unclear": 0
+      },
+      "tier_rows": {
+        "A": 0,
+        "B": 0,
+        "C": 0,
+        "D": 0
+      },
+      "undetectable_reason": "vacant, as above",
+      "unique_canon": 0
+    },
+    {
+      "blocking_sources": {},
+      "co_occurring_gaps": {},
+      "detectable_by_this_pass": false,
+      "distinct_requests": 0,
+      "distinct_requests_unlocked_if_closed": 0,
+      "dup_weighted_count": 0,
+      "gap_id": "GAP-VAGUE-CRITERION",
+      "largest_group_share": 0.0,
+      "largest_split_group_key": null,
+      "rows_unlocked_if_closed": 0,
+      "shape_rows": {
+        "both": 0,
+        "selection": 0,
+        "trade": 0,
+        "unclear": 0
+      },
+      "tier_rows": {
+        "A": 0,
+        "B": 0,
+        "C": 0,
+        "D": 0
+      },
+      "undetectable_reason": "'coins about to pump', 'good fundamentals'. A regex cannot recognise the absence of a criterion, and the table calls this the most dangerous class precisely because mentions or turnover LOOK like an answer",
+      "unique_canon": 0
+    }
+  ],
+  "measure": "gate0-measure/1",
+  "miner": "gate0-mine/1",
+  "multi_timeframe_only_blocker": {
+    "both": {
+      "rows": 0,
+      "split_groups": 0,
+      "unique_canon": 0
+    },
+    "selection": {
+      "rows": 18,
+      "split_groups": 16,
+      "unique_canon": 16
+    },
+    "trade": {
+      "rows": 626,
+      "split_groups": 447,
+      "unique_canon": 467
+    },
+    "unclear": {
+      "rows": 304,
+      "split_groups": 167,
+      "unique_canon": 176
+    }
+  },
+  "overstated_sources": [
+    {
+      "conditions": 4059,
+      "source": "risk/leverage"
+    },
+    {
+      "conditions": 114,
+      "source": "indicator/fibonacci"
+    },
+    {
+      "conditions": 87,
+      "source": "threshold/leverage"
+    }
+  ],
+  "population": {
+    "continuation_fragments": 3255,
+    "scored_rows": 48340,
+    "total_rows": 51595
+  },
+  "quantified_families": [
+    "risk",
+    "rank_topn"
+  ],
+  "risk_conditions_without_value": 15466,
+  "rows_blocked_only_by_unknown": {
+    "rows": 4231,
+    "split_groups": 2410,
+    "unique_canon": 2534
+  },
+  "top_preset_case": [
+    {
+      "dup_count_rows": 504,
+      "gap_ids": [
+        "GAP-COMPOUND-SELECT-THEN-TRADE",
+        "GAP-MARKET-CAP",
+        "GAP-PER-SYMBOL-INDICATOR",
+        "GAP-SPREAD-DEPTH"
+      ],
+      "preset_case": "volume-surge-daily-report",
+      "refusal_rows": 21,
+      "shape_rows": {
+        "both": 11,
+        "selection": 8,
+        "trade": 33,
+        "unclear": 452
+      },
+      "tier_rows": {
+        "A": 18,
+        "B": 21,
+        "C": 46,
+        "D": 419
+      },
+      "unique_canon": 156,
+      "upper_bound_rows": 59
+    },
+    {
+      "dup_count_rows": 455,
+      "gap_ids": [
+        "GAP-COMPOUND-SELECT-THEN-TRADE",
+        "GAP-ENTRY-EXIT-PER-CANDIDATE",
+        "GAP-MARKET-CAP",
+        "GAP-PER-SYMBOL-INDICATOR",
+        "GAP-SPREAD-DEPTH"
+      ],
+      "preset_case": "square-buzz-screener",
+      "refusal_rows": 12,
+      "shape_rows": {
+        "both": 4,
+        "selection": 9,
+        "trade": 35,
+        "unclear": 407
+      },
+      "tier_rows": {
+        "A": 10,
+        "B": 23,
+        "C": 35,
+        "D": 387
+      },
+      "unique_canon": 136,
+      "upper_bound_rows": 54
+    },
+    {
+      "dup_count_rows": 443,
+      "gap_ids": [
+        "GAP-COMPOUND-SELECT-THEN-TRADE",
+        "GAP-MARKET-CAP"
+      ],
+      "preset_case": "structured-trade-plan",
+      "refusal_rows": 4,
+      "shape_rows": {
+        "both": 2,
+        "selection": 2,
+        "trade": 42,
+        "unclear": 397
+      },
+      "tier_rows": {
+        "A": 5,
+        "B": 18,
+        "C": 52,
+        "D": 368
+      },
+      "unique_canon": 126,
+      "upper_bound_rows": 72
+    },
+    {
+      "dup_count_rows": 416,
+      "gap_ids": [
+        "GAP-COMPOUND-SELECT-THEN-TRADE",
+        "GAP-PER-SYMBOL-INDICATOR",
+        "GAP-SPREAD-DEPTH"
+      ],
+      "preset_case": "prediction-market",
+      "refusal_rows": 5,
+      "shape_rows": {
+        "both": 3,
+        "selection": 5,
+        "trade": 35,
+        "unclear": 373
+      },
+      "tier_rows": {
+        "A": 16,
+        "B": 23,
+        "C": 36,
+        "D": 341
+      },
+      "unique_canon": 129,
+      "upper_bound_rows": 66
+    },
+    {
+      "dup_count_rows": 409,
+      "gap_ids": [
+        "GAP-COMPOUND-SELECT-THEN-TRADE",
+        "GAP-ENTRY-EXIT-PER-CANDIDATE",
+        "GAP-MARKET-CAP",
+        "GAP-PER-SYMBOL-INDICATOR",
+        "GAP-SPREAD-DEPTH"
+      ],
+      "preset_case": "popular-trading-bot",
+      "refusal_rows": 26,
+      "shape_rows": {
+        "both": 18,
+        "selection": 5,
+        "trade": 55,
+        "unclear": 331
+      },
+      "tier_rows": {
+        "A": 29,
+        "B": 42,
+        "C": 48,
+        "D": 290
+      },
+      "unique_canon": 159,
+      "upper_bound_rows": 90
+    },
+    {
+      "dup_count_rows": 340,
+      "gap_ids": [
+        "GAP-COMPOUND-SELECT-THEN-TRADE",
+        "GAP-PER-SYMBOL-INDICATOR"
+      ],
+      "preset_case": "kline-indicator-checkup",
+      "refusal_rows": 7,
+      "shape_rows": {
+        "both": 1,
+        "selection": 3,
+        "trade": 36,
+        "unclear": 300
+      },
+      "tier_rows": {
+        "A": 7,
+        "B": 11,
+        "C": 36,
+        "D": 286
+      },
+      "unique_canon": 94,
+      "upper_bound_rows": 47
+    },
+    {
+      "dup_count_rows": 266,
+      "gap_ids": [
+        "GAP-COMPOUND-SELECT-THEN-TRADE"
+      ],
+      "preset_case": "earnings-tradfi-scanner",
+      "refusal_rows": 1,
+      "shape_rows": {
+        "both": 1,
+        "selection": 4,
+        "trade": 12,
+        "unclear": 249
+      },
+      "tier_rows": {
+        "A": 3,
+        "B": 7,
+        "C": 11,
+        "D": 245
+      },
+      "unique_canon": 60,
+      "upper_bound_rows": 20
+    },
+    {
+      "dup_count_rows": 246,
+      "gap_ids": [
+        "GAP-SPREAD-DEPTH"
+      ],
+      "preset_case": "three-tier-strategy",
+      "refusal_rows": 1,
+      "shape_rows": {
+        "trade": 7,
+        "unclear": 239
+      },
+      "tier_rows": {
+        "A": 3,
+        "B": 3,
+        "C": 15,
+        "D": 225
+      },
+      "unique_canon": 52,
+      "upper_bound_rows": 20
+    },
+    {
+      "dup_count_rows": 147,
+      "gap_ids": [
+        "GAP-PER-SYMBOL-INDICATOR",
+        "GAP-SPREAD-DEPTH"
+      ],
+      "preset_case": "macro-event-driven-scanner",
+      "refusal_rows": 2,
+      "shape_rows": {
+        "selection": 2,
+        "trade": 5,
+        "unclear": 140
+      },
+      "tier_rows": {
+        "A": 4,
+        "B": 2,
+        "C": 6,
+        "D": 135
+      },
+      "unique_canon": 39,
+      "upper_bound_rows": 10
+    },
+    {
+      "dup_count_rows": 111,
+      "gap_ids": [
+        "GAP-COMPOUND-SELECT-THEN-TRADE"
+      ],
+      "preset_case": "tradfi-daily",
+      "refusal_rows": 1,
+      "shape_rows": {
+        "both": 1,
+        "trade": 14,
+        "unclear": 96
+      },
+      "tier_rows": {
+        "A": 6,
+        "B": 3,
+        "C": 16,
+        "D": 86
+      },
+      "unique_canon": 45,
+      "upper_bound_rows": 24
+    },
+    {
+      "dup_count_rows": 25,
+      "gap_ids": [
+        "GAP-COMPOUND-SELECT-THEN-TRADE",
+        "GAP-MARKET-CAP",
+        "GAP-PER-SYMBOL-INDICATOR"
+      ],
+      "preset_case": "golden-ratio-fibonacci",
+      "refusal_rows": 4,
+      "shape_rows": {
+        "both": 4,
+        "trade": 6,
+        "unclear": 15
+      },
+      "tier_rows": {
+        "A": 8,
+        "B": 4,
+        "C": 2,
+        "D": 11
+      },
+      "unique_canon": 15,
+      "upper_bound_rows": 10
+    },
+    {
+      "dup_count_rows": 23,
+      "gap_ids": [
+        "GAP-COMPOUND-SELECT-THEN-TRADE"
+      ],
+      "preset_case": "world-cup-predictor",
+      "refusal_rows": 1,
+      "shape_rows": {
+        "both": 1,
+        "selection": 1,
+        "trade": 3,
+        "unclear": 18
+      },
+      "tier_rows": {
+        "A": 1,
+        "B": 2,
+        "C": 5,
+        "D": 15
+      },
+      "unique_canon": 17,
+      "upper_bound_rows": 7
+    },
+    {
+      "dup_count_rows": 22,
+      "gap_ids": [],
+      "preset_case": "serenity-stock-research",
+      "refusal_rows": 0,
+      "shape_rows": {
+        "trade": 5,
+        "unclear": 17
+      },
+      "tier_rows": {
+        "A": 1,
+        "B": 3,
+        "C": 3,
+        "D": 15
+      },
+      "unique_canon": 16,
+      "upper_bound_rows": 7
+    },
+    {
+      "dup_count_rows": 16,
+      "gap_ids": [],
+      "preset_case": "funding-rate-scanner",
+      "refusal_rows": 0,
+      "shape_rows": {
+        "trade": 1,
+        "unclear": 15
+      },
+      "tier_rows": {
+        "B": 1,
+        "C": 1,
+        "D": 14
+      },
+      "unique_canon": 8,
+      "upper_bound_rows": 2
+    },
+    {
+      "dup_count_rows": 1,
+      "gap_ids": [],
+      "preset_case": "black-swan-insurance",
+      "refusal_rows": 0,
+      "shape_rows": {
+        "unclear": 1
+      },
+      "tier_rows": {
+        "B": 1
+      },
+      "unique_canon": 1,
+      "upper_bound_rows": 1
+    }
+  ],
+  "undetectable_gaps": {
+    "GAP-ACCOUNT-OPS": "no miner family looks for balance / close-my-position / set-leverage-now",
+    "GAP-ALERT-NOTIFY": "no miner family looks for 'notify me when' - and this one is a whole product shape, not a column",
+    "GAP-CONTRACT-META": "vacant in the capability table as of TABLE_DERIVED_FROM (the contract metadata blocks landed), so nothing should reach it",
+    "GAP-HISTORICAL-WINDOW": "no miner family looks for 'N-day high' or '% off its yearly high'; the timeframe family catches intervals, not lookback windows",
+    "GAP-LIQUIDATION-CROSS-SECTION": "no miner family looks for liquidations (baocang)",
+    "GAP-LONG-SHORT-RATIO": "no miner family looks for the long/short account ratio",
+    "GAP-NEWS-EVENT-TEXT": "no miner family looks for news / listing announcements / headlines",
+    "GAP-OI-CROSS-SECTION": "no miner family looks for open interest",
+    "GAP-ONCHAIN-CONCENTRATION": "no miner family looks for holder distribution; chain data is not in the repo's sources either, so this one is doubly invisible",
+    "GAP-SECTOR-LABEL": "vacant, as above",
+    "GAP-VAGUE-CRITERION": "'coins about to pump', 'good fundamentals'. A regex cannot recognise the absence of a criterion, and the table calls this the most dangerous class precisely because mentions or turnover LOOK like an answer"
+  },
+  "unruled_keys": [
+    {
+      "operator": "equals",
+      "rows": 3797,
+      "scope": "*",
+      "split_groups": 2136,
+      "subject": "bar_interval"
+    },
+    {
+      "operator": "compare",
+      "rows": 1987,
+      "scope": "*",
+      "split_groups": 1189,
+      "subject": "unattributed_threshold"
+    },
+    {
+      "operator": "plan",
+      "rows": 508,
+      "scope": "*",
+      "split_groups": 352,
+      "subject": "portfolio_drawdown_limit"
+    },
+    {
+      "operator": "compare",
+      "rows": 162,
+      "scope": "per_symbol_series",
+      "split_groups": 94,
+      "subject": "price_change_24h"
+    },
+    {
+      "operator": "compare",
+      "rows": 83,
+      "scope": "*",
+      "split_groups": 55,
+      "subject": "backtest_win_rate"
+    }
+  ],
+  "upper_bound_quantified": {
+    "both": {
+      "rows": 0,
+      "split_groups": 0,
+      "unique_canon": 0
+    },
+    "selection": {
+      "rows": 385,
+      "split_groups": 286,
+      "unique_canon": 296
+    },
+    "trade": {
+      "rows": 5444,
+      "split_groups": 3526,
+      "unique_canon": 3688
+    },
+    "unclear": {
+      "rows": 6846,
+      "split_groups": 3890,
+      "unique_canon": 4115
+    }
+  }
+}

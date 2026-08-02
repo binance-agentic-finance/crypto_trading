@@ -27,6 +27,9 @@ SERVER_PATH = ROOT / "docs" / "strategy_yaml_spec" / "demo" / "server.py"
 INDEX_PATH = ROOT / "docs" / "strategy_yaml_spec" / "demo" / "index.html"
 SELECTION_YAML = ROOT / "docs" / "strategy_yaml_spec" / "example_selection.yaml"
 TRADE_YAML = ROOT / "docs" / "strategy_yaml_spec" / "example_single_ma.yaml"
+CHAT_SELECTION_YAML = (
+    ROOT / "docs" / "strategy_yaml_spec" / "example_from_user_chat.yaml"
+)
 SAMPLE_BUNDLE = (
     ROOT / "docs" / "standard_bot_io" / "samples" / "input_bundle_example.json"
 )
@@ -71,6 +74,20 @@ def demo_server():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _prompt_example(demo_server, intent):
+    """The example YAML half of a selection prompt, without its instructions.
+
+    Direction assertions belong here and nowhere else. The instruction half names
+    both ``order: asc`` and ``order: desc`` while explaining what the key does, so
+    a whole-prompt substring check cannot tell the two variants apart — it passes
+    even when the prompt ships the opposite example.
+    """
+    prompt = demo_server.build_system_prompt("selection", intent)
+    _instructions, marker, example = prompt.partition("=== 範例輸出 ===")
+    assert marker and example.strip(), prompt
+    return example
 
 
 def test_prompt_teaches_the_model_the_news_selection_dialect(demo_server):
@@ -490,7 +507,7 @@ def test_news_request_rejects_selection_that_does_not_use_news(
             "params": {"min_quote_volume": 100_000_000},
         }
     ]
-    generated["selection"]["score"] = "quote_volume"
+    generated["selection"]["score"] = "quoteVolume"
     monkeypatch.setattr(
         demo_server, "call_llm", lambda *_, **__: yaml.safe_dump(generated, sort_keys=False)
     )
@@ -506,16 +523,21 @@ def test_news_request_rejects_selection_that_does_not_use_news(
 
 
 @pytest.mark.parametrize(
-    ("phrase", "source"),
+    "phrase",
     [
-        ("Select 5 coins with highest open interest", "open_interest"),
-        ("幫我選五個 funding rate 最負的幣", "funding"),
-        ("幫我選五個漲幅最大的幣", "price_change"),
+        "Select 5 coins with highest open interest",
+        "幫我選五個未平倉量最高的幣",
     ],
 )
 def test_unsupported_cross_section_source_is_not_replaced_with_news(
-    demo_server, monkeypatch, phrase, source,
+    demo_server, monkeypatch, phrase,
 ):
+    """Open interest has no whole-market endpoint, so it must stay a refusal.
+
+    ``GET /fapi/v1/openInterest`` requires a symbol; there is no cross-section
+    frame to rank on. Answering with news buzz instead would look like a coin
+    list built from open interest.
+    """
     monkeypatch.setattr(
         demo_server,
         "call_llm",
@@ -529,8 +551,414 @@ def test_unsupported_cross_section_source_is_not_replaced_with_news(
     assert result["status"] == "unsupported"
     assert result["valid"] is False
     assert result["yaml"] == ""
-    assert source in result["intent"]["sources"]
-    assert any(source in str(error) for error in result["errors"])
+    assert "open_interest" in result["intent"]["sources"]
+    assert any("open_interest" in str(error) for error in result["errors"])
+
+
+def test_lowest_funding_is_expressed_with_ascending_order(
+    demo_server, monkeypatch,
+):
+    """Asking for the most negative funding was refused for lacking ascending
+    ranking.
+
+    ``selection.order`` now exists, so the request must convert. The refusal
+    existed to stop the opposite basket being returned, so the test that replaces
+    it checks the direction survives end to end — prompt, YAML and gate.
+    """
+    request = "幫我選五個 funding rate 最負的幣"
+    intent = demo_server.classify_request(request)
+    assert intent.score_order == "asc"
+    assert intent.score_order_metric == "fundingRatePct"
+
+    # Assert on the EXAMPLE half only. The instruction half of this prompt
+    # contains the literal "order: asc" whichever direction was requested, so
+    # ``"order: asc" in prompt`` was green even when the desc example shipped.
+    example = _prompt_example(demo_server, intent)
+    assert "order: asc" in example
+    assert "order: desc" not in example
+    assert "id: lowest_funding_rate_selector" in example
+
+    monkeypatch.setattr(
+        demo_server,
+        "call_llm",
+        lambda *_, **__: demo_server.FUNDING_ASC_SELECTION_EXAMPLE_YAML,
+    )
+    accepted = demo_server.convert_nl("http://llm/v1", "", "model", request)
+
+    assert accepted["status"] == "valid", accepted
+    assert accepted["valid"] is True, accepted
+    generated = yaml.safe_load(accepted["yaml"])
+    # The ANNUALISED column: the raw per-settlement rate is not comparable across
+    # contracts that settle 8h / 4h / 1h apart, so "the most negative funding"
+    # taken from it is the wrong five coins. ``score_order_metric`` still reads
+    # ``fundingRatePct`` because that is the name the PHRASE matched under —
+    # intent._METRIC_COLUMN_ALIASES is what keeps the direction check enforced
+    # across the two spellings.
+    assert generated["selection"]["score"] == "fundingRateApr"
+    assert generated["selection"]["order"] == "asc"
+    assert generated["selection"]["top_k"] == 5
+
+    # The whole reason the refusal existed: descending here hands back the coins
+    # paying the MOST funding, which is the opposite trade, and the basket gives
+    # no sign of it.
+    monkeypatch.setattr(
+        demo_server,
+        "call_llm",
+        lambda *_, **__: demo_server.FUNDING_SELECTION_EXAMPLE_YAML,
+    )
+    rejected = demo_server.convert_nl("http://llm/v1", "", "model", request)
+
+    assert rejected["valid"] is False
+    assert any("fundingRatePct" in str(error) and "asc" in str(error)
+               for error in rejected["errors"]), rejected["errors"]
+
+
+def test_price_change_selection_ranks_on_the_real_ticker_column(
+    demo_server, monkeypatch,
+):
+    """24h price change was refused as "not wired up", which was never true.
+
+    ``priceChangePercent`` arrives with the universe frame (it IS the Binance 24h
+    ticker) and ``example_from_user_chat.yaml`` has always ranked on it.
+    """
+    request = "幫我選五個漲幅最大的幣"
+    intent = demo_server.classify_request(request)
+    assert intent.sources == frozenset({"price_change"})
+    assert (intent.score_order, intent.score_order_metric) == (
+        "desc", "priceChangePercent",
+    )
+    assert "priceChangePercent" in demo_server.build_system_prompt(
+        "selection", intent
+    )
+    example = _prompt_example(demo_server, intent)
+    assert "order: desc" in example
+    assert "order: asc" not in example
+    assert "id: price_change_selector" in example
+
+    monkeypatch.setattr(
+        demo_server,
+        "call_llm",
+        lambda *_, **__: demo_server.PRICE_CHANGE_SELECTION_EXAMPLE_YAML,
+    )
+    accepted = demo_server.convert_nl("http://llm/v1", "", "model", request)
+
+    assert accepted["status"] == "valid", accepted
+    generated = yaml.safe_load(accepted["yaml"])
+    assert generated["selection"]["score"] == "priceChangePercent"
+    assert generated["selection"]["top_k"] == 5
+
+    # Supporting the source is not the same as letting news stand in for it.
+    monkeypatch.setattr(
+        demo_server, "call_llm", lambda *_, **__: demo_server.SELECTION_EXAMPLE_YAML
+    )
+    rejected = demo_server.convert_nl("http://llm/v1", "", "model", request)
+
+    assert rejected["valid"] is False
+    assert any("priceChangePercent" in str(error) for error in rejected["errors"])
+
+
+def test_biggest_losers_request_flips_the_order_to_ascending(
+    demo_server, monkeypatch,
+):
+    """The same column, the other end — and the gate must tell them apart."""
+    request = "幫我選五個跌幅最大的幣"
+    intent = demo_server.classify_request(request)
+    assert (intent.score_order, intent.score_order_metric) == (
+        "asc", "priceChangePercent",
+    )
+
+    example = _prompt_example(demo_server, intent)
+    assert "order: asc" in example
+    assert "order: desc" not in example
+    assert "id: biggest_losers_selector" in example
+
+    monkeypatch.setattr(
+        demo_server,
+        "call_llm",
+        lambda *_, **__: demo_server.PRICE_CHANGE_ASC_SELECTION_EXAMPLE_YAML,
+    )
+    assert demo_server.convert_nl(
+        "http://llm/v1", "", "model", request
+    )["valid"] is True
+
+    monkeypatch.setattr(
+        demo_server,
+        "call_llm",
+        lambda *_, **__: demo_server.PRICE_CHANGE_SELECTION_EXAMPLE_YAML,
+    )
+    rejected = demo_server.convert_nl("http://llm/v1", "", "model", request)
+    assert rejected["valid"] is False
+    assert any("asc" in str(error) for error in rejected["errors"])
+
+
+@pytest.mark.parametrize(
+    ("phrase", "expected_order"),
+    [
+        # The magnitude word decides the end, and it decides it differently for
+        # each direction word: 跌幅 is the SIZE of a fall, so a big one is the
+        # bottom of the signed column and a small one is the top.
+        ("幫我選五個跌幅最大的幣", "asc"),
+        ("幫我選五個跌幅最小的幣", "desc"),
+        ("幫我選五個漲幅最大的幣", "desc"),
+        ("幫我選五個漲幅最小的幣", "asc"),
+        ("選跌幅前 30 名的幣", "asc"),
+        # A user who spells the sort out is the least ambiguous case there is.
+        ("選幣,跌幅由大到小", "asc"),
+        ("選幣,漲幅由大到小", "desc"),
+        ("show me the top losers", "asc"),
+        ("show me the top gainers", "desc"),
+        ("pick the worst performing coins", "asc"),
+        ("pick the best performing coins", "desc"),
+    ],
+)
+def test_magnitude_word_decides_which_end_of_the_change_column(
+    demo_server, phrase, expected_order,
+):
+    """The direction word alone cannot say which end, and guessing is enforced.
+
+    ``reconcile_intent`` rejects a spec that disagrees with the direction landing
+    here, so reading 跌幅最小 as "most negative" did not merely lose a check — it
+    refused the correct spec and accepted the inverted one.
+    """
+    intent = demo_server.classify_request(phrase)
+
+    assert (intent.score_order, intent.score_order_metric) == (
+        expected_order, "priceChangePercent",
+    ), phrase
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        # A threshold on the fall is a filter; the ranking column is unstated.
+        "幫我選幾個跌幅小於 3% 的幣",
+        "幫我選幾個漲幅超過 5% 的幣",
+        # "exclude the biggest fallers" names the end the user does NOT want, and
+        # no ``order`` value means "rank everything else".
+        "選幾個幣,要排除跌幅超過 10% 的",
+        "選幾個幣,排除跌幅最大的那些",
+        "show me coins avoiding the losers",
+    ],
+)
+def test_change_filters_and_exclusions_are_not_a_ranking_direction(
+    demo_server, phrase,
+):
+    intent = demo_server.classify_request(phrase)
+
+    assert intent.score_order is None, phrase
+    assert intent.score_order_metric is None, phrase
+
+
+def test_excluding_a_symbol_still_leaves_the_ranking_direction_intact(demo_server):
+    """The exclusion guard must not swallow every request containing 排除.
+
+    "排除 BTC" excludes a symbol, not an end of the column, so the direction is
+    still stated and still worth enforcing.
+    """
+    intent = demo_server.classify_request("排除 BTC,選跌幅最大的五個幣")
+
+    assert (intent.score_order, intent.score_order_metric) == (
+        "asc", "priceChangePercent",
+    )
+
+
+@pytest.mark.parametrize(
+    ("phrase", "expected_order"),
+    [
+        ("幫我選五個 funding 為負的幣", "asc"),
+        ("幫我選五個 funding rate 是負的幣", "asc"),
+        ("pick 5 coins with negative funding", "asc"),
+        ("幫我選五個 funding rate 為正的幣", "desc"),
+        ("pick 5 coins with positive funding rate", "desc"),
+        ("選幣,funding rate 由低到高", "asc"),
+        ("選幣,funding rate 由高到低", "desc"),
+        ("rank coins by funding rate ascending", "asc"),
+    ],
+)
+def test_signed_funding_phrasings_name_an_end_of_the_column(
+    demo_server, phrase, expected_order,
+):
+    """The ordinary way to ask for the bottom of funding is 為負 / negative.
+
+    Leaving it unrecognised did not yield "no direction stated": the prompt then
+    asserted the opposite end, because ``score_order is None`` was rendered as
+    desc.
+    """
+    intent = demo_server.classify_request(phrase)
+
+    assert (intent.score_order, intent.score_order_metric) == (
+        expected_order, "fundingRatePct",
+    ), phrase
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        "幫我選五個 funding rate 最不負的幣",
+        "pick 5 coins with the least negative funding rate",
+    ],
+)
+def test_a_diminished_sign_word_is_not_the_bottom_of_the_column(
+    demo_server, phrase,
+):
+    """最不負 / least negative is the near-zero middle, not either end.
+
+    Recognising 為負/negative as "the bottom of the funding column" is what makes
+    this reachable, and it cannot be answered with ``order``: where the near-zero
+    rates sit depends on how much of today's column is below zero.
+    """
+    intent = demo_server.classify_request(phrase)
+
+    assert "funding" in intent.sources, phrase
+    assert intent.score_order is None, phrase
+    assert intent.score_order_metric is None, phrase
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        # Contradictory: two ends of the same column.
+        "幫我選五個 funding rate 最負或最高的幣",
+        "幫我選漲幅或跌幅最大的幣",
+        # Stated for nothing: a bare source with no end named.
+        "幫我選五個 funding rate 的幣",
+        "幫我選幾個有 24 小時漲跌幅資料的幣",
+    ],
+)
+def test_unstated_direction_is_not_rendered_as_descending(demo_server, phrase):
+    """``score_order is None`` is a third state, and the prompt must show it.
+
+    The demo used to compute ``ascending = score_order == "asc"``, so "the user
+    did not say" became "the user said desc" — an affirmative claim about the
+    request, plus a desc example to copy. ``reconcile_intent`` skips its check
+    when no direction was stated, so nothing downstream can catch it: whatever
+    the prompt suggests is what the basket ends up being.
+    """
+    intent = demo_server.classify_request(phrase)
+    assert intent.score_order is None, phrase
+
+    prompt = demo_server.build_system_prompt("selection", intent)
+    example = _prompt_example(demo_server, intent)
+
+    assert demo_server.NO_ORDER_DIRECTIVE in prompt
+    assert "order: desc" not in prompt
+    assert "order: asc" not in prompt
+    # The example must not smuggle the direction back in as a copyable line.
+    assert "order:" not in example
+    assert "score:" in example
+
+
+def test_a_direction_for_another_column_does_not_flip_the_funding_prompt(
+    demo_server,
+):
+    """A direction is only usable for the column it was stated about.
+
+    Here the end named belongs to ``priceChangePercent`` while the prompt is the
+    funding one. Reading ``score_order`` without its metric told the model to rank
+    ``fundingRatePct`` ascending — the coins PAYING shorts, the opposite trade —
+    and ``reconcile_intent`` cannot object, because it only checks the direction
+    against the column it was stated for.
+    """
+    intent = demo_server.classify_request(
+        "幫我用 funding rate 這個欄位選幣,條件是最近二十四小時之內的跌幅最大的那五個幣"
+    )
+    assert "funding" in intent.sources
+    assert (intent.score_order, intent.score_order_metric) == (
+        "asc", "priceChangePercent",
+    )
+
+    prompt = demo_server.build_system_prompt("selection", intent)
+    example = _prompt_example(demo_server, intent)
+
+    assert demo_server.NO_ORDER_DIRECTIVE in prompt
+    assert "order:" not in example
+    assert "id: default_order_funding_rate_selector" in example
+
+
+def test_narrowing_direction_does_not_reject_a_spec_ranked_on_another_column(
+    demo_server, monkeypatch,
+):
+    """The ``score_order_metric in score_dependencies`` half of the gate.
+
+    ``example_from_user_chat.yaml`` is the shape this protects: the direction
+    phrase describes a NARROWING step (``universe.top_losers``, "24h 跌幅前 30 名")
+    while ``score`` ranks the survivors on ``quoteVolume`` — same-strength coins,
+    the liquid one is the tradable short. Enforcing ``order: asc`` on that spec
+    would reject a conversion that does exactly what was asked, and the phrasing
+    is common enough that it arrived from a real user conversation.
+    """
+    request = "選跌幅最大的幣裡成交額最大的五個做空候選"
+    intent = demo_server.classify_request(request)
+    assert (intent.score_order, intent.score_order_metric) == (
+        "asc", "priceChangePercent",
+    )
+
+    generated = CHAT_SELECTION_YAML.read_text(encoding="utf-8")
+    # Spelled out because it is the whole trap: the requested direction is about
+    # a column this spec does not rank on. If the example ever starts ranking on
+    # priceChangePercent, this test must fail loudly rather than quietly stop
+    # covering the guard.
+    assert yaml.safe_load(generated)["selection"]["score"] == "quoteVolume"
+    monkeypatch.setattr(demo_server, "call_llm", lambda *_, **__: generated)
+
+    result = demo_server.convert_nl("http://llm/v1", "", "model", request)
+
+    assert result["valid"] is True, result["errors"]
+
+
+def test_price_change_selection_runs_through_real_blocks(demo_server, monkeypatch):
+    """The un-refused source has to survive the bundle, not just the gate.
+
+    ``priceChangePercent`` is only usable if it travels the whole way: universe
+    frame in ``cyqnt.input/v1`` -> Blocks pipeline -> ranked basket. The sample
+    bundle carries a hand-written minimal universe frame, so the column is added
+    here the way the live Binance 24h ticker supplies it — one value per symbol,
+    signed — with ETH the stronger of the two.
+    """
+    monkeypatch.setattr(
+        demo_server,
+        "call_llm",
+        lambda *_, **__: demo_server.PRICE_CHANGE_SELECTION_EXAMPLE_YAML,
+    )
+    converted = demo_server.convert_nl(
+        "http://llm/v1", "", "model", "幫我選五個漲幅最大的幣"
+    )
+    assert converted["valid"] is True, converted
+
+    bundle = json.loads(SAMPLE_BUNDLE.read_text(encoding="utf-8"))
+    changes = {"BTCUSDT": -3.5, "ETHUSDT": 7.25}
+    for row in bundle["frames"]["universe"]["rows"]:
+        row["priceChangePercent"] = changes[row["instrument_id"]]
+    from cyqnt_trd.standard_bot.data import live_snapshot
+
+    monkeypatch.setattr(
+        live_snapshot,
+        "build_live_snapshot",
+        lambda **_: (None, copy.deepcopy(bundle)),
+    )
+    gainers = demo_server.run_selection(converted["yaml"])
+
+    assert gainers["ok"] is True, gainers
+    assert [item["symbol"] for item in gainers["candidates"]] == ["ETHUSDT", "BTCUSDT"]
+    assert gainers["candidates"][0]["score"] == 7.25
+
+    # Same bundle, opposite order: the losers spec must invert the basket rather
+    # than return the same one with a different label.
+    losers = demo_server.run_selection(
+        demo_server.PRICE_CHANGE_ASC_SELECTION_EXAMPLE_YAML
+    )
+    assert [item["symbol"] for item in losers["candidates"]] == ["BTCUSDT", "ETHUSDT"]
+    assert losers["candidates"][0]["score"] == -3.5
+
+
+def test_contradictory_direction_words_do_not_invent_an_order(demo_server):
+    """Two opposite phrasings mean the user has not said; guessing would reject
+    a spec for disagreeing with a coin flip."""
+    intent = demo_server.classify_request("幫我選漲幅或跌幅最大的幣")
+
+    assert intent.sources == frozenset({"price_change"})
+    assert intent.score_order is None
+    assert intent.score_order_metric is None
 
 
 def test_high_funding_selection_is_translated_to_the_real_funding_block(
@@ -548,11 +976,16 @@ def test_high_funding_selection_is_translated_to_the_real_funding_block(
 
     assert result["valid"] is True, result
     generated = yaml.safe_load(result["yaml"])
-    assert generated["selection"]["score"] == "fundingRatePct"
+    assert generated["selection"]["score"] == "fundingRateApr"
+    # BOTH sources. ``funding`` alone leaves fundingRateApr NaN for every
+    # instrument — the block will not assume an 8-hour settlement interval — so
+    # the basket would come back empty; spec._refuse_column_without_its_source
+    # is what turns that into a validation error rather than a silent zero-length
+    # basket, and this asserts the template does not rely on it.
     assert {
         step["block"]: step.get("with")
         for step in generated["selection"]["universe"]
-    }["universe.augment_with_funding"] == ["funding"]
+    }["universe.augment_with_funding"] == ["funding", "funding_info"]
 
 
 def test_volume_selection_requires_volume_to_control_the_score(
@@ -573,7 +1006,7 @@ def test_volume_selection_requires_volume_to_control_the_score(
     )
     accepted = demo_server.convert_nl("http://llm/v1", "", "model", request)
     assert accepted["valid"] is True, accepted
-    assert "score: quote_volume" in demo_server.build_system_prompt(
+    assert "score: quoteVolume" in demo_server.build_system_prompt(
         "selection", demo_server.classify_request(request)
     )
 
@@ -592,7 +1025,7 @@ def test_hot_coins_by_volume_uses_volume_as_the_primary_metric(
     )
     rejected = demo_server.convert_nl("http://llm/v1", "", "model", request)
     assert rejected["valid"] is False
-    assert any("quote_volume" in str(error) for error in rejected["errors"])
+    assert any("quoteVolume" in str(error) for error in rejected["errors"])
 
     monkeypatch.setattr(
         demo_server,
@@ -611,7 +1044,7 @@ def test_news_feature_names_cannot_bypass_dependency_check(
     generated["selection"]["features"] = {
         decoy_name: {
             "block": "indicators.ema",
-            "input": "quote_volume",
+            "input": "quoteVolume",
             "params": {"period": 2},
         }
     }
@@ -683,7 +1116,7 @@ def test_ineffective_news_filters_do_not_satisfy_the_requested_ranking(
     mention_spec["selection"]["universe"].append(
         {"block": "universe.top_mentioned", "params": {"n": 1000}}
     )
-    mention_spec["selection"]["score"] = "quote_volume"
+    mention_spec["selection"]["score"] = "quoteVolume"
     monkeypatch.setattr(
         demo_server,
         "call_llm",

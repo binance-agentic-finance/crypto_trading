@@ -19,7 +19,7 @@ import json
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict, Iterable, Mapping, Optional, Set
+from typing import Any, Dict, Iterable, Mapping, NamedTuple, Optional, Set
 
 from cyqnt_trd.blocks import strategy as blocks_strategy
 
@@ -100,7 +100,48 @@ def live_sections_for_spec(spec: Mapping[str, Any]) -> list[str]:
             sections.append("news")
         if "funding" in nodes:
             sections.append("selection_funding")
+        if "contract_meta" in nodes:
+            sections.append("contract_meta")
+        # Whole-market cross-sections whose bundle key IS their node name, so a
+        # spec's ``with:`` name maps straight onto the section that collects it.
+        # ``funding_info`` is listed here and NOT folded into
+        # ``selection_funding``: it is the divisor that annualises the rate, and a
+        # spec that ranks on ``fundingRatePct`` (per settlement) legitimately does
+        # not need it — collecting it unasked would put a frame in the bundle that
+        # nothing reads.
+        if "book_ticker" in nodes:
+            sections.append("selection_book_ticker")
+        if "funding_info" in nodes:
+            sections.append("selection_funding_info")
+        # The fan-out sections. Their bundle key IS their node name — unlike
+        # ``funding``, which the cross-sectional node has to displace — so a
+        # spec's ``with:`` name maps straight onto the section that collects it.
+        for node, section in _fan_out_sections_by_node().items():
+            if node in nodes:
+                sections.append(section)
+        # Bars last, and that is the ordering claim of the whole two-pass capture:
+        # its roster is what survives EVERY step above, including the derivative
+        # filters, so it is planned after those frames have landed.
+        from ..data.live_snapshot import BARS_SECTION
+
+        bars_section, bars_node, _bars_key = BARS_SECTION
+        if bars_node in nodes:
+            sections.append(bars_section)
     return sections
+
+
+def _fan_out_sections_by_node() -> Dict[str, str]:
+    """Fan-out node -> the section that collects it.
+
+    Read out of the data layer's own table instead of restated here, so adding a
+    fourth fan-out field cannot leave a spec validating green (the block resolves,
+    the ``with:`` name is accepted) and then running against a frame nobody
+    collected. Imported lazily to keep this module's import graph unchanged.
+    """
+    from ..data.live_snapshot import FAN_OUT_SECTIONS
+
+    return {node: section for section, (node, _key, _extra)
+            in FAN_OUT_SECTIONS.items()}
 
 
 def _validated_spec(spec_or_path: Any) -> Dict[str, Any]:
@@ -148,6 +189,34 @@ def _source_error(status: Any) -> bool:
     return str(status).split(":", 1)[0].strip() == "error"
 
 
+#: Selection sources for which "read it, and it was empty" is already a failure.
+#:
+#: The general rule for a selection run is the opposite — an empty frame is let
+#: through, because ``ticker_rank`` legitimately comes back empty when Square has
+#: nothing to say and ``universe.augment_with_news`` handles that by NaN-filling
+#: the buzz columns. These two do not: both are cross-sections whose block raises
+#: on an empty source (funding because one symbol's history cannot stand in for a
+#: cross-section, contract_meta because every listed contract has a contract type
+#: by construction). Catching it here names the source that could not be read
+#: instead of surfacing it as a ValueError from inside a universe step.
+#: The three fan-out nodes join this list for the same reason and one more of
+#: their own: an empty frame there means the fan-out collected NOTHING, and since
+#: there is no all-market endpoint to fall back on, that is always a failure and
+#: never "no instrument has open interest".
+#: ``universe_bars`` is here for the fan-out reason and one more: it is the only
+#: frame in this list whose emptiness has a SECOND innocent-looking cause. Bars
+#: are gated point-in-time like everything else, so a capture whose ``end_ms`` was
+#: never set — asking for bars "as of now" against a past ``decision_time`` — has
+#: every row dropped by the gate and lands an empty frame with ``status: ok`` from
+#: the fetch. Read as "no instrument has price history" that would empty the
+#: basket; named here it says which source could not be read.
+_SELECTION_SOURCES_REQUIRING_ROWS = frozenset({
+    "funding", "contract_meta",
+    "open_interest_snapshot", "oi_change_snapshot", "long_short_ratio_snapshot",
+    "universe_bars",
+})
+
+
 def _assert_required_sources(bundle: Mapping[str, Any], spec: Mapping[str, Any]) -> None:
     statuses = dict(bundle.get("source_status") or {})
     frames = dict(bundle.get("frames") or {})
@@ -158,7 +227,7 @@ def _assert_required_sources(bundle: Mapping[str, Any], spec: Mapping[str, Any])
         empty_required_frame = (
             isinstance(frame, dict)
             and not (frame.get("rows") or [])
-            and (not selection or node == "funding")
+            and (not selection or node in _SELECTION_SOURCES_REQUIRING_ROWS)
         )
         unavailable = (
             _source_error(statuses.get(node, "error"))
@@ -190,6 +259,104 @@ def _assert_required_sources(bundle: Mapping[str, Any], spec: Mapping[str, Any])
             "required input source unavailable; strategy was not run: "
             + ", ".join(failed)
         )
+
+
+class BarsPlan(NamedTuple):
+    """What Pass 2 of a bars capture has to be asked for.
+
+    ``symbols`` is what survived Pass 1, ``timeframes`` is the union the spec's
+    indicator steps name, and ``end_ms`` is the instant the histories are cut at.
+    ``survivors_of`` records how many steps of the pipeline were actually run, so a
+    caller printing the plan can show the funnel rather than only its last number.
+    """
+
+    symbols: list
+    timeframes: list
+    end_ms: Optional[int]
+    survivors_of: int
+
+
+def plan_bars_capture(spec: Mapping[str, Any], bundle: Mapping[str, Any]) -> BarsPlan:
+    """PASS 1 of a bars capture: run the cheap prefix, return the roster.
+
+    A capture cannot know in advance which instruments a screen will keep, and a
+    bars fan-out is charged per (instrument, timeframe) — so the roster has to be
+    derived, and it can only be derived by running the spec's own narrowing steps
+    over the frames that are already in hand.
+
+    That is what this does, and the three properties that make it safe are worth
+    naming because each has a wrong-looking alternative:
+
+    * it runs **the spec's own steps**, through
+      :func:`interpreter.run_universe_steps`, not a re-implementation of "apply
+      the filters". A second implementation would produce a slightly different
+      funnel from the one the run walks, and the difference surfaces as a coverage
+      refusal inside ``augment_with_indicator`` — pointing at the join, the one
+      place not at fault.
+    * it runs only the steps **before** the first indicator step. Those are
+      necessarily cross-sectional (an indicator step is the first thing that needs
+      bars), so Pass 1 costs no requests at all: every frame it reads is already in
+      the bundle.
+    * ``end_ms`` is the bundle's **own** ``decision_time``. This is PIT guard #1:
+      it makes the bars the ones a capture at that instant would have seen, rather
+      than today's prices beside a past universe.
+
+    Raises rather than returning an empty plan when the prefix keeps nothing:
+    "collect no bars" and "this screen has no candidates" are different facts, and
+    an empty roster would land an empty frame that the joining block reads as a
+    failed capture.
+    """
+    import pandas as pd
+
+    from .interpreter import (
+        bar_timeframes_for_spec,
+        run_universe_steps,
+        universe_steps_before_bars,
+    )
+
+    timeframes = bar_timeframes_for_spec(dict(spec))
+    if not timeframes:
+        raise BundleRunError(
+            "this spec has no %s step, so there are no bars to plan. Nothing was "
+            "collected." % _bars_block())
+
+    frames = dict(bundle.get("frames") or {})
+
+    def table(key: str):
+        return pd.DataFrame((frames.get(key) or {}).get("rows") or [])
+
+    universe = table("universe")
+    if universe.empty:
+        raise BundleRunError(
+            "the bundle carries no universe frame, so Pass 1 of a bars capture has "
+            "nothing to narrow. Collect the `universe` section first — the bars "
+            "roster is derived FROM it, which is why the two cannot be one pass.")
+    extras = {key: table(key) for key in frames}
+    extras["universe"] = universe
+    extras.setdefault("ticker_rank", None)
+
+    prefix = universe_steps_before_bars(dict(spec))
+    survivors = run_universe_steps(prefix, universe, extras)
+    column = next((name for name in ("instrument_id", "symbol")
+                   if name in getattr(survivors, "columns", ())), None)
+    if column is None or not len(survivors):
+        raise BundleRunError(
+            "the %d step(s) before the first %s step left no instrument, so there "
+            "is nothing to fetch bars for. That is not 'collect nothing': an empty "
+            "bars frame is read by the joining block as a failed capture. Either "
+            "the thresholds are too strict for this market, or a source the prefix "
+            "needs is absent from this bundle."
+            % (len(prefix), _bars_block()))
+    roster = sorted({str(value).upper() for value in survivors[column]})
+    return BarsPlan(symbols=roster, timeframes=timeframes,
+                    end_ms=int(bundle["decision_time"]),
+                    survivors_of=len(prefix))
+
+
+def _bars_block() -> str:
+    from .interpreter import BARS_BLOCK
+
+    return BARS_BLOCK
 
 
 def run_bundle(spec_or_path: Any, bundle_or_path: Any) -> Dict[str, Any]:
@@ -268,4 +435,5 @@ def write_signal_batch(batch: Mapping[str, Any], path: Any) -> str:
 __all__ = [
     "SIGNAL_BATCH_SCHEMA_VERSION", "BundleRunError", "required_bundle_nodes",
     "live_sections_for_spec", "run_bundle", "write_signal_batch",
+    "BarsPlan", "plan_bars_capture",
 ]

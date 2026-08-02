@@ -59,6 +59,7 @@ __all__ = [
     "highest",
     "lowest",
     "price_change_pct",
+    "range_gain_pct",
     "supertrend",
     "ichimoku",
     "parabolic_sar",
@@ -405,6 +406,53 @@ def lowest(series: SeriesLike, period: int) -> pd.Series:
 def price_change_pct(series: SeriesLike, periods: int = 1) -> pd.Series:
     """Simple percent change over *periods* bars."""
     return ensure_series(series).pct_change(periods=periods)
+
+
+def range_gain_pct(df: pd.DataFrame, period: int = 90) -> pd.Series:
+    """How far the window's HIGH sits above the window's LOW, in percent.
+
+    ``(highest high over period - lowest low over period) / lowest low * 100``.
+
+    Why this is its own indicator rather than a pair of them
+    -------------------------------------------------------
+    "this coin went up 100% between its 3-month low and its high" is one of the
+    most common screens in the selection corpus, and the two-step spelling
+    (``highest(high, 90)`` + ``lowest(low, 90)`` and divide) has nowhere to do the
+    division: a cross-sectional spec can compute per-symbol columns but the only
+    two-series blocks available for the arithmetic are ``derivatives.basis`` and
+    friends, which return BASIS POINTS and fill a NaN with ``0.0``. A screen for
+    "gain >= 100" against a column that says 10000 for the same fact, and 0 for
+    "unknown", is two wrong answers rather than one.
+
+    Order-agnostic, and that has to be said out loud
+    ------------------------------------------------
+    This measures the window's RANGE, so it does not require the low to come
+    before the high. "Low to high" read strictly is a *run-up* and would exclude
+    a coin that peaked in month one and bottomed in month three — a different and
+    smaller number. The range is the plain reading of "這 3 個月的低點到高點" and
+    it is what a chart's own high/low readout shows, so it is what this computes;
+    a screen that needs the ordered version needs a different indicator, and
+    naming this one ``range_`` is what stops the two being confused.
+
+    ``period`` is in BARS, not days: on a ``1d`` series 90 is three months, on a
+    ``4h`` series it is fifteen. The timeframe lives in the caller
+    (``universe.augment_with_indicator``'s ``timeframe:``), so the two have to be
+    read together.
+
+    The first ``period - 1`` bars are NaN rather than a partial-window number: a
+    range measured over 12 of the 90 bars asked for is a smaller range reported
+    under the wider name, which reads as "this coin was quiet" — the opposite of
+    the truth for a fresh listing.
+    """
+    period = positive_int(period, "period")
+    df = ensure_df(df, required=("high", "low"))
+    window_high = rolling_max(df["high"].astype(float), period)
+    window_low = rolling_min(df["low"].astype(float), period)
+    # A non-positive low cannot be a denominator. It is not a market state on a
+    # spot/perp price series, so it is NaN rather than an infinity that would sort
+    # to the top of a "biggest gainer" ranking.
+    window_low = window_low.where(window_low > 0.0)
+    return (window_high - window_low) / window_low * 100.0
 
 
 # ---------------------------------------------------------------------------

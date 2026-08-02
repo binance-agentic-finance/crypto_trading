@@ -17,26 +17,37 @@
 # ---------------------------------------------------------------------------
 # 24h 成交額 > $2m             universe.filter_quote_volume 2e6            ✅ 完全對應
 # 排除 BTC/ETH/SOL/XRP      universe.exclude_symbols                    ✅ 完全對應
-# (含 usdc pair)               同上,逐一列名                              🟡 只能列名
+# (含 usdc pair)               universe.filter_quote_suffix exclude        ✅ 完全對應
 # 找做空候選                    short_when + top_losers                     ✅ 完全對應
 # Supertrend 三時框偏空  universe.top_losers(24h 跌幅前 30)         🟡 粗代理
 #                              + short_when: 24h 跌幅 > 2%
 # 散戶多空比偏多 > 60%  —                                           ❌ 無法表達
-# 排除 TradFi             —                                           ❌ 無法表達
+# 排除 TradFi             universe.augment_with_contract_meta          ✅ 已可表達(見缺口 #3)
+#                              + universe.filter_crypto_only               本 spec 刻意沒開,理由同上
 #
 # 排名邏輯:在「跌幅前 30 名」裡依 24h 成交額由大到小排 —— 同樣弱勢的幣,
 # 流動性大的才是能真正進出的做空標的,小幣跌 20% 但沒量是接不到的。
+# (「跌幅由大到小」現在可以直述:score: priceChangePercent + order: asc。
+#  這裡刻意不那樣寫,理由就是上一句 —— 排序鍵選成交額是決策,不是繞路。)
 #
 # 執行:
 #   python -m cyqnt_trd.standard_bot.yaml_pipeline validate docs/strategy_yaml_spec/example_from_user_chat.yaml
+#   # 可重現(凍結截面,不觸網):
+#   python -m cyqnt_trd.standard_bot.yaml_pipeline run      docs/strategy_yaml_spec/example_from_user_chat.yaml \
+#       --input-json tests/standard_bot/fixtures/universe_cross_section.json
+#   # 對今天的市場跑(會實際打 Binance REST,籃子與下面不同是正常的):
 #   python -m cyqnt_trd.standard_bot.yaml_pipeline run      docs/strategy_yaml_spec/example_from_user_chat.yaml
 #
-# 2026-08-01 實跑結果(真實 Binance 宇宙 727 檔):
+# 實跑結果(凍結的真實 Binance 截面 727 檔,
+#   tests/standard_bot/fixtures/universe_cross_section.json —— 用 --input-json 餵它
+#   可逐位元重現,籃子由 tests/standard_bot/test_selection_fixture_replay.py 釘住):
 #   universe=727 output=cyqnt.signal/v2 kind=selection data_quality=good
 #   #1 SNDKUSDT #2 SOXLUSDT #3 MUUSDT #4 SKHYUSDT #5 KORUUSDT  全部 short
-#   驗證:5 檔都真的跌 7.2~9.6%(跌幅前 30 門檻 -7.09%),依成交額由大到小排序無誤。
+#   驗證:5 檔都真的跌 9.9~14.5%(跌幅前 30 門檻 -8.13%),依成交額由大到小排序無誤。
 #   **但 5 檔全是 TradFi 永續(SanDisk / 半導體 ETF / 美光 / SK海力士 / 韓股 ETF)——
 #   正是用戶明講要排除的那一類。** 管線是對的,詞彙不夠;見缺口 #3。
+#   (2026-08-01 對線上宇宙實跑是同樣這五檔、同樣的順序,只是當天的漲跌幅數字不同 ——
+#    行情會走,所以文件裡的數字一律引凍結截面那一份。)
 # =============================================================================
 
 spec_version: "1.0"
@@ -61,24 +72,39 @@ selection:
     - block: universe.filter_quote_volume
       params: { min_quote_volume: 2000000 }
 
-    # 2) 需求:排除 BTC / ETH / SOL / XRP 與 USDC 計價對
-    #    只能逐一列名 —— 沒有「排除主流幣」或「排除某計價幣」的語意級 block(見缺口 #3)
+    # 2) 需求:排除 BTC / ETH / SOL / XRP
+    #    「這四個資產」只能逐一列名 —— 沒有「排除主流幣」的語意級 block(見缺口 #3)。
+    #    這裡只列 USDT 對:USDC 那一半由下一步整批處理。
     - block: universe.exclude_symbols
       params:
-        symbols: [BTCUSDT, ETHUSDT, SOLUSDT, XRPUSDT,
-                  BTCUSDC, ETHUSDC, SOLUSDC, XRPUSDC]
+        symbols: [BTCUSDT, ETHUSDT, SOLUSDT, XRPUSDT]
 
-    # 3) 需求:Supertrend(10,3) 在 H4 / H1 / M15 同時偏空
+    # 3) 需求:排除 USDC 計價對
+    #    這是「按計價幣」而非「按名字」的條件,所以用 filter_quote_suffix 直述。
+    #    先前這裡是 BTCUSDC / ETHUSDC / SOLUSDC / XRPUSDC 四個手寫名字 —— 而這個截面
+    #    有 38 個 USDC 對,手寫名單漏掉 34 個,而且下次上架新的 USDC 對還會再漏。
+    #    比對是對「結尾」做的,所以測的是計價幣不是基礎幣:排除 USDC 會留下 USDCUSDT。
+    #    兩個排除步驟可以互換順序(都讀 instrument_id,都不會替對方注入欄位)。
+    - block: universe.filter_quote_suffix
+      params: { suffix: USDC, exclude: true }
+
+    # 4) 需求:Supertrend(10,3) 在 H4 / H1 / M15 同時偏空
     #    Supertrend 是逐幣的時間序列指標;選幣層的 frame 一列是一個幣、沒有 K 線,
     #    **無法表達**(見缺口 #2)。這裡用「24h 跌幅前 30 名」當下跌趨勢的粗代理。
     - block: universe.top_losers
       params: { n: 30 }
 
-  # 在這 30 個弱勢幣裡依成交額由大到小排名(score 一律 descending)。
+  # 在這 30 個弱勢幣裡依成交額由大到小排名。order 預設 desc,這裡刻意用預設值:
+  # 排序鍵是「能不能真的進出」,不是「跌得多不多」(跌幅已經由 top_losers 收窄過)。
+  # 欄位名一定要寫 quoteVolume(截面帶的是 Binance 的 camelCase);寫 quote_volume
+  # 會 SpecError: cannot resolve reference。
   score: quoteVolume
   top_k: 5
 
-  # 同一資產的 USDT / USDC 對只留成交額大的那一個,避免 top_k 被同一個賭注佔兩格
+  # 同一資產只留成交額大的那一對,避免 top_k 被同一個賭注佔兩格。
+  # 步驟 3 已經把 USDC 對整批排掉,所以這一步在這份 spec 目前不會動到任何列
+  # (實測:留下的池子與跌幅前 30 名裡都沒有同名資產)。留著是因為它是預設值,
+  # 而且把步驟 3 放寬成 suffix: [USDT, USDC] 時它就立刻是必要的。
   dedupe_by: base_asset
 
   # 用戶只要做空候選,所以只宣告 short_when。
@@ -95,8 +121,13 @@ selection:
 #    frame 傳給 block；validate 使用合成 frame,不會觸網。live 端則以
 #    funding_snapshot 一次抓全市場,但仍以 logical key `funding` 寫入 bundle。
 #    單一 BTC 的歷史 funding 不可冒充截面,coverage 防線會直接拒絕。
-#    注意:selection.score 目前固定由高到低；「最負 funding」仍需新增 ascending
-#    排名規格,不能把本範例的跌幅代理悄悄說成等價。
+#    「最負 funding」也已經能直述:score: fundingRateApr + order: asc,
+#    步驟寫 with: [funding, funding_info]。用**年化**那一欄而不是 fundingRatePct:
+#    後者是「單次結算」的費率,而幣安各合約結算間隔不同(實測 743 檔:4h 443 / 8h 296
+#    / 1h 4),所以同樣 0.01% 的兩檔年化可以差 8 倍,拿原始欄位排名等於用一個每列單位
+#    都不一樣的數字排序。詳見 strategy.schema.yaml 的 augment_with_funding 段落。
+#    (要再加一道絕對門檻就配 max_score,例 max_score: -10.0 =「年化 -10% 以下的」;
+#     min_score/max_score 是絕對邊界,不隨 order 翻轉)。
 #
 # 2. 【逐幣時序指標無法進入選幣】影響最大的一個。用戶要的 Supertrend 多時框共振,
 #    在 signals: 那條路做得到(單一標的逐根 K),但 selection: 的 frame 沒有 K 線。
@@ -104,32 +135,82 @@ selection:
 #    24h 漲跌幅粗略代理。建議補 universe.augment_with_indicator:對每個候選抓 K 線、
 #    算指標、把結果 join 回截面 frame。
 #
-# 3. 【無法排除 TradFi / 無法按板塊篩選】**這次實跑就是被這個缺口毀掉的**:
-#    跌幅前 30 名裡 TradFi 只有 5 檔,但它們的成交額比加密幣大 1~2 個數量級
-#    (1.3e9~6.1e9 vs 5e7~9.4e8),用成交額排序時直接獨佔全部 5 個名額。
-#    若能排除 TradFi,正確的籃子應該是:SNXXUSDT / MMTUSDT / MUUUSDT / AAVEUSDT / BEUSDT。
+# 3. 【已修:排除 TradFi / 按板塊篩選都可以直述了】**上面那次實跑就是被這個缺口毀掉的**:
+#    這個凍結截面的跌幅前 30 名裡,21 檔是股票 / ETF 類永續(underlyingType != COIN),
+#    只有 9 檔是真的加密幣;而且成交額差一到兩個數量級 —— 前 5 名全是 EQUITY
+#    (7.3e8~3.8e9),最大的 COIN 只有 3.4e8。用成交額排序時它們直接獨佔全部名額。
+#    這裡刻意不寫「正確的籃子應該是 X/Y/Z」:行情會走,寫死的籃子明天就是假的
+#    (原本這行寫的五檔裡有三檔本身就是 TradFi —— 詳見 DEMO_FROM_USER_CHAT.md §4)。
+#    要的是一個能表達條件的 block,不是一份手抄答案。
 #
-#    好消息:Binance 官方就有這些欄位,一次 GET /fapi/v1/exchangeInfo 就拿得到 ——
-#      contractType     : PERPETUAL | TRADIFI_PERPETUAL
-#      underlyingType   : COIN(698) | EQUITY(131) | COMMODITY(8) | HK_EQUITY(6)
-#                         | KR_EQUITY(3) | INDEX(3) | PREMARKET(2)
-#      underlyingSubType: ['TradFi'](147) | ['DeFi'](153) | ['Alpha'](76)
-#                         | ['Infrastructure'](70) | ['AI'](68) | ['Layer-1'](64) | ['Meme'](55) ...
+#    好消息:Binance 官方就有這些欄位,一次 GET /fapi/v1/exchangeInfo 就拿得到
+#    (以下為 2026-08-01 的 727 檔 status=TRADING 實測分佈):
+#      contractType     : PERPETUAL(573) | TRADIFI_PERPETUAL(150)
+#                         | CURRENT_QUARTER(2) | NEXT_QUARTER(2)
+#      underlyingType   : COIN(575) | EQUITY(131) | COMMODITY(8) | HK_EQUITY(6)
+#                         | KR_EQUITY(3) | INDEX(2) | PREMARKET(2)
+#      underlyingSubType: TradFi(150) | DeFi(117) | Alpha(71) | Infrastructure(59)
+#                         | AI(57) | Layer-1(54) | Meme(47) | USDC(36) ...
 #
-#    建議補一個 universe.augment_with_contract_meta(join 上述三欄)+
-#    universe.filter_underlying_type / universe.filter_sub_type。
-#    這一個 block 同時解掉四種在真實對話裡高頻出現的條件(以 13,983 筆選幣對話計):
+#    ★ 三種「排除 TradFi」的寫法不等價,差 2 檔:
+#        contractType != TRADIFI_PERPETUAL     → 577
+#        "TradFi" not in underlyingSubType     → 577
+#        underlyingType == "COIN"              → 575
+#      差集是 {ALLUSDT, BTCDOMUSDT},兩者都是 underlyingType=INDEX 的合成指數
+#      (一籃子的加密指數,不是某個幣)。前兩種寫法會讓它們漏進「加密幣」那一邊,
+#      所以正解是白名單 underlyingType == "COIN",不是黑名單 contractType。
+#
+#    這一組 block 同時解掉四種在真實對話裡高頻出現的條件(以 13,983 筆選幣對話計):
 #      板塊/賽道 478 筆(3.4%)· 市值大小 707 筆(5.1%)· Alpha 幣 351 筆(2.5%)
 #      · 排除/指定 TradFi 或美股 414 筆(3.0%)
-#    另外 UniverseFilter 類別上已有 filter_quote_suffix,但沒匯出成 module-level
-#    函式,YAML 用不到("排除 USDC 計價對" 因此只能逐一列名)—— 順手一起匯出。
 #
-# 4. 【score 只能 descending】做空篩選最直覺的寫法是「跌幅由大到小」= priceChangePercent
-#    升冪,現在得繞路(先 top_losers 收窄、再換一個天生 descending 的欄位當 score)。
-#    加一個 selection.order: asc|desc 就能直述。
+#    ▼ 現在的寫法(2026-08-02 起可用)。加在 top_losers 之前 —— 先收窄資產類別,
+#      「跌幅前 30」才是「加密幣的跌幅前 30」,而不是「股票塞滿 30 名之後剩下的加密幣」:
 #
-# 5. 【多空比 / 持倉量沒有 universe 層的 block】Binance 有
-#    futures/data/globalLongShortAccountRatio,blocks.universe 沒有對應函式。
-#    建議補 augment_with_long_short_ratio 與 augment_with_open_interest ——
-#    這兩個在選幣對話裡出現頻率很高。
+#        - block: universe.augment_with_contract_meta
+#          with: [contract_meta]
+#        - block: universe.filter_crypto_only
+#
+#      同一個凍結截面的籃子隨即從 5/5 TradFi 變成 5/5 COIN:
+#        #1 HYPEUSDT #2 BANKUSDT #3 COTIUSDT #4 MMTUSDT #5 UNIUSDT  全部 short
+#      (釘在 tests/standard_bot/test_universe_contract_meta.py::CRYPTO_ONLY_BASKET,
+#       同一支測試也順手斷言「本 spec 未改版時仍然回那 5 檔 TradFi」,
+#       所以它量的是這兩步的效果,不是 fixture 在漂。)
+#
+#    ★ 本 spec 的 universe 刻意**沒有**加這兩步。它是 DEMO_FROM_USER_CHAT.md 記錄的
+#      「詞彙不夠時會發生什麼」那一份對照組,籃子被 test_selection_fixture_replay.py
+#      釘住;把它就地改掉,文件裡的 before/after 就沒有 before 了。要用就照上面複製。
+#
+#    ★ 板塊篩選寫 universe.filter_sub_type(集合交集語意,一列可以有多個標籤):
+#        - block: universe.filter_sub_type
+#          params: { include: [AI, DeFi] }        # 掛到任一個就留
+#          # exclude 同理;include + exclude 可以並用(例:include [ETF] + exclude [TradFi])
+#      underlying_sub_type 是逗號分隔的純量字串(如 "Alpha,DeFi"),不要拿它去做
+#      conditions.state_equals —— 多標籤幣永遠不會等於單一標籤。
+#
+# 4. 【已修:多空比 / 持倉量都有 universe 層的 block 了】
+#    augment_with_open_interest / augment_with_oi_change /
+#    augment_with_long_short_ratio,配 filter_open_interest / filter_oi_change /
+#    filter_long_short_ratio。範例見 example_open_interest_screen.yaml。
+#    所以本 spec 那條「散戶多空比偏多 > 60%」現在寫得出來:
+#
+#        - block: universe.augment_with_long_short_ratio
+#          with: [long_short_ratio_snapshot]
+#        - block: universe.filter_long_short_ratio
+#          params: { min_long_account_pct: 60 }
+#
+#    ★ 但本 spec 刻意沒有加,而且理由跟上面缺口 #3 不一樣:這三個來源**沒有全市場
+#      端點**(省略 symbol 打 /fapi/v1/openInterest 回 HTTP 400),只能逐幣抓,
+#      所以它們要求 fan-out capture —— 也就是要求先把宇宙收窄。本 spec 的凍結截面
+#      (tests/standard_bot/fixtures/universe_cross_section.json)裡沒有這三個 frame,
+#      加了步驟只會讓它在自己的 fixture 上跑不起來。要用就照
+#      example_open_interest_screen.yaml,那份配的是 universe_derivatives.json。
+#
+#    ★ 兩個踩過的雷,寫在這裡免得下一個人再踩:
+#      1) openInterest 是**幣本位數量**。拿它去比「500 萬」會留下一堆不到一美元的
+#         小幣、把 BTC 丟掉,而籃子裡每個數字看起來都很合理。所以 block 會一併帶
+#         markPrice 並乘出 oi_notional_usd,filter 的參數名是 min_notional_usd。
+#      2) 「持倉異動」有兩個答案。美元持倉變化會跟著幣價動,幣數持倉變化不會 ——
+#         同一批幣、同一個 ±20% 門檻,美元欄留 5 檔、幣數欄留 3 檔,只重疊 1 檔。
+#         filter_oi_change 的 basis 因此必須明寫,而且兩欄都會留在 frame 上。
 # =============================================================================

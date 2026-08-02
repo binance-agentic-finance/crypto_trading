@@ -971,6 +971,368 @@ _NODES: List[DataNodeSpec] = [
         fetcher="cyqnt_trd.blocks.universe.fetch_perpetual_universe",
     ),
     DataNodeSpec(
+        name="contract_meta",
+        emits=FrameKind.RANK,
+        column_map={"symbol": "instrument_id"},
+        description=(
+            "What each listed contract IS: contract type, underlying type "
+            "(COIN / EQUITY / COMMODITY / INDEX …), the venue's sector tags, and "
+            "the base/quote legs. This is the cross-section a SELECTION strategy "
+            "joins to say \"crypto only\", \"no TradFi\", \"AI sector\"."
+        ),
+        strategy_types=("L", "P", "S"),
+        source_path=SourcePath.PUBLIC_BINANCE,
+        availability=Availability.FORWARD_ONLY,
+        endpoint="fapi.binance.com/fapi/v1/exchangeInfo (all symbols, unfiltered)",
+        returns=ReturnSpec(
+            "pd.DataFrame",
+            "one row per listed contract, including non-TRADING ones",
+            ("symbol", "contractType", "underlyingType", "underlyingSubType",
+             "baseAsset", "quoteAsset", "status"),
+        ),
+        params=(_MARKET_TYPE,),
+        pit_hazard=(
+            "Listing REGISTRY, current only. A symbol's row appears when it is "
+            "listed and disappears when it is delisted, and the venue re-tags "
+            "sectors without notice — so replaying today's table at an earlier "
+            "decision time both invents metadata for coins that did not exist "
+            "yet and hides the tags a delisted one had. Capture it forward "
+            "alongside the universe it will be joined to."
+        ),
+        fetcher="cyqnt_trd.blocks.data.fetch_contract_meta",
+        notes=(
+            "Transport-only node; it does no filtering, so `status` and "
+            "`quoteAsset` arrive as columns for a spec to filter on. "
+            "`underlyingSubType` is a LIST on the wire — "
+            "universe.augment_with_contract_meta flattens it to a "
+            "comma-separated scalar, because a list-valued cell raises "
+            "'truth value of an array ... is ambiguous' inside the candidate "
+            "builder. Do not read the raw column directly."
+        ),
+    ),
+    DataNodeSpec(
+        name="open_interest_snapshot",
+        emits=FrameKind.RANK,
+        column_map={
+            "symbol": "instrument_id",
+            "openInterest": "oi_base",
+            "markPrice": "mark_price",
+            "time": "event_time",
+        },
+        constants={"source_id": "binance.openInterest"},
+        description=(
+            "Current open interest for a NAMED ROSTER of perpetuals, in coins "
+            "plus the mark price that converts it to dollars. This is the "
+            "cross-section a SELECTION strategy joins to say \"position "
+            "inventory above $5m\"."
+        ),
+        strategy_types=("D", "L", "P"),
+        source_path=SourcePath.PUBLIC_BINANCE,
+        availability=Availability.FORWARD_ONLY,
+        endpoint="fapi.binance.com/fapi/v1/openInterest — ONE REQUEST PER SYMBOL "
+                 "(omitting symbol answers HTTP 400) + one premiumIndex call for "
+                 "the mark prices",
+        returns=ReturnSpec(
+            "pd.DataFrame",
+            "one current row per requested symbol",
+            ("symbol", "openInterest", "markPrice", "time"),
+        ),
+        params=(
+            ParamSpec("symbols", "list[str]", required=True,
+                      description="the roster to fan out over; capped at "
+                                  "blocks.data.FAN_OUT_MAX_SYMBOLS and never "
+                                  "truncated"),
+            _MARKET_TYPE,
+        ),
+        pit_hazard=(
+            "Point read of a live inventory, all-market snapshot only: the "
+            "endpoint has no history at all, and the mark price that converts it "
+            "to dollars is today's. Replaying it at an earlier decision time "
+            "states this week's positioning as last month's. Capture it forward "
+            "alongside the universe it will be joined to; for a replayable "
+            "series use `open_interest` (~30d) instead."
+        ),
+        fetcher="cyqnt_trd.blocks.data.fetch_open_interest_cross_section",
+        notes=(
+            "FAN-OUT node: cost is one request per instrument, so the roster must "
+            "be narrowed by the free cross-sectional filters FIRST — see the "
+            "ordering table in standard_bot/data/live_snapshot.py. Distinct from "
+            "the per-symbol `open_interest` node, which serves ~30 days of "
+            "history for ONE instrument and cannot stand in for a cross-section."
+        ),
+    ),
+    DataNodeSpec(
+        name="oi_change_snapshot",
+        emits=FrameKind.METRIC,
+        column_map={
+            "symbol": "instrument_id",
+            "timestamp": "event_time",
+            "sumOpenInterest": "oi_base",
+            "sumOpenInterestValue": "oi_value",
+        },
+        constants={"source_id": "binance.open_interest_statistics"},
+        value_columns=("oi_base", "oi_value",),
+        description=(
+            "Recent open-interest series for a NAMED ROSTER of perpetuals, in "
+            "coins and in dollars — the input for \"positions moved 20% this "
+            "week\" across a cross-section."
+        ),
+        strategy_types=("D", "L", "P"),
+        source_path=SourcePath.PUBLIC_BINANCE,
+        availability=Availability.FORWARD_ONLY,
+        endpoint="fapi futures/data/openInterestHist — ONE REQUEST PER SYMBOL",
+        returns=ReturnSpec(
+            "pd.DataFrame", "one row per symbol × period, oldest first",
+            ("symbol", "sumOpenInterest", "sumOpenInterestValue", "timestamp"),
+        ),
+        params=(
+            ParamSpec("symbols", "list[str]", required=True,
+                      description="the roster to fan out over; capped at "
+                                  "blocks.data.FAN_OUT_MAX_SYMBOLS and never "
+                                  "truncated"),
+            ParamSpec("period", "str", default="1d",
+                      description="5m..1d; universe.augment_with_oi_change "
+                                  "measures the cadence and refuses to call a "
+                                  "non-daily series a daily change"),
+            ParamSpec("limit", "int", default=8,
+                      description="readings per symbol — a 7-day lookback needs 8"),
+            _MARKET_TYPE,
+        ),
+        pit_hazard=(
+            "Two hazards, not one. The public endpoint keeps only ~30 days, so a "
+            "longer lookback silently starts mid-series. And the ROSTER is "
+            "point-in-time: it was chosen from the universe as it looked at "
+            "capture, so replaying this frame against a different decision time "
+            "screens a set of instruments that was picked using the future."
+        ),
+        fetcher="cyqnt_trd.blocks.data.fetch_oi_history_cross_section",
+        notes=(
+            "FAN-OUT node — see `open_interest_snapshot` for the ordering "
+            "requirement. Deliberately no `unit` constant: the two metrics are in "
+            "DIFFERENT units (oi_base in coins, oi_value in USD), so one frame-wide "
+            "unit would mislabel whichever it did not describe. "
+            "`CMCCirculatingSupply` is dropped by the fetcher: it is a "
+            "third-party supply figure, not open interest, and it would repeat on "
+            "every row of every series."
+        ),
+    ),
+    DataNodeSpec(
+        name="long_short_ratio_snapshot",
+        emits=FrameKind.RANK,
+        column_map={"symbol": "instrument_id", "timestamp": "event_time"},
+        constants={"source_id": "binance.long_short_ratio"},
+        description=(
+            "Latest long/short ACCOUNT ratio for a NAMED ROSTER of perpetuals — "
+            "the cross-section behind \"retail is more than 60% long\"."
+        ),
+        strategy_types=("D", "L", "P"),
+        source_path=SourcePath.PUBLIC_BINANCE,
+        availability=Availability.FORWARD_ONLY,
+        endpoint="fapi futures/data/globalLongShortAccountRatio (or the two "
+                 "topLongShort* variants) — ONE REQUEST PER SYMBOL",
+        returns=ReturnSpec(
+            "pd.DataFrame", "one latest row per requested symbol",
+            ("symbol", "longAccount", "shortAccount", "longShortRatio", "timestamp"),
+        ),
+        params=(
+            ParamSpec("symbols", "list[str]", required=True,
+                      description="the roster to fan out over; capped at "
+                                  "blocks.data.FAN_OUT_MAX_SYMBOLS and never "
+                                  "truncated"),
+            ParamSpec("period", "str", default="1h", description="5m..1d"),
+            ParamSpec("mode", "str", default="global",
+                      options=("global", "top_account", "top_position"),
+                      description="whose positioning: the whole venue (retail) "
+                                  "or the top traders by account / by position"),
+            _MARKET_TYPE,
+        ),
+        pit_hazard=(
+            "One reading per instrument with no history kept, and a "
+            "point-in-time ROSTER — see `oi_change_snapshot`. For the ratio's own "
+            "history on one instrument use `long_short_ratio` (~30d)."
+        ),
+        fetcher="cyqnt_trd.blocks.data.fetch_long_short_ratio_cross_section",
+        notes=(
+            "FAN-OUT node — see `open_interest_snapshot` for the ordering "
+            "requirement. `longAccount` / `shortAccount` are SHARES OF 1 on the "
+            "wire; universe.augment_with_long_short_ratio converts them to "
+            "percentage points and verifies that they still sum to 1, so a unit "
+            "change at the source raises instead of producing a 6700% long share."
+        ),
+    ),
+    DataNodeSpec(
+        name="book_ticker",
+        emits=FrameKind.RANK,
+        column_map={
+            "symbol": "instrument_id",
+            "bidPrice": "bid_price",
+            "bidQty": "bid_qty",
+            "askPrice": "ask_price",
+            "askQty": "ask_qty",
+            "time": "event_time",
+        },
+        constants={"source_id": "binance.bookTicker"},
+        description=(
+            "Best bid/ask and the size resting on each, for EVERY symbol in one "
+            "request. This is the cross-section a SELECTION strategy joins to say "
+            "\"drop the illiquid air coins\" and mean it: turnover says how much "
+            "traded yesterday, the spread says whether an order can be filled now."
+        ),
+        strategy_types=("L", "P", "S"),
+        source_path=SourcePath.PUBLIC_BINANCE,
+        availability=Availability.FORWARD_ONLY,
+        endpoint="fapi.binance.com/fapi/v1/ticker/bookTicker (omit symbol -> all "
+                 "727 instruments, weight 5, NO fan-out)",
+        returns=ReturnSpec(
+            "pd.DataFrame",
+            "one current row per instrument the venue quotes",
+            ("symbol", "bidPrice", "bidQty", "askPrice", "askQty", "time"),
+        ),
+        params=(_MARKET_TYPE,),
+        pit_hazard=(
+            "The top of an order book, which is the fastest-moving quantity in "
+            "this catalog: it is rewritten many times a second and the endpoint "
+            "serves no history at all. Replaying today's spread at an earlier "
+            "decision time states this second's liquidity as last month's, and "
+            "does it for the instruments whose liquidity changed most. Capture it "
+            "forward alongside the universe it will be joined to; there is no "
+            "backtestable substitute in this repo (the L2 archives under "
+            "orderbook-research are a separate collection, not this node)."
+        ),
+        fetcher="cyqnt_trd.blocks.data.fetch_book_ticker_cross_section",
+        notes=(
+            "Whole-market and free, so it is NOT one of the fan-out nodes and "
+            "takes no `symbols` roster — see live_snapshot.FAN_OUT_SECTIONS for "
+            "the ones that do. `lastUpdateId` is dropped by the fetcher: it is a "
+            "per-symbol book revision counter, incomparable across instruments. "
+            "universe.augment_with_spread turns these four numbers into "
+            "`spread_bps` and `top_of_book_usd`, and refuses to report a spread "
+            "for a one-sided or crossed book rather than emitting a number that "
+            "would pass a max_spread_bps screen."
+        ),
+    ),
+    DataNodeSpec(
+        name="funding_info",
+        emits=FrameKind.RANK,
+        column_map={
+            "symbol": "instrument_id",
+            "fundingIntervalHours": "funding_interval_hours",
+            "adjustedFundingRateCap": "funding_rate_cap",
+            "adjustedFundingRateFloor": "funding_rate_floor",
+        },
+        constants={"source_id": "binance.fundingInfo"},
+        description=(
+            "How OFTEN each perpetual settles funding (8h / 4h / 1h) plus the "
+            "venue's rate clamps. Without it a funding cross-section cannot be "
+            "annualised: `funding_snapshot` gives the rate PER SETTLEMENT, so the "
+            "same 0.01% is 10.95%/yr on an 8-hourly contract and 87.6%/yr on an "
+            "hourly one, and ranking the raw number silently mixes both units."
+        ),
+        strategy_types=("D", "L", "P"),
+        source_path=SourcePath.PUBLIC_BINANCE,
+        availability=Availability.FORWARD_ONLY,
+        endpoint="fapi.binance.com/fapi/v1/fundingInfo (all symbols, weight 1)",
+        returns=ReturnSpec(
+            "pd.DataFrame",
+            "one row per perpetual with a published funding schedule",
+            ("symbol", "fundingIntervalHours", "adjustedFundingRateCap",
+             "adjustedFundingRateFloor"),
+        ),
+        params=(_MARKET_TYPE,),
+        pit_hazard=(
+            "A schedule, not a measurement — but a schedule the venue REWRITES: "
+            "Binance has moved large batches of perpetuals from 8h to 4h "
+            "settlement, and 443 of 743 contracts are 4-hourly today (measured "
+            "2026-08-02). So replaying today's table at an earlier decision time "
+            "annualises past funding with a divisor the contract did not have, "
+            "which is a wrong number rather than a missing one. Capture it forward "
+            "alongside the funding snapshot it will be joined to."
+        ),
+        fetcher="cyqnt_trd.blocks.data.fetch_funding_info",
+        notes=(
+            "743 rows covers 723 of the 727 instruments in a futures 24h ticker; "
+            "the four absentees are dated delivery contracts (BTCUSDT_260925 and "
+            "friends), which pay no funding at all. A missing row becomes NaN in "
+            "universe.augment_with_funding and is NEVER defaulted to 8 hours. "
+            "`updateTime` is dropped rather than mapped to event_time: it is null "
+            "for BTCUSDT and ETHUSDT, so gating on it would drop the two most "
+            "important rows of the cross-section."
+        ),
+    ),
+    DataNodeSpec(
+        name="universe_bars",
+        emits=FrameKind.BAR,
+        column_map={"symbol": "instrument_id"},
+        constants={"source_id": "binance.klines"},
+        description=(
+            "OHLCV bars for a NAMED ROSTER of instruments across SEVERAL "
+            "timeframes, in one frame. This is what a SELECTION strategy joins to "
+            "run a technical indicator on each candidate: the universe "
+            "cross-section has one row per instrument and no bars, so "
+            "\"Supertrend(10,3) bearish on 4h AND 1h AND 15m\" and \"up 100% from "
+            "its 3-month low\" could not be stated at all — what shipped instead "
+            "was top_losers(n=30), a 24h percentage wearing an indicator's words."
+        ),
+        strategy_types=("C", "L", "P", "S", "R"),
+        source_path=SourcePath.PUBLIC_BINANCE,
+        availability=Availability.BACKTESTABLE,
+        endpoint="fapi.binance.com/fapi/v1/klines — ONE REQUEST PER (symbol, "
+                 "timeframe); weight 1 at limit<=100, 2 at 101-500 (measured via "
+                 "X-MBX-USED-WEIGHT-1M, 2026-08-02)",
+        returns=ReturnSpec(
+            "pd.DataFrame",
+            "one row per instrument x timeframe x bar, oldest first within a pair",
+            ("symbol", "timeframe", "open_time", "open", "high", "low", "close",
+             "volume", "close_time", "quote_volume", "trades"),
+        ),
+        params=(
+            ParamSpec("symbols", "list[str]", required=True,
+                      description="the roster to fan out over; plan it from the "
+                                  "surviving prefix of the spec's own universe "
+                                  "steps, never from the whole venue"),
+            ParamSpec("timeframes", "list[str]", required=True,
+                      description='e.g. ["4h", "1h", "15m"] — the union of the '
+                                  "timeframes the spec's indicator steps name"),
+            ParamSpec("limit", "int", default=200,
+                      description="bars per (symbol, timeframe); must cover the "
+                                  "longest indicator period plus its settling "
+                                  "margin"),
+            ParamSpec("end_ms", "int",
+                      description="bars up to this epoch-ms instant. Pass the "
+                                  "bundle's decision_time: without it the frame "
+                                  "is 'as of now' and a replay mixes a past "
+                                  "universe with present prices"),
+            _MARKET_TYPE,
+        ),
+        # BACKTESTABLE, and it is the only cross-sectional node in this catalog
+        # that is: the endpoint is addressable BY TIME, so `end_ms` returns exactly
+        # the bars a capture at that instant would have seen. Every other
+        # cross-section here (`universe`, `funding_snapshot`, `book_ticker`,
+        # `open_interest_snapshot`) serves only "now" and therefore carries a
+        # pit_hazard. That difference is why this frame may be collected for a
+        # bundle whose decision_time has already passed while those may not.
+        #
+        # ONE property does not replay: the ROSTER. It is derived from a
+        # forward-only universe snapshot, so a bundle's bars answer for the
+        # instruments that snapshot contained — which is correct for that bundle
+        # and is not a claim about what a screen would have chosen at any other
+        # instant.
+        fetcher="cyqnt_trd.blocks.data.fetch_klines_cross_section",
+        notes=(
+            "Deliberately NOT the `klines` node. That one's fetcher is a "
+            "binance-cli subprocess with no endTime parameter, so it can only "
+            "answer 'the last N bars as of now' and cannot be point-in-time. It is "
+            "also single-instrument, and its bundle key is special-cased into a "
+            "MarketBundle keyed on the first symbol — landing a multi-symbol frame "
+            "there would file every instrument's bars under one name. FAN-OUT node: "
+            "cost is one request per (symbol, timeframe), bounded in WEIGHT rather "
+            "than in requests because the per-call price depends on `limit` — see "
+            "blocks.data.KLINE_FAN_OUT_MAX_WEIGHT. The last bar of each series is "
+            "normally unfinished and is dropped by the bundle's own PIT gate, not "
+            "by the fetcher, so the property stays visible in the artifact."
+        ),
+    ),
+    DataNodeSpec(
         name="bdp_screen",
         emits=FrameKind.RANK,
         column_map={"symbol": "instrument_id"},
@@ -1002,15 +1364,42 @@ _NODES: List[DataNodeSpec] = [
         emits=FrameKind.RANK,
         column_map={"symbol": "instrument_id"},
         param_aliases={"market_type": "market"},
-        description="Full-market scan with filters (gainers/losers/volume screens).",
+        description=(
+            "Enumerate tradable instrument NAMES. Returns a sorted list of "
+            "symbols already narrowed to status=TRADING and quoteAsset=USDT — "
+            "there are no gainer/loser/volume knobs and no ticker fields. For "
+            "the rankable 24h cross-section use `universe`; for the unfiltered "
+            "table with contract type and sector tags use `contract_meta`."
+        ),
         strategy_types=("L", "S"),
         source_path=SourcePath.PUBLIC_BINANCE,
         availability=Availability.FORWARD_ONLY,
-        endpoint="ticker24hr all-symbol + client-side filter",
-        returns=ReturnSpec("pd.DataFrame", "filtered symbol table"),
+        endpoint="binance-cli futures-usds exchange-information / spot "
+                 "exchange-info + client-side status+quote filter",
+        returns=ReturnSpec(
+            "list[str]",
+            "sorted symbol names, TRADING and USDT-quoted only",
+        ),
         params=(_MARKET_TYPE,),
-        pit_hazard="snapshot.",
+        pit_hazard=(
+            "Current listing snapshot, and it is a bare name list — it carries "
+            "no timestamp at all, so nothing downstream can gate it. Never "
+            "replay it as the universe of an earlier decision: today's list "
+            "contains coins that were not listed then and omits the delisted "
+            "ones a historical basket would have held."
+        ),
         fetcher="cyqnt_trd.data_cli.scanner.full_market_scan",
+        notes=(
+            "Two things the declaration above cannot express. (1) The wired "
+            "fetcher returns `list[str]`, NOT a frame, so `emits` states the "
+            "shape this node would land in a bundle and not what calling it "
+            "gives you today — nothing can normalise a bare name list, and the "
+            "return type is load-bearing (orchestration/scheduler.py iterates "
+            "it), so it is left alone. (2) The status=TRADING + quoteAsset=USDT "
+            "filter lives inside the fetcher, so USDC/USD1-quoted perpetuals are "
+            "invisible through this node. Both are why it is not the input a "
+            "selection strategy screens over: use `universe` or `contract_meta`."
+        ),
     ),
 
     # ---- F: flow / whale ---------------------------------------------------

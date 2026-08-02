@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "attempt.schema.json",
+  "title": "attempt",
+  "description": "One model call. PUBLIC: stores prompt_sha256, never the rendered prompt (which embeds the user's message).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "case_id",
+    "attempt_index",
+    "sampling_purpose",
+    "prompt_sha256",
+    "yaml_text",
+    "stopped_at_gate",
+    "yaml_sha256",
+    "gate_errors",
+    "condition_verdicts",
+    "latency_ms",
+    "prompt_tokens",
+    "completion_tokens",
+    "cached_prompt_tokens",
+    "cost_usd",
+    "feedback_given_to_next_attempt",
+    "defect_class",
+    "dpo_chosen_prompt_sha256",
+    "error_signature",
+    "is_valid_dpo_negative"
+  ],
+  "properties": {
+    "case_id": {
+      "type": "string",
+      "pattern": "^([0-9A-HJKMNP-TV-Z]{26}|[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$"
+    },
+    "attempt_index": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "sampling_purpose": {
+      "$ref": "common.schema.json#/$defs/SamplingPurpose"
+    },
+    "prompt_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "yaml_text": {
+      "type": "string"
+    },
+    "stopped_at_gate": {
+      "$ref": "common.schema.json#/$defs/Gate"
+    },
+    "yaml_sha256": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "gate_errors": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "condition_verdicts": {
+      "type": "array",
+      "items": {
+        "$ref": "common.schema.json#/$defs/ConditionVerdict"
+      }
+    },
+    "latency_ms": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "prompt_tokens": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "completion_tokens": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "cached_prompt_tokens": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "cost_usd": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "feedback_given_to_next_attempt": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "defect_class": {
+      "$ref": "common.schema.json#/$defs/DefectClass"
+    },
+    "dpo_chosen_prompt_sha256": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "error_signature": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{16}$"
+    },
+    "is_valid_dpo_negative": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    }
+  }
+}

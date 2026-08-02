@@ -5,7 +5,8 @@ User code should import from the public sub-modules instead of this one.
 
 from __future__ import annotations
 
-from typing import Iterable, Sequence, Union
+import inspect
+from typing import Any, Callable, Iterable, Optional, Sequence, Union
 
 import numpy as np
 import pandas as pd
@@ -14,6 +15,89 @@ OHLCV_COLS = ("open", "high", "low", "close", "volume")
 """Canonical OHLCV column names (lower-case)."""
 
 SeriesLike = Union[pd.Series, np.ndarray, Sequence[float]]
+
+
+class IndicatorShapeError(ValueError):
+    """A block's return value cannot be reduced to the one Series asked for."""
+
+
+def first_param_is_df(fn: Callable[..., Any]) -> bool:
+    """True if the block's first positional parameter is named ``df``.
+
+    The blocks package has two calling conventions — ``indicators.atr(df, ...)``
+    and ``indicators.ema(series, ...)`` — and a caller that guesses wrong gets a
+    ``KeyError`` from inside the indicator rather than an explanation. Detecting
+    it from the signature is what lets both be reached by one name.
+
+    Lives here, and not in the YAML interpreter where it was written, because
+    :func:`cyqnt_trd.blocks.universe.augment_with_indicator` needs exactly the
+    same answer. Two copies would be two answers: an indicator handed ``close``
+    by one caller and the whole frame by the other computes different numbers
+    under the same spec, and nothing in either output would say which happened.
+    """
+    try:
+        params = list(inspect.signature(fn).parameters.values())
+    except (ValueError, TypeError):
+        return False
+    if not params:
+        return False
+    return params[0].name == "df"
+
+
+def select_indicator_component(
+    out: Any,
+    *,
+    ref: str = "?",
+    output: Optional[int] = None,
+    column: Optional[str] = None,
+) -> pd.Series:
+    """Reduce a block's return value to the single Series an indicator must be.
+
+    Blocks return four shapes and only one of them is directly usable, so this
+    is where a caller finds out — with the fix in the message, rather than as a
+    ``NoneType has no attribute`` three frames deeper.
+
+    ``output`` picks a component of a tuple return (``supertrend`` -> value,
+    direction) and ``column`` picks a column of a DataFrame return (``ichimoku``,
+    ``pivot_points``). Shared with the YAML interpreter on purpose: the index
+    ``output: 1`` names is the difference between a Supertrend LEVEL and a
+    Supertrend DIRECTION, and two implementations of "which one is 1" would show
+    up as a spec that validates and then screens on the wrong column.
+    """
+    if isinstance(out, tuple):
+        if output is None and len(out) > 1:
+            raise IndicatorShapeError(
+                f"{ref!r} returns a {len(out)}-tuple; add 'output: <0..{len(out) - 1}>' "
+                f"to say which component you mean"
+            )
+        idx = int(0 if output is None else output)
+        if idx < 0 or idx >= len(out):
+            raise IndicatorShapeError(
+                f"{ref!r} returns a {len(out)}-tuple; output index {idx} out of range"
+            )
+        out = out[idx]
+
+    if isinstance(out, pd.DataFrame):
+        if column is None:
+            raise IndicatorShapeError(
+                f"{ref!r} returns a DataFrame; add 'column: <name>' to pick one. "
+                f"Available: {list(out.columns)[:12]}"
+            )
+        if column not in out.columns:
+            raise IndicatorShapeError(
+                f"{ref!r} returns a DataFrame without column {column!r}; "
+                f"available: {list(out.columns)[:12]}"
+            )
+        out = out[column]
+
+    if not isinstance(out, pd.Series):
+        raise IndicatorShapeError(
+            f"{ref!r} returned {type(out).__name__}, which cannot be used as an "
+            f"indicator — an indicator must reduce to one pandas Series. Blocks "
+            f"that return a plan, a score or a scalar belong in the section that "
+            f"consumes them (risk.exit / sizing), not in signals.indicators"
+        )
+    return out
 
 
 def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:

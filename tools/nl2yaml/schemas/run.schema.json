@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "run.schema.json",
+  "title": "run",
+  "description": "One execution against one pinned bundle, with the emitted basket embedded in full.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "run_id",
+    "bundle_id",
+    "bundle_sha256",
+    "bundle_decision_time",
+    "bundle_snapshot_id",
+    "repo_git_sha",
+    "python_version",
+    "pandas_version",
+    "signal_count",
+    "bundle_nodes",
+    "signal_batch_sha256",
+    "candidates"
+  ],
+  "properties": {
+    "run_id": {
+      "type": "string"
+    },
+    "bundle_id": {
+      "type": "string"
+    },
+    "bundle_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "bundle_decision_time": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+(Z|[+-][0-9]{2}:?[0-9]{2})$"
+    },
+    "bundle_snapshot_id": {
+      "type": "string"
+    },
+    "repo_git_sha": {
+      "type": "string"
+    },
+    "python_version": {
+      "type": "string"
+    },
+    "pandas_version": {
+      "type": "string"
+    },
+    "signal_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "bundle_nodes": {
+      "type": "array",
+      "items": {
+        "$ref": "common.schema.json#/$defs/BundleNode"
+      }
+    },
+    "signal_batch_sha256": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "candidates": {
+      "type": "array",
+      "items": {
+        "$ref": "common.schema.json#/$defs/Candidate"
+      }
+    }
+  }
+}

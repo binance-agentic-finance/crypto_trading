@@ -1,0 +1,121 @@
+# =============================================================================
+# 範例 6 —— 衍生品持倉篩選(E5 條件 2 與條件 4)
+# =============================================================================
+# 來源:內部選幣需求分析裡的 E5,原始條件共四條;本 spec 表達的是需要**衍生品資料**
+#       的那兩條 —— 條件 2「合約持倉 ≥ 500 萬美元」與條件 4「近一週持倉異動 |Δ| ≥ 20%」。
+#       (條件 1/3 屬於板塊與流動性,已由 example_from_user_chat.yaml 那組 block 覆蓋。)
+#
+# 用戶條件                   對映                                              結果
+# ---------------------------------------------------------------------------
+# 板塊 = Alpha / AI          augment_with_contract_meta + filter_sub_type      ✅ 完全對應
+# 合約持倉 ≥ 500 萬美元      augment_with_open_interest + filter_open_interest ✅ 完全對應
+# 近一週持倉異動 |Δ| ≥ 20%   augment_with_oi_change + filter_oi_change         ✅ 完全對應
+#
+# ★ 為什麼步驟順序是硬要求,不是風格
+# ---------------------------------------------------------------------------
+# 持倉量與多空比**沒有全市場端點**:省略 symbol 去打 /fapi/v1/openInterest 直接回
+# HTTP 400(實測)。所以這兩個 frame 只能逐幣抓,一檔一個 request —— 抓資料的成本
+# 就是名單長度。先用免費的截面過濾(板塊 / 幣種 / 成交額,全部是對已在手的表做欄位
+# 比較)把 727 收窄到 127,再 fan-out:實測 176 次呼叫 / 9 秒。反過來先抓最貴的,
+# 727 × 3 = 2181 次,直接超出 /futures/data/* 的 1000 次 / 5 分鐘預算。
+#
+# 因此 augment_with_open_interest / augment_with_oi_change **必須放在收窄步驟之後**:
+# capture 是照收窄後的名單 fan-out 的,把它 join 回完整 727 列只覆蓋 17%,
+# block 的 coverage 防線會直接 raise 並指出是順序問題 —— 不會安靜地給你一整欄 NaN。
+#
+# ★ 持倉量是幣本位的,美元值是算出來的
+# ---------------------------------------------------------------------------
+# /fapi/v1/openInterest 回的 openInterest 是**幣的數量**:2.79e9 DOGEUSDT 與
+# 1.09e5 BTCUSDT 分別是 1.93 億與 68.3 億美元。所以 augment_with_open_interest 會
+# 一併帶 markPrice(premiumIndex 一次抓全市場,不進 fan-out)並乘出 oi_notional_usd,
+# 而 filter_open_interest 的參數名寫 min_notional_usd —— 這個名字沒辦法被讀成「幣數」。
+# (實測對帳:openInterest × markPrice 與 Binance 自己的 sumOpenInterestValue
+#  在 BTC/ETH/DOGE 上差 0.25% 以內,差的是統計端點 5 分鐘桶的時間差。)
+#
+# ★ 「持倉異動」有兩個答案,而且它們不一樣
+# ---------------------------------------------------------------------------
+# augment_with_oi_change 同時給兩欄:
+#   oi_change_pct        美元持倉的變化(會跟著幣價動)
+#   oi_base_change_pct   幣數持倉的變化(與幣價無關)
+# 2026-08-02 實測同一組幣、同一個 7 日 lookback:
+#   USUSDT  幣數 -3.2% / 美元 +22.1%      ALLOUSDT 幣數 -3.5% / 美元 -26.5%
+#   TAGUSDT 幣數 +7.0% / 美元 +28.2%      UBUSDT   幣數 +1.5% / 美元 +22.2%
+#   UAIUSDT 幣數 +33.3% / 美元 +39.8%
+# |Δ| ≥ 20% 這道門檻在美元欄留 5 檔、在幣數欄只留 1 檔。所以 basis 一定要明寫;
+# 這裡用 notional,因為「持倉異動 20%」講的就是錢(交易所自己的 OI 圖也是畫錢)。
+# 兩欄都會留在 frame 上,所以送出去的 candidate.features 裡兩個數字都看得到。
+#
+# 執行:
+#   python -m cyqnt_trd.standard_bot.yaml_pipeline validate \
+#       docs/strategy_yaml_spec/example_open_interest_screen.yaml
+#   # 可重現(凍結截面,不觸網):
+#   python -m cyqnt_trd.standard_bot.yaml_pipeline run \
+#       docs/strategy_yaml_spec/example_open_interest_screen.yaml \
+#       --input-json tests/standard_bot/fixtures/universe_derivatives.json
+#
+# 實跑結果見 tests/standard_bot/test_universe_derivatives.py::OI_SCREEN_BASKET ——
+# 籃子釘在那裡,不抄到這裡:行情會走,寫死的數字明天就是假的。
+# =============================================================================
+
+spec_version: "1.0"
+target: standard_bot
+
+strategy:
+  id: oi_inventory_screen
+  description: "衍生品持倉篩選:Alpha/AI 板塊、合約持倉 ≥ $5m、近一週持倉異動 |Δ| ≥ 20%"
+
+run:
+  mode: backtest        # 選幣是單一時點決策;run 會實跑一次選幣並明講「這不是回測」
+
+data:
+  symbol: BTCUSDT       # 選幣型仍需宣告代表標的(排程與計價用),不參與排名
+  market_type: futures
+  primary:
+    interval: "1h"
+
+selection:
+  universe:
+    # --- 免費的截面收窄:這三步是 fan-out 付不付得起的前提 -------------------
+    # 1) 板塊:先接上交易所自己的上架登記表,才有 underlying_sub_type 可篩。
+    - block: universe.augment_with_contract_meta
+      with: [contract_meta]
+
+    # 2) 只留真的加密幣。代幣化美股也有持倉量,在有上限的名單裡花錢去掃一個
+    #    需求本來就要排除的東西,是純粹的浪費。
+    - block: universe.filter_crypto_only
+
+    # 3) 板塊 = Alpha 或 AI(集合交集語意,一列可以有多個標籤)。
+    #    凍結截面上 Alpha(71) ∪ AI(57) − 兩者兼具的 1 檔 = 127 檔,
+    #    也就是 fan-out 實際付費的名單。
+    - block: universe.filter_sub_type
+      params: { include: [Alpha, AI] }
+
+    # --- fan-out 的 frame 從這裡開始 join,順序不可前移 ----------------------
+    # 4) 條件 2:合約持倉 ≥ 500 萬美元。
+    - block: universe.augment_with_open_interest
+      with: [open_interest_snapshot]
+    - block: universe.filter_open_interest
+      params: { min_notional_usd: 5000000 }
+
+    # 5) 條件 4:近一週持倉異動 |Δ| ≥ 20%(雙向,所以用 min_abs_pct)。
+    #    basis 明寫 notional —— 見上面那張實測表,寫錯會從 5 檔變 1 檔。
+    - block: universe.augment_with_oi_change
+      with: [oi_change_snapshot]
+      params: { lookback_days: 7 }
+    - block: universe.filter_oi_change
+      params: { min_abs_pct: 20.0, basis: notional }
+
+  # 篩完之後依持倉異動的幅度排名:同樣都過門檻,動得最兇的最值得先看。
+  # 這裡刻意不用 oi_notional_usd 當排序鍵 —— 那會讓名單永遠由最大的幣佔滿,
+  # 而 ≥ $5m 這道門檻已經把「太小接不到」排掉了。
+  score: oi_change_pct
+  order: desc
+  top_k: 20             # 上限而非配額:這是一份篩選結果,幾檔過就回幾檔
+
+  # 同一資產只留一對。這個截面的 Alpha/AI 幣目前都只有 USDT 對,
+  # 所以這一步不會動到任何列;留著是因為它是預設值,而且新上 USDC 對時就立刻需要。
+  dedupe_by: base_asset
+
+  # 刻意沒有 long_when / short_when:E5 的條件 2 與 4 是**篩選**,不是方向。
+  # 硬掛一個方向會把「持倉在增加」讀成「所以做多」,那是 spec 沒說的話。
+  # 兩者都不宣告時每一列都以 side=neutral 留下,籃子就是篩選結果本身。

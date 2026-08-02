@@ -1,0 +1,771 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "common.schema.json",
+  "title": "nl2yaml shared vocabularies and nested records",
+  "description": "Closed vocabularies and nested record shapes shared by the five record types. Every enum here mirrors an Enum in tools/nl2yaml/schema.py; tests/nl2yaml/test_schema.py fails if the two drift, because a vocabulary that is closed in Python and open on disk is not closed.",
+  "$defs": {
+    "Polarity": {
+      "type": "string",
+      "enum": [
+        "include",
+        "exclude",
+        "prefer"
+      ],
+      "description": "Whether the condition asks for something or forbids it."
+    },
+    "Operator": {
+      "type": "string",
+      "enum": [
+        "gt",
+        "gte",
+        "lt",
+        "lte",
+        "eq",
+        "neq",
+        "in",
+        "not_in",
+        "between",
+        "crosses_above",
+        "crosses_below",
+        "rising",
+        "falling",
+        "top_n",
+        "bottom_n",
+        "exists",
+        "absent",
+        "unspecified"
+      ],
+      "description": ""
+    },
+    "Unit": {
+      "type": "string",
+      "enum": [
+        "usd",
+        "pct",
+        "ratio",
+        "bps",
+        "count",
+        "bars",
+        "seconds",
+        "minutes",
+        "hours",
+        "days",
+        "leverage_x",
+        "coin_qty",
+        "indicator_value",
+        "symbol",
+        "label"
+      ],
+      "description": "Unit of ``Condition.value``."
+    },
+    "Scope": {
+      "type": "string",
+      "enum": [
+        "universe",
+        "entry",
+        "exit",
+        "sizing",
+        "risk",
+        "schedule",
+        "notification",
+        "data",
+        "reporting",
+        "meta"
+      ],
+      "description": "Which layer of the spec the condition constrains."
+    },
+    "Measurability": {
+      "type": "string",
+      "enum": [
+        "quantified",
+        "vague",
+        "unmeasurable"
+      ],
+      "description": ""
+    },
+    "RankDirection": {
+      "type": "string",
+      "enum": [
+        "asc",
+        "desc"
+      ],
+      "description": ""
+    },
+    "CapabilityVerdict": {
+      "type": "string",
+      "enum": [
+        "supported",
+        "proxy",
+        "unsupported",
+        "undecidable"
+      ],
+      "description": "Can the current block vocabulary express this condition?"
+    },
+    "GapId": {
+      "type": "string",
+      "enum": [
+        "universe_contract_meta",
+        "universe_per_candidate_indicator",
+        "universe_long_short_ratio",
+        "universe_open_interest",
+        "universe_market_cap",
+        "multi_timeframe_confluence",
+        "indicator_not_in_vocabulary",
+        "orderbook_microstructure",
+        "onchain_data",
+        "news_event_calendar",
+        "social_sentiment",
+        "cross_exchange",
+        "portfolio_level_risk",
+        "weighted_multi_factor_score",
+        "entry_exit_per_candidate",
+        "notification_channel",
+        "manual_discretion",
+        "execution_venue_feature",
+        "backtest_history_missing",
+        "unnamed_capability"
+      ],
+      "description": "Closed vocabulary of missing capabilities."
+    },
+    "GapStatus": {
+      "type": "string",
+      "enum": [
+        "open",
+        "in_progress",
+        "closed"
+      ],
+      "description": ""
+    },
+    "CaseTier": {
+      "type": "string",
+      "enum": [
+        "t0_underspecified",
+        "t1_expressible",
+        "t2_proxy_needed",
+        "t3_blocked_by_gap",
+        "t4_out_of_scope"
+      ],
+      "description": "How much of the request the current vocabulary can carry."
+    },
+    "MiningSource": {
+      "type": "string",
+      "enum": [
+        "keyword_lexicon",
+        "classifier_score",
+        "preset_card_dedup",
+        "random_sample",
+        "human_curated",
+        "synthetic_template"
+      ],
+      "description": "How the case was *found*. Provenance only — never a label or a feature."
+    },
+    "TextProvenance": {
+      "type": "string",
+      "enum": [
+        "verbatim_internal",
+        "paraphrase",
+        "synthetic"
+      ],
+      "description": "Where the case's input text came from."
+    },
+    "Lang": {
+      "type": "string",
+      "enum": [
+        "zh",
+        "en"
+      ],
+      "description": "Closed to the two languages the corpus is scoped to."
+    },
+    "ZhVariant": {
+      "type": "string",
+      "enum": [
+        "zh-Hans",
+        "zh-Hant"
+      ],
+      "description": "Script variant, present only for ``lang=zh``."
+    },
+    "ResolutionPath": {
+      "type": "string",
+      "enum": [
+        "cache_exact",
+        "template_slotfill",
+        "small_model",
+        "big_model"
+      ],
+      "description": ""
+    },
+    "Intent": {
+      "type": "string",
+      "enum": [
+        "COIN_SELECTION",
+        "STRATEGY_BUILD",
+        "STRATEGY_DISCOVERY",
+        "AUTOMATION_BOT",
+        "ENTRY_EXIT_TIMING",
+        "MARKET_ANALYSIS",
+        "DATA_REQUEST",
+        "RISK_MANAGEMENT",
+        "PORTFOLIO",
+        "ALERT_NOTIFY",
+        "EXECUTION_DEBUG",
+        "EDUCATION_OTHER"
+      ],
+      "description": "Primary intent taxonomy, reused verbatim from the 2026-05..07 chat"
+    },
+    "MarketType": {
+      "type": "string",
+      "enum": [
+        "spot",
+        "futures",
+        "both"
+      ],
+      "description": ""
+    },
+    "Direction": {
+      "type": "string",
+      "enum": [
+        "long",
+        "short",
+        "both"
+      ],
+      "description": ""
+    },
+    "UniverseScope": {
+      "type": "string",
+      "enum": [
+        "single_symbol",
+        "explicit_list",
+        "all_futures",
+        "all_spot",
+        "top_n_by_volume"
+      ],
+      "description": ""
+    },
+    "GoldRole": {
+      "type": "string",
+      "enum": [
+        "primary",
+        "alternative",
+        "minimal",
+        "refusal"
+      ],
+      "description": "Why this gold spec is in the list."
+    },
+    "GoldSource": {
+      "type": "string",
+      "enum": [
+        "attempt_k",
+        "human_edited",
+        "handwritten",
+        "template",
+        "none"
+      ],
+      "description": ""
+    },
+    "GoldVerificationLevel": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "description": "Ordered: each level includes everything below it."
+    },
+    "ConditionCheckStatus": {
+      "type": "string",
+      "enum": [
+        "satisfied",
+        "violated",
+        "unverifiable",
+        "proxied"
+      ],
+      "description": "Did the gold spec's *output* honour this condition?"
+    },
+    "CheckedBy": {
+      "type": "string",
+      "enum": [
+        "static",
+        "dry_run",
+        "executed",
+        "human"
+      ],
+      "description": ""
+    },
+    "DisagreementResolution": {
+      "type": "string",
+      "enum": [
+        "unresolved",
+        "third_party",
+        "discussion",
+        "dropped"
+      ],
+      "description": ""
+    },
+    "SamplingPurpose": {
+      "type": "string",
+      "enum": [
+        "convert",
+        "repair",
+        "dpo_negative"
+      ],
+      "description": ""
+    },
+    "Gate": {
+      "type": "string",
+      "enum": [
+        "passed",
+        "parse_error",
+        "schema_invalid",
+        "unknown_block",
+        "denied_namespace",
+        "static_validate_failed",
+        "dry_run_failed",
+        "bundle_insufficient",
+        "execution_error",
+        "intent_mismatch"
+      ],
+      "description": "Where the attempt stopped."
+    },
+    "DefectClass": {
+      "type": "string",
+      "enum": [
+        "none",
+        "yaml_syntax_error",
+        "schema_shape_error",
+        "hallucinated_block",
+        "wrong_block_semantics",
+        "proxy_substitution",
+        "silently_dropped_exclusion",
+        "missing_condition",
+        "extra_condition",
+        "wrong_operator",
+        "wrong_timeframe",
+        "wrong_direction",
+        "refused_expressible_request"
+      ],
+      "description": ""
+    },
+    "CandidateSide": {
+      "type": "string",
+      "enum": [
+        "long",
+        "short",
+        "neutral"
+      ],
+      "description": ""
+    },
+    "Condition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cid",
+        "polarity",
+        "subject",
+        "operator",
+        "value",
+        "unit",
+        "scope",
+        "timeframe",
+        "measurability",
+        "is_ranking",
+        "rank_direction",
+        "granularity",
+        "ambiguity_type",
+        "conflicts_with"
+      ],
+      "properties": {
+        "cid": {
+          "type": "string"
+        },
+        "polarity": {
+          "$ref": "common.schema.json#/$defs/Polarity"
+        },
+        "subject": {
+          "type": "string"
+        },
+        "operator": {
+          "$ref": "common.schema.json#/$defs/Operator"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": [
+                "string",
+                "number",
+                "boolean",
+                "null"
+              ]
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": [
+                  "string",
+                  "number"
+                ]
+              }
+            }
+          ]
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "$ref": "common.schema.json#/$defs/Unit"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "scope": {
+          "$ref": "common.schema.json#/$defs/Scope"
+        },
+        "timeframe": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "measurability": {
+          "$ref": "common.schema.json#/$defs/Measurability"
+        },
+        "is_ranking": {
+          "type": "boolean"
+        },
+        "rank_direction": {
+          "anyOf": [
+            {
+              "$ref": "common.schema.json#/$defs/RankDirection"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "granularity": {
+          "$ref": "#/$defs/EvaluationGranularity",
+          "default": "universe"
+        },
+        "ambiguity_type": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/AmbiguityType"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "conflicts_with": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        }
+      }
+    },
+    "CapabilityEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cid",
+        "verdict",
+        "gap_id"
+      ],
+      "properties": {
+        "cid": {
+          "type": "string"
+        },
+        "verdict": {
+          "$ref": "common.schema.json#/$defs/CapabilityVerdict"
+        },
+        "gap_id": {
+          "anyOf": [
+            {
+              "$ref": "common.schema.json#/$defs/GapId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "IntentSlots": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "intent",
+        "secondary_intents",
+        "market_type",
+        "direction",
+        "symbols",
+        "universe_scope",
+        "primary_timeframe",
+        "wants_automation",
+        "wants_backtest",
+        "wants_alerts",
+        "wants_ranking",
+        "capital_usd",
+        "leverage"
+      ],
+      "properties": {
+        "intent": {
+          "$ref": "common.schema.json#/$defs/Intent"
+        },
+        "secondary_intents": {
+          "type": "array",
+          "items": {
+            "$ref": "common.schema.json#/$defs/Intent"
+          }
+        },
+        "market_type": {
+          "anyOf": [
+            {
+              "$ref": "common.schema.json#/$defs/MarketType"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "direction": {
+          "anyOf": [
+            {
+              "$ref": "common.schema.json#/$defs/Direction"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "symbols": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Z0-9]{2,20}$"
+          }
+        },
+        "universe_scope": {
+          "anyOf": [
+            {
+              "$ref": "common.schema.json#/$defs/UniverseScope"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "primary_timeframe": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "wants_automation": {
+          "type": "boolean"
+        },
+        "wants_backtest": {
+          "type": "boolean"
+        },
+        "wants_alerts": {
+          "type": "boolean"
+        },
+        "wants_ranking": {
+          "type": "boolean"
+        },
+        "capital_usd": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "leverage": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      }
+    },
+    "GoldSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "yaml_text",
+        "yaml_sha256"
+      ],
+      "properties": {
+        "role": {
+          "$ref": "common.schema.json#/$defs/GoldRole"
+        },
+        "yaml_text": {
+          "type": "string"
+        },
+        "yaml_sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "ConditionVerdict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cid",
+        "status",
+        "checked_by"
+      ],
+      "properties": {
+        "cid": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "common.schema.json#/$defs/ConditionCheckStatus"
+        },
+        "checked_by": {
+          "$ref": "common.schema.json#/$defs/CheckedBy"
+        }
+      }
+    },
+    "GoldDisagreement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "n_annotators",
+        "disagreeing_cids",
+        "resolution"
+      ],
+      "properties": {
+        "n_annotators": {
+          "type": "integer",
+          "minimum": 2
+        },
+        "disagreeing_cids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "resolution": {
+          "$ref": "common.schema.json#/$defs/DisagreementResolution"
+        }
+      }
+    },
+    "BundleNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "node",
+        "rows",
+        "interval",
+        "first_ts",
+        "last_ts",
+        "sha256"
+      ],
+      "properties": {
+        "node": {
+          "type": "string"
+        },
+        "rows": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "interval": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "first_ts": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "last_ts": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "Candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rank",
+        "symbol",
+        "side",
+        "score",
+        "attributes"
+      ],
+      "properties": {
+        "rank": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "symbol": {
+          "type": "string"
+        },
+        "side": {
+          "$ref": "common.schema.json#/$defs/CandidateSide"
+        },
+        "score": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "attributes": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "EvaluationGranularity": {
+      "title": "EvaluationGranularity",
+      "description": "What data shape the condition needs. A different axis from Scope: PER_SYMBOL conditions need a per-candidate fan-out the selection layer lacks.",
+      "type": "string",
+      "enum": [
+        "universe",
+        "per_symbol",
+        "portfolio"
+      ]
+    },
+    "AmbiguityType": {
+      "title": "AmbiguityType",
+      "description": "Why converting requires choosing on the user behalf. Kept apart from CapabilityVerdict: unsupported is fixed by adding a block, ambiguous never is.",
+      "type": "string",
+      "enum": [
+        "unit",
+        "conflict",
+        "undefined"
+      ]
+    }
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gap.schema.json",
+  "title": "gap",
+  "description": "A capability the block vocabulary lacks, with duplicate-weighted demand.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "gap_id",
+    "title",
+    "needed_capability",
+    "hit_count",
+    "dup_weighted_count",
+    "example_case_ids",
+    "status",
+    "closed_by_commit"
+  ],
+  "properties": {
+    "gap_id": {
+      "$ref": "common.schema.json#/$defs/GapId"
+    },
+    "title": {
+      "type": "string"
+    },
+    "needed_capability": {
+      "type": "string"
+    },
+    "hit_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "dup_weighted_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "example_case_ids": {
+      "type": "array",
+      "maxItems": 5,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^([0-9A-HJKMNP-TV-Z]{26}|[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$"
+      }
+    },
+    "status": {
+      "$ref": "common.schema.json#/$defs/GapStatus"
+    },
+    "closed_by_commit": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

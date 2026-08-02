@@ -43,12 +43,14 @@ funding   = data.funding(symbol="BTCUSDT", limit=500)
 | `data.announcements` | E | `SEMI` | internal_http |
 | `data.basis` | A D | `SEMI` | public_binance |
 | `data.bdp_screen` | L P C S | `FORWARD_ONLY` | bdp_screening |
+| `data.book_ticker` | L P S | `FORWARD_ONLY` | public_binance |
 | `data.btc_dominance` | R | `EXTERNAL_PENDING` | external_vendor |
 | `data.calendar` | E | `SEMI` | internal_http |
 | `data.chip_distribution` | F | `FORWARD_ONLY` | internal_http |
 | `data.cme_index` | R | `SEMI` | local_parquet |
 | `data.coin_metrics` | L P N | `SEMI` | internal_http |
 | `data.concentration` | F L | `SEMI` | internal_http |
+| `data.contract_meta` | L P S | `FORWARD_ONLY` | public_binance |
 | `data.contract_positions` | * | `FORWARD_ONLY` | internal_http |
 | `data.cross_exchange` | A | `EXTERNAL_PENDING` | external_vendor |
 | `data.equity_fundamentals` | R | `EXTERNAL_PENDING` | external_vendor |
@@ -58,6 +60,7 @@ funding   = data.funding(symbol="BTCUSDT", limit=500)
 | `data.fear_greed` | R E | `BACKTESTABLE` | public_binance |
 | `data.funding` | D A N | `BACKTESTABLE` | public_binance |
 | `data.funding_current` | D A | `FORWARD_ONLY` | public_binance |
+| `data.funding_info` | D L P | `FORWARD_ONLY` | public_binance |
 | `data.funding_snapshot` | D L P | `FORWARD_ONLY` | public_binance |
 | `data.funding_widget` | D A | `FORWARD_ONLY` | internal_http |
 | `data.futures_radar` | D | `FORWARD_ONLY` | internal_http |
@@ -71,14 +74,17 @@ funding   = data.funding(symbol="BTCUSDT", limit=500)
 | `data.large_trade_info` | F O | `FORWARD_ONLY` | internal_http |
 | `data.liquidations` | D F | `SEMI` | local_parquet |
 | `data.long_short_ratio` | D | `SEMI` | public_binance |
+| `data.long_short_ratio_snapshot` | D L P | `FORWARD_ONLY` | public_binance |
 | `data.macro_calendar` | R E | `SEMI` | internal_http |
 | `data.macro_indicators` | R | `EXTERNAL_PENDING` | external_vendor |
 | `data.market_scan` | L S | `FORWARD_ONLY` | public_binance |
 | `data.news` | E | `FORWARD_ONLY` | square_skill |
 | `data.news_search` | E S | `FORWARD_ONLY` | square_skill |
 | `data.news_vendor` | E | `EXTERNAL_PENDING` | external_vendor |
+| `data.oi_change_snapshot` | D L P | `FORWARD_ONLY` | public_binance |
 | `data.onchain_signals` | F | `FORWARD_ONLY` | internal_http |
 | `data.open_interest` | D F | `SEMI` | public_binance |
+| `data.open_interest_snapshot` | D L P | `FORWARD_ONLY` | public_binance |
 | `data.options_chain` | A | `EXTERNAL_PENDING` | external_vendor |
 | `data.orderbook_depth` | O | `FORWARD_ONLY` | public_binance |
 | `data.positions` | * | `FORWARD_ONLY` | public_binance |
@@ -98,6 +104,7 @@ funding   = data.funding(symbol="BTCUSDT", limit=500)
 | `data.top_trader_ratio` | D F | `SEMI` | public_binance |
 | `data.topic_trending` | S | `FORWARD_ONLY` | square_skill |
 | `data.universe` | L P S D | `FORWARD_ONLY` | public_binance |
+| `data.universe_bars` | C L P S R | `BACKTESTABLE` | public_binance |
 | `data.user_favorites` | L S | `FORWARD_ONLY` | internal_http |
 | `data.user_pnl` | * | `SEMI` | internal_http |
 | `data.user_portfolio` | * | `FORWARD_ONLY` | internal_http |
@@ -155,6 +162,24 @@ OHLCV for several intervals at once (multi-timeframe strategies).
 | param | type | required | default | notes |
 |---|---|---|---|---|
 | `symbol` | `str` | yes |  | e.g. BTCUSDT |
+| `market_type` | `str` | no | `'futures'` | spot | futures (USDⓈ-M perpetual) (`spot` / `futures`) |
+
+### `data.universe_bars`
+
+OHLCV bars for a NAMED ROSTER of instruments across SEVERAL timeframes, in one frame. This is what a SELECTION strategy joins to run a technical indicator on each candidate: the universe cross-section has one row per instrument and no bars, so "Supertrend(10,3) bearish on 4h AND 1h AND 15m" and "up 100% from its 3-month low" could not be stated at all — what shipped instead was top_losers(n=30), a 24h percentage wearing an indicator's words.
+
+- **availability**: `BACKTESTABLE` — real history, deep enough to walk forward
+- **source**: public Binance (`api`/`fapi`/`data-api.binance.vision`) or `alternative.me`
+- **endpoint**: fapi.binance.com/fapi/v1/klines — ONE REQUEST PER (symbol, timeframe); weight 1 at limit<=100, 2 at 101-500 (measured via X-MBX-USED-WEIGHT-1M, 2026-08-02)
+- **returns**: `pd.DataFrame` — one row per instrument x timeframe x bar, oldest first within a pair · columns: `symbol`, `timeframe`, `open_time`, `open`, `high`, `low`, `close`, `volume`, `close_time`, `quote_volume`, `trades`
+- **note**: Deliberately NOT the `klines` node. That one's fetcher is a binance-cli subprocess with no endTime parameter, so it can only answer 'the last N bars as of now' and cannot be point-in-time. It is also single-instrument, and its bundle key is special-cased into a MarketBundle keyed on the first symbol — landing a multi-symbol frame there would file every instrument's bars under one name. FAN-OUT node: cost is one request per (symbol, timeframe), bounded in WEIGHT rather than in requests because the per-call price depends on `limit` — see blocks.data.KLINE_FAN_OUT_MAX_WEIGHT. The last bar of each series is normally unfinished and is dropped by the bundle's own PIT gate, not by the fetcher, so the property stays visible in the artifact.
+
+| param | type | required | default | notes |
+|---|---|---|---|---|
+| `symbols` | `list[str]` | yes |  | the roster to fan out over; plan it from the surviving prefix of the spec's own universe steps, never from the whole venue |
+| `timeframes` | `list[str]` | yes |  | e.g. ["4h", "1h", "15m"] — the union of the timeframes the spec's indicator steps name |
+| `limit` | `int` | no | `200` | bars per (symbol, timeframe); must cover the longest indicator period plus its settling margin |
+| `end_ms` | `int` | no |  | bars up to this epoch-ms instant. Pass the bundle's decision_time: without it the frame is 'as of now' and a replay mixes a past universe with present prices |
 | `market_type` | `str` | no | `'futures'` | spot | futures (USDⓈ-M perpetual) (`spot` / `futures`) |
 
 ### `data.bdp_screen`
@@ -384,6 +409,73 @@ Aggregated forced-liquidation flow (cascade / capitulation).
 - **endpoint**: ticker24hr (all symbols)
 - **returns**: `pd.DataFrame` — one row per symbol · columns: `symbol`, `price`, `change_pct`, `volume_quote`
 - **⚠️ PIT hazard**: rolling 24h snapshot. For a replayed cross-section, rebuild the table from klines as of the decision bar.
+
+| param | type | required | default | notes |
+|---|---|---|---|---|
+| `market_type` | `str` | no | `'futures'` | spot | futures (USDⓈ-M perpetual) (`spot` / `futures`) |
+
+### `data.open_interest_snapshot`
+
+Current open interest for a NAMED ROSTER of perpetuals, in coins plus the mark price that converts it to dollars. This is the cross-section a SELECTION strategy joins to say "position inventory above $5m".
+
+- **availability**: `FORWARD_ONLY` — snapshot only — no replayable history; collect forward
+- **source**: public Binance (`api`/`fapi`/`data-api.binance.vision`) or `alternative.me`
+- **endpoint**: fapi.binance.com/fapi/v1/openInterest — ONE REQUEST PER SYMBOL (omitting symbol answers HTTP 400) + one premiumIndex call for the mark prices
+- **returns**: `pd.DataFrame` — one current row per requested symbol · columns: `symbol`, `openInterest`, `markPrice`, `time`
+- **⚠️ PIT hazard**: Point read of a live inventory, all-market snapshot only: the endpoint has no history at all, and the mark price that converts it to dollars is today's. Replaying it at an earlier decision time states this week's positioning as last month's. Capture it forward alongside the universe it will be joined to; for a replayable series use `open_interest` (~30d) instead.
+- **note**: FAN-OUT node: cost is one request per instrument, so the roster must be narrowed by the free cross-sectional filters FIRST — see the ordering table in standard_bot/data/live_snapshot.py. Distinct from the per-symbol `open_interest` node, which serves ~30 days of history for ONE instrument and cannot stand in for a cross-section.
+
+| param | type | required | default | notes |
+|---|---|---|---|---|
+| `symbols` | `list[str]` | yes |  | the roster to fan out over; capped at blocks.data.FAN_OUT_MAX_SYMBOLS and never truncated |
+| `market_type` | `str` | no | `'futures'` | spot | futures (USDⓈ-M perpetual) (`spot` / `futures`) |
+
+### `data.oi_change_snapshot`
+
+Recent open-interest series for a NAMED ROSTER of perpetuals, in coins and in dollars — the input for "positions moved 20% this week" across a cross-section.
+
+- **availability**: `FORWARD_ONLY` — snapshot only — no replayable history; collect forward
+- **source**: public Binance (`api`/`fapi`/`data-api.binance.vision`) or `alternative.me`
+- **endpoint**: fapi futures/data/openInterestHist — ONE REQUEST PER SYMBOL
+- **returns**: `pd.DataFrame` — one row per symbol × period, oldest first · columns: `symbol`, `sumOpenInterest`, `sumOpenInterestValue`, `timestamp`
+- **⚠️ PIT hazard**: Two hazards, not one. The public endpoint keeps only ~30 days, so a longer lookback silently starts mid-series. And the ROSTER is point-in-time: it was chosen from the universe as it looked at capture, so replaying this frame against a different decision time screens a set of instruments that was picked using the future.
+- **note**: FAN-OUT node — see `open_interest_snapshot` for the ordering requirement. Deliberately no `unit` constant: the two metrics are in DIFFERENT units (oi_base in coins, oi_value in USD), so one frame-wide unit would mislabel whichever it did not describe. `CMCCirculatingSupply` is dropped by the fetcher: it is a third-party supply figure, not open interest, and it would repeat on every row of every series.
+
+| param | type | required | default | notes |
+|---|---|---|---|---|
+| `symbols` | `list[str]` | yes |  | the roster to fan out over; capped at blocks.data.FAN_OUT_MAX_SYMBOLS and never truncated |
+| `period` | `str` | no | `'1d'` | 5m..1d; universe.augment_with_oi_change measures the cadence and refuses to call a non-daily series a daily change |
+| `limit` | `int` | no | `8` | readings per symbol — a 7-day lookback needs 8 |
+| `market_type` | `str` | no | `'futures'` | spot | futures (USDⓈ-M perpetual) (`spot` / `futures`) |
+
+### `data.long_short_ratio_snapshot`
+
+Latest long/short ACCOUNT ratio for a NAMED ROSTER of perpetuals — the cross-section behind "retail is more than 60% long".
+
+- **availability**: `FORWARD_ONLY` — snapshot only — no replayable history; collect forward
+- **source**: public Binance (`api`/`fapi`/`data-api.binance.vision`) or `alternative.me`
+- **endpoint**: fapi futures/data/globalLongShortAccountRatio (or the two topLongShort* variants) — ONE REQUEST PER SYMBOL
+- **returns**: `pd.DataFrame` — one latest row per requested symbol · columns: `symbol`, `longAccount`, `shortAccount`, `longShortRatio`, `timestamp`
+- **⚠️ PIT hazard**: One reading per instrument with no history kept, and a point-in-time ROSTER — see `oi_change_snapshot`. For the ratio's own history on one instrument use `long_short_ratio` (~30d).
+- **note**: FAN-OUT node — see `open_interest_snapshot` for the ordering requirement. `longAccount` / `shortAccount` are SHARES OF 1 on the wire; universe.augment_with_long_short_ratio converts them to percentage points and verifies that they still sum to 1, so a unit change at the source raises instead of producing a 6700% long share.
+
+| param | type | required | default | notes |
+|---|---|---|---|---|
+| `symbols` | `list[str]` | yes |  | the roster to fan out over; capped at blocks.data.FAN_OUT_MAX_SYMBOLS and never truncated |
+| `period` | `str` | no | `'1h'` | 5m..1d |
+| `mode` | `str` | no | `'global'` | whose positioning: the whole venue (retail) or the top traders by account / by position (`global` / `top_account` / `top_position`) |
+| `market_type` | `str` | no | `'futures'` | spot | futures (USDⓈ-M perpetual) (`spot` / `futures`) |
+
+### `data.funding_info`
+
+How OFTEN each perpetual settles funding (8h / 4h / 1h) plus the venue's rate clamps. Without it a funding cross-section cannot be annualised: `funding_snapshot` gives the rate PER SETTLEMENT, so the same 0.01% is 10.95%/yr on an 8-hourly contract and 87.6%/yr on an hourly one, and ranking the raw number silently mixes both units.
+
+- **availability**: `FORWARD_ONLY` — snapshot only — no replayable history; collect forward
+- **source**: public Binance (`api`/`fapi`/`data-api.binance.vision`) or `alternative.me`
+- **endpoint**: fapi.binance.com/fapi/v1/fundingInfo (all symbols, weight 1)
+- **returns**: `pd.DataFrame` — one row per perpetual with a published funding schedule · columns: `symbol`, `fundingIntervalHours`, `adjustedFundingRateCap`, `adjustedFundingRateFloor`
+- **⚠️ PIT hazard**: A schedule, not a measurement — but a schedule the venue REWRITES: Binance has moved large batches of perpetuals from 8h to 4h settlement, and 443 of 743 contracts are 4-hourly today (measured 2026-08-02). So replaying today's table at an earlier decision time annualises past funding with a divisor the contract did not have, which is a wrong number rather than a missing one. Capture it forward alongside the funding snapshot it will be joined to.
+- **note**: 743 rows covers 723 of the 727 instruments in a futures 24h ticker; the four absentees are dated delivery contracts (BTCUSDT_260925 and friends), which pay no funding at all. A missing row becomes NaN in universe.augment_with_funding and is NEVER defaulted to 8 hours. `updateTime` is dropped rather than mapped to event_time: it is null for BTCUSDT and ETHUSDT, so gating on it would drop the two most important rows of the cross-section.
 
 | param | type | required | default | notes |
 |---|---|---|---|---|
@@ -781,15 +873,46 @@ Square trending hashtags/topics with windowed engagement.
 | `window` | `str` | no | `'24h'` | aggregation window (`1h` / `4h` / `24h` / `3d` / `7d`) |
 | `limit` | `int` | no | `20` |  |
 
-### `data.market_scan`
+### `data.contract_meta`
 
-Full-market scan with filters (gainers/losers/volume screens).
+What each listed contract IS: contract type, underlying type (COIN / EQUITY / COMMODITY / INDEX …), the venue's sector tags, and the base/quote legs. This is the cross-section a SELECTION strategy joins to say "crypto only", "no TradFi", "AI sector".
 
 - **availability**: `FORWARD_ONLY` — snapshot only — no replayable history; collect forward
 - **source**: public Binance (`api`/`fapi`/`data-api.binance.vision`) or `alternative.me`
-- **endpoint**: ticker24hr all-symbol + client-side filter
-- **returns**: `pd.DataFrame` — filtered symbol table
-- **⚠️ PIT hazard**: snapshot.
+- **endpoint**: fapi.binance.com/fapi/v1/exchangeInfo (all symbols, unfiltered)
+- **returns**: `pd.DataFrame` — one row per listed contract, including non-TRADING ones · columns: `symbol`, `contractType`, `underlyingType`, `underlyingSubType`, `baseAsset`, `quoteAsset`, `status`
+- **⚠️ PIT hazard**: Listing REGISTRY, current only. A symbol's row appears when it is listed and disappears when it is delisted, and the venue re-tags sectors without notice — so replaying today's table at an earlier decision time both invents metadata for coins that did not exist yet and hides the tags a delisted one had. Capture it forward alongside the universe it will be joined to.
+- **note**: Transport-only node; it does no filtering, so `status` and `quoteAsset` arrive as columns for a spec to filter on. `underlyingSubType` is a LIST on the wire — universe.augment_with_contract_meta flattens it to a comma-separated scalar, because a list-valued cell raises 'truth value of an array ... is ambiguous' inside the candidate builder. Do not read the raw column directly.
+
+| param | type | required | default | notes |
+|---|---|---|---|---|
+| `market_type` | `str` | no | `'futures'` | spot | futures (USDⓈ-M perpetual) (`spot` / `futures`) |
+
+### `data.book_ticker`
+
+Best bid/ask and the size resting on each, for EVERY symbol in one request. This is the cross-section a SELECTION strategy joins to say "drop the illiquid air coins" and mean it: turnover says how much traded yesterday, the spread says whether an order can be filled now.
+
+- **availability**: `FORWARD_ONLY` — snapshot only — no replayable history; collect forward
+- **source**: public Binance (`api`/`fapi`/`data-api.binance.vision`) or `alternative.me`
+- **endpoint**: fapi.binance.com/fapi/v1/ticker/bookTicker (omit symbol -> all 727 instruments, weight 5, NO fan-out)
+- **returns**: `pd.DataFrame` — one current row per instrument the venue quotes · columns: `symbol`, `bidPrice`, `bidQty`, `askPrice`, `askQty`, `time`
+- **⚠️ PIT hazard**: The top of an order book, which is the fastest-moving quantity in this catalog: it is rewritten many times a second and the endpoint serves no history at all. Replaying today's spread at an earlier decision time states this second's liquidity as last month's, and does it for the instruments whose liquidity changed most. Capture it forward alongside the universe it will be joined to; there is no backtestable substitute in this repo (the L2 archives under orderbook-research are a separate collection, not this node).
+- **note**: Whole-market and free, so it is NOT one of the fan-out nodes and takes no `symbols` roster — see live_snapshot.FAN_OUT_SECTIONS for the ones that do. `lastUpdateId` is dropped by the fetcher: it is a per-symbol book revision counter, incomparable across instruments. universe.augment_with_spread turns these four numbers into `spread_bps` and `top_of_book_usd`, and refuses to report a spread for a one-sided or crossed book rather than emitting a number that would pass a max_spread_bps screen.
+
+| param | type | required | default | notes |
+|---|---|---|---|---|
+| `market_type` | `str` | no | `'futures'` | spot | futures (USDⓈ-M perpetual) (`spot` / `futures`) |
+
+### `data.market_scan`
+
+Enumerate tradable instrument NAMES. Returns a sorted list of symbols already narrowed to status=TRADING and quoteAsset=USDT — there are no gainer/loser/volume knobs and no ticker fields. For the rankable 24h cross-section use `universe`; for the unfiltered table with contract type and sector tags use `contract_meta`.
+
+- **availability**: `FORWARD_ONLY` — snapshot only — no replayable history; collect forward
+- **source**: public Binance (`api`/`fapi`/`data-api.binance.vision`) or `alternative.me`
+- **endpoint**: binance-cli futures-usds exchange-information / spot exchange-info + client-side status+quote filter
+- **returns**: `list[str]` — sorted symbol names, TRADING and USDT-quoted only
+- **⚠️ PIT hazard**: Current listing snapshot, and it is a bare name list — it carries no timestamp at all, so nothing downstream can gate it. Never replay it as the universe of an earlier decision: today's list contains coins that were not listed then and omits the delisted ones a historical basket would have held.
+- **note**: Two things the declaration above cannot express. (1) The wired fetcher returns `list[str]`, NOT a frame, so `emits` states the shape this node would land in a bundle and not what calling it gives you today — nothing can normalise a bare name list, and the return type is load-bearing (orchestration/scheduler.py iterates it), so it is left alone. (2) The status=TRADING + quoteAsset=USDT filter lives inside the fetcher, so USDC/USD1-quoted perpetuals are invisible through this node. Both are why it is not the input a selection strategy screens over: use `universe` or `contract_meta`.
 
 | param | type | required | default | notes |
 |---|---|---|---|---|
@@ -1108,4 +1231,4 @@ Per-period, per-coin realised/unrealised PnL and risk slices.
 - A failed fetch raises `data.DataUnavailable`; `data.collect([...])` degrades
   instead, returning the frames it got plus the per-node status.
 
-_67 nodes: 6 BACKTESTABLE, 21 SEMI, 31 FORWARD_ONLY, 9 EXTERNAL_PENDING._
+_74 nodes: 7 BACKTESTABLE, 21 SEMI, 37 FORWARD_ONLY, 9 EXTERNAL_PENDING._

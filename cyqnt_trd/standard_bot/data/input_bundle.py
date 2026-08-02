@@ -76,6 +76,17 @@ BUNDLE_NAMESPACE = uuid.UUID("c1a5f0b2-7e34-5d19-9a6c-3f82b41d0e75")
 #: that it is a MetricFrame.
 FRAME_SHAPES: Dict[str, str] = {
     "klines": "BarFrame@1.0",
+    # Bars for MANY instruments at MANY timeframes, for a cross-sectional screen
+    # that runs a technical indicator on each candidate. ``BarFrame@1.0`` already
+    # requires ``instrument_id`` AND ``timeframe``, so that grain is legal in the
+    # shape as it stands and nothing here needed widening.
+    #
+    # It is a SEPARATE key from ``klines`` on purpose: :func:`load_input_bundle`
+    # special-cases ``klines`` into a ``MarketBundle`` keyed on the FIRST row's
+    # instrument, so a multi-symbol frame landed there would file every
+    # instrument's bars under one name and the strategy would read the wrong
+    # series with no error anywhere.
+    "universe_bars": "BarFrame@1.0",
     "funding": "MetricFrame@1.0",
     "open_interest": "MetricFrame@1.0",
     "liquidations": "MetricFrame@1.0",
@@ -131,20 +142,41 @@ def _pit(rows: Sequence[Dict[str, Any]], decision_time: int) -> List[Dict[str, A
     return kept
 
 
-def _tail_per_series(rows, limit: Optional[int]):
-    """Keep only the newest *limit* rows per (instrument_id, metric) series.
+#: Columns that identify one SERIES inside a long frame, per canonical shape.
+#:
+#: ``metric`` for a MetricFrame and ``timeframe`` for a BarFrame, and the
+#: difference is load-bearing rather than tidy: a bar frame has no ``metric``
+#: column at all, so keying on it collapses every timeframe of one instrument into
+#: a single bucket. A three-timeframe capture then loses two of them to the
+#: 240-row tail — and the symptom is not an error, it is "the 15m indicator is
+#: always NaN", which the joining block reports as a warm-up failure pointing at
+#: the capture's ``limit`` instead of at this line.
+_BAR_SHAPE = "BarFrame@1.0"
+_SERIES_GRAIN: Dict[str, tuple] = {
+    _BAR_SHAPE: ("instrument_id", "timeframe"),
+    "MetricFrame@1.0": ("instrument_id", "metric"),
+}
+_DEFAULT_SERIES_GRAIN = ("instrument_id", "metric")
+
+
+def _tail_per_series(rows, limit: Optional[int], *,
+                     grain: Sequence[str] = _DEFAULT_SERIES_GRAIN):
+    """Keep only the newest *limit* rows of each series, as *grain* defines one.
 
     A bundle is the input at ONE decision time, so each series needs a lookback
     window, not its whole history. Without this the bars were bounded by
     ``max_bars`` while metric frames were not, and a single 1h decision dragged
     in 30 days of 5-minute open interest — 12,144 rows and 94% of a 1.7 MB file
     for data no strategy was going to read.
+
+    See :data:`_SERIES_GRAIN` for why the key is not always
+    ``(instrument_id, metric)``.
     """
     if not limit or limit <= 0:
         return list(rows)
     buckets: Dict[tuple, List[Dict[str, Any]]] = {}
     for row in rows:
-        buckets.setdefault((row.get("instrument_id"), row.get("metric")), []).append(row)
+        buckets.setdefault(tuple(row.get(name) for name in grain), []).append(row)
     kept: List[Dict[str, Any]] = []
     for series in buckets.values():
         series.sort(key=lambda r: (r.get("available_time") or 0, r.get("event_time") or 0))
@@ -346,10 +378,19 @@ def build_input_bundle(
 
     # ---- 4. anything else (internal BigData, custom REST, …) -------------
     for key, frame in (extra_frames or {}).items():
-        rows = _tail_per_series(_pit(_rows(frame), decision_time), metric_lookback)
-        if max_event_rows and len(rows) > max_event_rows:
+        shape = FRAME_SHAPES.get(key, "RawFrame@1.0")
+        rows = _tail_per_series(
+            _pit(_rows(frame), decision_time), metric_lookback,
+            grain=_SERIES_GRAIN.get(shape, _DEFAULT_SERIES_GRAIN))
+        # ``max_event_rows`` caps EVENTS — a news feed, where the newest 200 items
+        # are the ones a decision reads. A bar frame is not events: its size is
+        # already bounded per series by ``metric_lookback`` above, and a flat cap
+        # across a multi-symbol × multi-timeframe capture would keep whole series
+        # for the instruments that sort last and none for the rest. The joining
+        # block would then refuse for want of warm-up, naming the wrong cause.
+        if shape != _BAR_SHAPE and max_event_rows and len(rows) > max_event_rows:
             rows = rows[-int(max_event_rows):]
-        frames[key] = {"shape": FRAME_SHAPES.get(key, "RawFrame@1.0"), "rows": rows}
+        frames[key] = {"shape": shape, "rows": rows}
         status[key] = "ok" if rows else "empty"
 
     # ---- 5. internal-domain slots -----------------------------------------

@@ -1,0 +1,192 @@
+# =============================================================================
+# 範例 8 —— 三時框 Supertrend 共振(那個「賠掉錢的替代品」的原題)
+# =============================================================================
+# 來源:選幣需求裡最常見的形狀 ——「先掃全市場,再對每個候選跑技術指標」。
+#       原話之一是「Supertrend 10,3 在 H4 / H1 / M15 同時偏空」。
+#
+# ★ 這份 spec 存在的原因,是一次替代(proxy)事故
+# ---------------------------------------------------------------------------
+# 在 universe.augment_with_indicator 之前,選幣層的 frame 一列是一個幣、**沒有 K 線**,
+# 所以「Supertrend 偏空」根本無法表達。實際出去的 YAML 寫的是:
+#
+#     - block: universe.top_losers
+#       params: { n: 30 }
+#
+# spec 過了 validate、跑起來也成功、籃子裡有 30 個看起來很合理的名字。它丟掉的是:
+#   指標的週期(10)、乘數(3)、時框(H4/H1/M15)、指標的**狀態**
+#   (Supertrend 翻空是一個狀態,不是一個百分比),
+#   以及「趨勢向下」與「剛好這小時跌」的差別。
+# 輸出裡沒有任何一欄說「這是替代品」。tools/nl2yaml/capability.py 把這一列記成
+# GAP-PER-SYMBOL-INDICATOR,而這份 spec 就是它被關掉的樣子。
+#
+# ★ 三個時框 = 三個 step,不需要新的組合子
+# ---------------------------------------------------------------------------
+# 指標算完就是 frame 上的一欄,而 entry.all_of / conditions.value_below 對「欄」
+# 本來就通用。所以「同時偏空」= 三個 augment_with_indicator + 一個 all_of,
+# 沒有 multi_timeframe_resonance 這種新積木 —— 少一個積木就少一種寫錯的方法。
+#
+# ★ output: 1 是必寫的,而且它是「線」與「方向」的差別
+# ---------------------------------------------------------------------------
+# indicators.supertrend 回 (supertrend_value, direction) 兩元組:
+#   output: 0 → Supertrend 那條**線**(一個價格,永遠是正的)
+#   output: 1 → 方向(+1 上升 / -1 下降)
+# 少寫 output 會被 blocks/_utils.py 直接拒絕並要求指定;寫成 0 再配
+# value_below(col, 0) 會篩出**零列**,因為價格不可能小於零。
+# 這個索引的語意由 _utils.select_indicator_component 一個地方決定,
+# signals.indicators 的 output: 也走同一份程式碼 —— 兩套實作就會出現
+# 「validate 過了但篩錯欄」。
+#
+# ★ agg / window_bars:「近 2 小時內翻空」在 M15 是 8 根
+# ---------------------------------------------------------------------------
+#   agg: last,  window_bars: 1  → 現在是不是偏空
+#   agg: min,   window_bars: 8  → 這 8 根裡**有沒有任何一根**偏空(min 會抓到 -1)
+#   agg: max,   window_bars: 8  → 這 8 根是不是**全部**偏空(max 仍是 -1 才算)
+# 兩者選到的幣不一樣。這份 spec 用 last/1 —— 原題問的是「現在同時偏空」。
+#
+# ★ 順序成本:K 線一定放最後(實測數字)
+# ---------------------------------------------------------------------------
+# /fapi/v1/klines 是逐 (幣, 時框) 一個 request,weight 隨 limit 變
+# (實測 X-MBX-USED-WEIGHT-1M:limit≤100 → 1、101–500 → 2、501–1000 → 5)。
+#   先收窄再抓:5 檔 × 3 時框 × weight 2 = 30 weight,佔一分鐘預算(2400)1.25%
+#   反過來先抓:727 檔 × 3 時框 × 2 = 4362 weight = 182% —— **跑不起來**
+# 所以 capture 是兩段的:Pass 1 只跑到第一個 indicator step 之前的前綴(全部是
+# 截面步驟,零 request),存活者就是 fan-out 名單;Pass 2 才抓 K 線。
+# 超過上限一律 raise 不截斷 —— 砍名單是偷偷決定哪些幣可以被選上,
+# 砍時框是拿兩個時框回答一個三時框的問題。
+#
+# ★ PIT:三道各自獨立的防線
+# ---------------------------------------------------------------------------
+# 1) endTime = 該 bundle 的 decision_time(所以走 blocks.data.fetch_klines 這條路;
+#    klines catalog 節點的 fetcher 是 binance-cli,**沒有 endTime**,做不到 PIT)
+# 2) 未完成的那根 K 自動被丟掉:endTime 是「含」的,所以每組序列最後一根通常還在動,
+#    它的 close_time 在 decision_time 之後,bundle 自己的 PIT gate 就會刪掉它。
+#    這是「bundle 帶 K 線」勝過「bundle 帶指標值」最強的一點:PIT 性質變成
+#    **可以被檢查的資料**,而不是 capture 程式的口頭保證。
+# 3) 暖身不足直接 raise 並指名是哪一檔。NaN 在下游會被 value_below 讀成 False,
+#    也就是「這檔不偏空」;而同一個 NaN 也會被讀成「不偏多」—— 兩邊都無聲地少一檔,
+#    而少掉的正好是上市最短、動能最大的那些。
+#
+# 執行:
+#   python -m cyqnt_trd.standard_bot.yaml_pipeline validate \
+#       docs/strategy_yaml_spec/example_multi_timeframe_supertrend.yaml
+#   # 可重現(凍結截面 + 凍結 K 線,不觸網):
+#   python -m cyqnt_trd.standard_bot.yaml_pipeline run \
+#       docs/strategy_yaml_spec/example_multi_timeframe_supertrend.yaml \
+#       --input-json tests/standard_bot/fixtures/universe_derivatives.json
+#
+# ★ 這份 spec 在那個凍結截面上回**空籃子**,而那是正確答案
+# ---------------------------------------------------------------------------
+# 5 檔候選剛剛全部漲了 126%~1300%,沒有一檔在三個時框都偏空。空籃子與「篩選壞了」
+# 長得一樣,所以測試釘的是**方向矩陣**而不是籃子:
+#   USUSDT  4h +1 / 1h −1 / 15m +1      UAIUSDT  −1 / +1 / +1
+#   ALLOUSDT       −1 / +1 / −1         TAGUSDT  +1 / +1 / +1
+#   UBUSDT         +1 / +1 / +1
+# 三個時框確實給三個不同答案:all_of 命中 0 檔、any_of 命中 3 檔。
+# 而「24 小時跌幅前 30 名」既不是前者也不是後者 —— 這就是替代品的代價量化後的樣子。
+# 同一組 K 線把條件改成 value_above(做多共振)會留下 TAGUSDT / UBUSDT,
+# 證明機器會選,不是永遠不選。
+#
+# 實跑結果見 tests/standard_bot/test_universe_indicator.py::RESONANCE_MATRIX ——
+# 數字釘在那裡,不抄到這裡:行情會走,寫死的數字明天就是假的。
+# =============================================================================
+
+spec_version: "1.0"
+target: standard_bot
+
+strategy:
+  id: multi_timeframe_supertrend_short
+  description: "Supertrend(10,3) 在 4h / 1h / 15m 同時偏空的候選"
+
+run:
+  mode: backtest        # 選幣是單一時點決策;run 會實跑一次選幣並明講「這不是回測」
+
+data:
+  symbol: BTCUSDT       # 選幣型仍需宣告代表標的(排程與計價用),不參與排名
+  market_type: futures
+  primary:
+    interval: "1h"
+
+selection:
+  universe:
+    # --- Pass 1:免費的截面收窄。這一段決定 K 線 fan-out 要付多少錢 ----------
+    # 1) 板塊登記表 → 只留真的加密幣。代幣化美股也有 K 線,
+    #    在有 weight 上限的名單裡花錢掃一個需求本來就排除的東西是純浪費。
+    - block: universe.augment_with_contract_meta
+      with: [contract_meta]
+    - block: universe.filter_crypto_only
+    - block: universe.filter_sub_type
+      params: { include: [Alpha, AI] }
+
+    # 2) 持倉門檻。原題沒有這一條,加它的理由是**成本**:
+    #    127 檔 × 3 時框 × weight 2 = 762 weight,已經超過 600 的上限而 raise。
+    #    收到 41 檔仍然超,所以再用持倉異動收到 5 檔 —— 這就是兩段式 capture
+    #    「先收窄、再 fan-out」的實際樣子,而不是一句建議。
+    - block: universe.augment_with_open_interest
+      with: [open_interest_snapshot]
+    - block: universe.filter_open_interest
+      params: { min_notional_usd: 5000000 }
+    - block: universe.augment_with_oi_change
+      with: [oi_change_snapshot]
+      params: { lookback_days: 7 }
+    - block: universe.filter_oi_change
+      params: { min_abs_pct: 20.0, basis: notional }
+
+    # --- Pass 2:K 線進來了,指標在這裡算 -----------------------------------
+    # 三個 step 只差 timeframe 與 as —— period / multiplier 在每一步都明寫,
+    # 因為它們是**這份 spec 的參數**:bundle 只帶 K 線,不帶算好的指標值。
+    # (bundle 若帶固定 period 的指標值,這份 spec 寫 10 而實際用 14 也不會有人知道。)
+    - block: universe.augment_with_indicator
+      with: [universe_bars]
+      params:
+        indicator: supertrend
+        timeframe: "4h"
+        output: 1               # 2-tuple 取 direction,不是取那條線
+        as: st_dir_4h
+        agg: last               # 「現在」偏空
+        window_bars: 1
+        period: 10
+        multiplier: 3.0
+
+    - block: universe.augment_with_indicator
+      with: [universe_bars]
+      params:
+        indicator: supertrend
+        timeframe: "1h"
+        output: 1
+        as: st_dir_1h
+        agg: last
+        window_bars: 1
+        period: 10
+        multiplier: 3.0
+
+    - block: universe.augment_with_indicator
+      with: [universe_bars]
+      params:
+        indicator: supertrend
+        timeframe: "15m"
+        output: 1
+        as: st_dir_15m
+        agg: last
+        window_bars: 1
+        period: 10
+        multiplier: 3.0
+
+  # 排名鍵刻意用持倉異動而不是三個方向欄:方向只有 +1 / -1 兩個值,
+  # 拿它排名等於沒排名(全部同分,順序由 tie-break 決定)。
+  # 「同時偏空」是**條件**,放在 short_when;排名要用一個有分佈的量。
+  score: oi_change_pct
+  order: desc
+  top_k: 20               # 上限而非配額:幾檔過就回幾檔
+
+  dedupe_by: base_asset
+
+  # 三時框共振 = all_of + 三個 value_below(_, 0)。direction 只有 ±1,
+  # 所以門檻寫 0 就是「-1」,不需要 state_equals。
+  short_when:
+    all_of:
+      - { cond: conditions.value_below, args: [st_dir_4h, 0] }
+      - { cond: conditions.value_below, args: [st_dir_1h, 0] }
+      - { cond: conditions.value_below, args: [st_dir_15m, 0] }
+
+  # 刻意沒有 long_when:原題問的是偏空的候選。宣告了 short_when 之後,
+  # 條件不成立的列會被丟掉(interpreter 的行為),所以籃子就是共振集合本身。

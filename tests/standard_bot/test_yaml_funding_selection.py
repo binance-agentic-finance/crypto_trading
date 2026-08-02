@@ -117,8 +117,17 @@ def test_validate_funding_selection_is_offline_and_runnable(monkeypatch):
     )
     errors, warnings = validate_spec(_funding_spec())
     assert errors == []
-    assert warnings == []
     assert calls == []
+    # Exactly one warning, and it is the annualisation notice: this spec declares
+    # `with: [funding]` only, so fundingIntervalHours / fundingRateApr are NaN.
+    # That is deliberate — the block will not assume an 8-hour settlement interval,
+    # because the venue settles 443 of 743 perpetuals 4-hourly, and a spec ranking
+    # the raw per-settlement rate is mixing units across rows. Asserted by content
+    # rather than as `warnings == []`, which would go green again if the notice
+    # were ever silently dropped.
+    assert len(warnings) == 1, warnings
+    assert "funding_info" in warnings[0]
+    assert "NOT defaulted to 8 hours" in warnings[0]
 
 
 def test_with_source_name_must_resolve_to_a_real_frame(monkeypatch):
