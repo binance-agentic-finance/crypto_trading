@@ -97,6 +97,77 @@ def test_happy_selection_writes_one_signal_many_candidates_with_linked_provenanc
     assert '"reason"' not in (tmp_path / "runs.jsonl").read_text(encoding="utf-8")
 
 
+def test_prepare_then_write_runs_the_frozen_evaluation_once_without_early_append(tmp_path):
+    raw_request = SAFE_NL_NEWS + " synthetic-private-marker-prepared"
+    prepared = evaluate.prepare_ledger_evaluation(
+        case_id=S.case_id_for(S.sha256_hex(raw_request)),
+        attempt_index=1,
+        prompt_sha256=S.sha256_hex("synthetic prepared prompt"),
+        source_text=raw_request,
+        nl=raw_request,
+        yaml_answer=_yaml(),
+        conditions=copy.deepcopy(NEWS_CONDITIONS),
+        bundle=_bundle(),
+        repo_git_sha="a" * 40,
+        python_version="3.11.0",
+        pandas_version="2.2.3",
+    )
+
+    assert prepared.receipt.gate_status == gates.STATUS_PASSED
+    assert not (tmp_path / "attempts.jsonl").exists()
+    assert not (tmp_path / "runs.jsonl").exists()
+    with pytest.raises(ValueError, match="prepared frozen NL request"):
+        evaluate.write_ledger_evaluation(
+            prepared,
+            attempt_path=tmp_path / "attempts.jsonl",
+            run_path=tmp_path / "runs.jsonl",
+            source_text="different synthetic source",
+        )
+    assert not (tmp_path / "attempts.jsonl").exists()
+    assert not (tmp_path / "runs.jsonl").exists()
+
+    written = evaluate.write_ledger_evaluation(
+        prepared,
+        attempt_path=tmp_path / "attempts.jsonl",
+        run_path=tmp_path / "runs.jsonl",
+        source_text=raw_request,
+    )
+    assert written == prepared
+    assert list(S.read_attempts(tmp_path / "attempts.jsonl")) == [prepared.attempt]
+    assert list(S.read_runs(tmp_path / "runs.jsonl")) == [prepared.run]
+
+
+def test_prepared_mutable_attempt_cannot_be_changed_before_write(tmp_path):
+    raw_request = SAFE_NL_NEWS + " synthetic-private-marker-altered-prepared"
+    prepared = evaluate.prepare_ledger_evaluation(
+        case_id=S.case_id_for(S.sha256_hex(raw_request)),
+        attempt_index=1,
+        prompt_sha256=S.sha256_hex("synthetic altered prepared prompt"),
+        source_text=raw_request,
+        nl=raw_request,
+        yaml_answer=_yaml(),
+        conditions=copy.deepcopy(NEWS_CONDITIONS),
+        bundle=_bundle(),
+        repo_git_sha="a" * 40,
+        python_version="3.11.0",
+        pandas_version="2.2.3",
+    )
+
+    # LedgerEvaluation is frozen only at its outer layer; prove the writer
+    # rejects mutation of a nested record instead of pairing new YAML with an
+    # old yaml_sha256/receipt.
+    prepared.attempt.yaml_text += "\n# changed-after-frozen-replay\n"
+    with pytest.raises(ValueError, match="prepared attempt record was altered"):
+        evaluate.write_ledger_evaluation(
+            prepared,
+            attempt_path=tmp_path / "attempts.jsonl",
+            run_path=tmp_path / "runs.jsonl",
+            source_text=raw_request,
+        )
+    assert not (tmp_path / "attempts.jsonl").exists()
+    assert not (tmp_path / "runs.jsonl").exists()
+
+
 def test_g1e_failure_writes_a_nonpassed_attempt_and_its_completed_run(tmp_path):
     raw_request = SAFE_NL_NEWS + " synthetic-private-marker-plum"
     conditions = copy.deepcopy(NEWS_CONDITIONS)

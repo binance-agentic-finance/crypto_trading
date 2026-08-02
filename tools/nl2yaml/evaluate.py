@@ -42,9 +42,15 @@ __all__ = [
     "ConditionSummary",
     "FrozenEvaluationReceipt",
     "LedgerEvaluation",
+    "PrivateConditionDiagnostic",
+    "PrivateEvaluationDiagnostics",
+    "PrivateGateDiagnostic",
     "RECEIPT_SCHEMA",
     "evaluate_and_write_ledger",
     "evaluate_frozen",
+    "materialize_ledger_evaluation",
+    "prepare_ledger_evaluation",
+    "write_ledger_evaluation",
     "main",
 ]
 
@@ -201,8 +207,66 @@ class FrozenEvaluationReceipt:
 
 
 @dataclass(frozen=True)
+class PrivateGateDiagnostic:
+    """One gate's durable private diagnostics; never a public ledger field."""
+
+    gate: str
+    status: str
+    errors: Tuple[str, ...]
+    warnings: Tuple[str, ...]
+    detail: str
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "gate": self.gate,
+            "status": self.status,
+            "errors": list(self.errors),
+            "warnings": list(self.warnings),
+            "detail": self.detail,
+        }
+
+
+@dataclass(frozen=True)
+class PrivateConditionDiagnostic:
+    """One G1e reason record, retained privately for repair/review work."""
+
+    cid: str
+    subject: str
+    verdict: str
+    silently_proxied: bool
+    undisclosed_assumption: bool
+    detail: str
+    offenders: Tuple[str, ...]
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "cid": self.cid,
+            "subject": self.subject,
+            "verdict": self.verdict,
+            "silently_proxied": self.silently_proxied,
+            "undisclosed_assumption": self.undisclosed_assumption,
+            "detail": self.detail,
+            "offenders": list(self.offenders),
+        }
+
+
+@dataclass(frozen=True)
+class PrivateEvaluationDiagnostics:
+    """Private-only replay reasons, deliberately separate from safe receipts."""
+
+    gate_results: Tuple[PrivateGateDiagnostic, ...]
+    condition_verdicts: Tuple[PrivateConditionDiagnostic, ...]
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "gate_results": [item.to_dict() for item in self.gate_results],
+            "condition_verdicts": [item.to_dict() for item in self.condition_verdicts],
+        }
+
+
+@dataclass(frozen=True)
 class LedgerEvaluation:
-    """One frozen replay plus the public, linked records it wrote.
+    """One frozen replay plus its prepared public, linked records.
 
     ``receipt`` is safe to publish; ``attempt`` deliberately retains YAML so it
     can go through the existing public-record privacy writer.  It never carries
@@ -215,6 +279,14 @@ class LedgerEvaluation:
     receipt: FrozenEvaluationReceipt
     attempt: ledger_schema.AttemptRecord
     run: Optional[ledger_schema.RunRecord]
+    #: Immutable fingerprints of the exact prepared public records.  The nested
+    #: dataclasses themselves are mutable, so write-time code must compare these
+    #: before it appends anything.
+    attempt_record_sha256: str
+    run_record_sha256: Optional[str]
+    #: Gate error prose is intentionally private; the queue bridge persists it
+    #: only under the internal root, never beside the public receipt.
+    diagnostics: PrivateEvaluationDiagnostics
 
 
 @dataclass(frozen=True)
@@ -224,6 +296,34 @@ class _FrozenEvaluation:
     receipt: FrozenEvaluationReceipt
     report: gates.GateReport
     bundle: Dict[str, Any]
+
+
+def _private_diagnostics(report: gates.GateReport) -> PrivateEvaluationDiagnostics:
+    """Extract replay reasons without accidentally retaining the full batch/spec."""
+    return PrivateEvaluationDiagnostics(
+        gate_results=tuple(
+            PrivateGateDiagnostic(
+                gate=result.gate,
+                status=result.status,
+                errors=tuple(result.errors),
+                warnings=tuple(result.warnings),
+                detail=result.detail,
+            )
+            for result in report.results
+        ),
+        condition_verdicts=tuple(
+            PrivateConditionDiagnostic(
+                cid=str(item.condition.id or ""),
+                subject=item.subject,
+                verdict=item.verdict,
+                silently_proxied=item.silently_proxied,
+                undisclosed_assumption=item.undisclosed_assumption,
+                detail=item.detail,
+                offenders=tuple(item.offenders),
+            )
+            for item in report.condition_verdicts
+        ),
+    )
 
 
 def _evaluate_frozen(
@@ -539,10 +639,10 @@ def _linked_run(
         raise ValueError("repo_git_sha must be a lowercase git SHA")
     py_version, pd_version = _runtime_versions(python_version, pandas_version)
 
-    # The external snapshot identifier is deliberately not copied: it is part
-    # of untrusted input and may be an operator's private label.  Both derived
-    # IDs are deterministic handles to the immutable public hashes instead.
-    snapshot_digest = _sha256(str(bundle.get("snapshot_id")).encode("utf-8"))
+    # The external snapshot identifier is deliberately not copied or separately
+    # hashed: a short private operator label could be recovered from an unsalted
+    # digest.  The already-public immutable bundle hash is the only stable handle
+    # a public run needs.
     run_identity = "\x00".join((case_id, str(attempt_index), receipt.signal_batch_sha256))
     return ledger_schema.RunRecord(
         # The same frozen batch can be used to evaluate two cases.  Its hash is
@@ -552,7 +652,7 @@ def _linked_run(
         bundle_id="bundle_" + receipt.bundle_sha256[:16],
         bundle_sha256=receipt.bundle_sha256,
         bundle_decision_time=_decision_time_iso8601(bundle.get("decision_time")),
-        bundle_snapshot_id="snapshot_" + snapshot_digest[:16],
+        bundle_snapshot_id="snapshot_" + receipt.bundle_sha256[:16],
         repo_git_sha=repo_git_sha,
         python_version=py_version,
         pandas_version=pd_version,
@@ -566,7 +666,7 @@ def _linked_run(
     )
 
 
-def evaluate_and_write_ledger(
+def prepare_ledger_evaluation(
     *,
     case_id: str,
     attempt_index: int,
@@ -576,14 +676,12 @@ def evaluate_and_write_ledger(
     yaml_answer: str,
     conditions: Sequence[Mapping[str, Any]],
     bundle: Mapping[str, Any],
-    attempt_path: Path | str,
-    run_path: Path | str,
     repo_git_sha: str,
     sampling_purpose: ledger_schema.SamplingPurpose | str = ledger_schema.SamplingPurpose.CONVERT,
     python_version: Optional[str] = None,
     pandas_version: Optional[str] = None,
 ) -> LedgerEvaluation:
-    """Evaluate frozen evidence once, then append privacy-safe attempt/run links.
+    """Evaluate frozen evidence once and prepare privacy-safe attempt/run links.
 
     ``source_text`` is required to be the exact in-memory ``nl`` string.  The
     existing :func:`schema.write_attempt` writer receives it for its verbatim
@@ -599,8 +697,10 @@ def evaluate_and_write_ledger(
     non-content-addressed case id must establish that link before calling this
     helper (or use a separate, explicitly evidenced writer).
 
-    This helper has no LLM client, endpoint, network fallback, retry callback,
-    or live-data collection path.
+    This phase has no output paths and performs no writes.  Call
+    :func:`write_ledger_evaluation` only after the paired case/internal record
+    has passed its own validation.  It has no LLM client, endpoint, network
+    fallback, retry callback, or live-data collection path.
     """
     if not isinstance(source_text, str) or source_text != nl:
         raise ValueError("source_text must exactly match the in-memory NL request")
@@ -647,17 +747,139 @@ def evaluate_and_write_ledger(
         pandas_version=pandas_version,
     ) if report.batch is not None else None)
 
-    # Validate all content before either append.  Attempts legitimately exist
-    # without G1d runs, so if an OS failure occurs during the second append an
-    # orphaned attempt is still honest; the reverse ordering would publish a
-    # run that points at an attempt that never existed.
-    ledger_schema.validate_record(attempt, "attempt")
-    if run is not None:
-        ledger_schema.validate_record(run, "run")
+    # Validate all content before a caller writes either append.  Attempts
+    # legitimately exist without G1d runs, so a writer may safely emit a
+    # non-passing attempt without manufacturing a run.
+    attempt_payload = ledger_schema.validate_record(attempt, "attempt")
+    run_payload = ledger_schema.validate_record(run, "run") if run is not None else None
+    return LedgerEvaluation(
+        receipt=receipt,
+        attempt=attempt,
+        run=run,
+        attempt_record_sha256=_sha256(_canonical_json_bytes(
+            attempt_payload, label="prepared attempt record")),
+        run_record_sha256=(_sha256(_canonical_json_bytes(
+            run_payload, label="prepared run record")) if run_payload is not None else None),
+        diagnostics=_private_diagnostics(report),
+    )
+
+
+def materialize_ledger_evaluation(
+    evaluation: LedgerEvaluation,
+    *,
+    source_text: str,
+) -> Tuple[ledger_schema.AttemptRecord, Optional[ledger_schema.RunRecord]]:
+    """Revalidate and reconstruct a prepared replay without writing it.
+
+    ``LedgerEvaluation`` is intentionally a light transport object so the queue
+    bridge can insert its paired public/private case transaction between replay
+    and append.  The nested ledger records are mutable dataclasses, though, so
+    every writer (including a recovery writer) must materialize fresh records
+    from the immutable canonical fingerprints before it decides whether an
+    existing append is an idempotent match.
+    """
+    if not isinstance(evaluation, LedgerEvaluation):
+        raise TypeError("evaluation must be a LedgerEvaluation prepared by this module")
+    if (not isinstance(source_text, str)
+            or _sha256(source_text.encode("utf-8")) != evaluation.receipt.nl_sha256):
+        raise ValueError("source_text must match the prepared frozen NL request")
+
+    # Reconstruct through the record constructors as well as schema validation:
+    # dataclasses are shallow-frozen here, and a caller could otherwise mutate
+    # ``yaml_text`` while leaving its stale derived hash behind.  The immutable
+    # canonical fingerprints pin every field that preparation actually approved.
+    attempt_payload = ledger_schema.validate_record(evaluation.attempt, "attempt")
+    if (_sha256(_canonical_json_bytes(attempt_payload, label="prepared attempt record"))
+            != evaluation.attempt_record_sha256):
+        raise ValueError("prepared attempt record was altered before append")
+    attempt = ledger_schema.AttemptRecord.from_dict(attempt_payload)
+    if (attempt.case_id != ledger_schema.case_id_for(evaluation.receipt.nl_sha256)
+            or attempt.yaml_sha256 != evaluation.receipt.yaml_sha256):
+        raise ValueError("prepared attempt no longer matches its frozen receipt")
+
+    run: Optional[ledger_schema.RunRecord] = None
+    if evaluation.run is None:
+        if evaluation.run_record_sha256 is not None:
+            raise ValueError("prepared run fingerprint disagrees with an absent run")
+    else:
+        run_payload = ledger_schema.validate_record(evaluation.run, "run")
+        if (_sha256(_canonical_json_bytes(run_payload, label="prepared run record"))
+                != evaluation.run_record_sha256):
+            raise ValueError("prepared run record was altered before append")
+        run = ledger_schema.RunRecord.from_dict(run_payload)
+        if (run.case_id != attempt.case_id or run.attempt_index != attempt.attempt_index
+                or run.yaml_sha256 != attempt.yaml_sha256
+                or run.bundle_sha256 != evaluation.receipt.bundle_sha256
+                or run.signal_batch_sha256 != evaluation.receipt.signal_batch_sha256
+                or run.signal_count != evaluation.receipt.signal_count):
+            raise ValueError("prepared run no longer matches its frozen receipt")
+    return attempt, run
+
+
+def write_ledger_evaluation(
+    evaluation: LedgerEvaluation,
+    *,
+    attempt_path: Path | str,
+    run_path: Path | str,
+    source_text: str,
+) -> LedgerEvaluation:
+    """Append a prepared frozen replay without re-executing it.
+
+    ``LedgerEvaluation`` deliberately keeps no raw request text.  Bind the
+    writer's in-memory source to the prepared receipt by hash before asking the
+    existing privacy writer to scan it.  This lets a queue worker validate a
+    case pair before writing its linked attempt/run, without running G1d twice.
+    """
+    attempt, run = materialize_ledger_evaluation(evaluation, source_text=source_text)
+
     ledger_schema.write_attempt(attempt_path, attempt, source_text=source_text)
     if run is not None:
         ledger_schema.write_run(run_path, run)
-    return LedgerEvaluation(receipt=receipt, attempt=attempt, run=run)
+    return evaluation
+
+
+def evaluate_and_write_ledger(
+    *,
+    case_id: str,
+    attempt_index: int,
+    prompt_sha256: str,
+    source_text: str,
+    nl: str,
+    yaml_answer: str,
+    conditions: Sequence[Mapping[str, Any]],
+    bundle: Mapping[str, Any],
+    attempt_path: Path | str,
+    run_path: Path | str,
+    repo_git_sha: str,
+    sampling_purpose: ledger_schema.SamplingPurpose | str = ledger_schema.SamplingPurpose.CONVERT,
+    python_version: Optional[str] = None,
+    pandas_version: Optional[str] = None,
+) -> LedgerEvaluation:
+    """Prepare one frozen replay then append its privacy-safe attempt/run links.
+
+    This remains the compatibility entry point for callers that do not need to
+    insert a paired case/internal write between evaluation and ledger append.
+    """
+    evaluation = prepare_ledger_evaluation(
+        case_id=case_id,
+        attempt_index=attempt_index,
+        prompt_sha256=prompt_sha256,
+        source_text=source_text,
+        nl=nl,
+        yaml_answer=yaml_answer,
+        conditions=conditions,
+        bundle=bundle,
+        repo_git_sha=repo_git_sha,
+        sampling_purpose=sampling_purpose,
+        python_version=python_version,
+        pandas_version=pandas_version,
+    )
+    return write_ledger_evaluation(
+        evaluation,
+        attempt_path=attempt_path,
+        run_path=run_path,
+        source_text=source_text,
+    )
 
 
 def _read_local_file(path_text: str, *, label: str) -> bytes:
