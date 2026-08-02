@@ -15,7 +15,6 @@
     "contract_positions": "ok"
   },
   "warnings": [
-    "klines: klines: declared source column(s) absent from the response: symbol",
     "funding: funding: available_time derived per row from event_time — the source states no publication lag, so a replay may be optimistic by that lag",
     "open_interest: open_interest: available_time derived per row from event_time — the source states no publication lag, so a replay may be optimistic by that lag",
     "news: news: available_time derived per row from event_time — the source states no publication lag, so a replay may be optimistic by that lag",

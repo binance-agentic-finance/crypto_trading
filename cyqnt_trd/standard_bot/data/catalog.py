@@ -402,7 +402,22 @@ _NODES: List[DataNodeSpec] = [
     DataNodeSpec(
         name="klines",
         emits=FrameKind.BAR,
-        column_map={"symbol": "instrument_id"},
+        # No column_map. The klines response is a list of bare ARRAYS — no field
+        # names at all, and in particular no ``symbol``: the instrument is in the
+        # request's query string, not in the reply, because the caller already
+        # knows what it asked for. (Contrast the ``universe`` node below, whose
+        # ticker24hr response does carry ``symbol`` per row and legitimately
+        # renames it.)
+        #
+        # A ``column_map={"symbol": "instrument_id"}`` was copied here from that
+        # node. It could never fire, so it changed nothing about the data —
+        # ``instrument_id`` has always come from ``constants`` below. What it did
+        # do is make input_contract's "declared source column absent from the
+        # response" check true on EVERY capture, putting a permanent,
+        # never-actionable line into the bundle's warnings and from there into
+        # every emitted signal's ``warnings``. That field is also where declared
+        # assumptions ride out, and a warning that is always present is how a
+        # reader learns to skip the whole field.
         constants={"instrument_id": None, "timeframe": None},
         param_aliases={"market_type": "market"},
         description="OHLCV candlesticks — the base series every technical block reads.",
