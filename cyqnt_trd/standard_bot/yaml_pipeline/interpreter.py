@@ -686,6 +686,31 @@ def build_selection_fn(spec: Dict[str, Any]) -> Callable[..., List[Dict[str, Any
         long_mask = eval_node(frame, env, long_node) if long_node else None
         short_mask = eval_node(frame, env, short_node) if short_node else None
 
+        def _candidate_side(index: Any) -> str:
+            """Return the only direction this row may carry, or ``neutral``.
+
+            The direction clauses are a screen for a pure selection: a row that
+            satisfies neither cannot consume a ranked slot. Candidate-trade is
+            different — it deliberately retains those rows as explicit HOLD
+            plans — so its caller controls whether this helper filters or merely
+            labels the result below.
+            """
+            long_active = long_mask is not None and bool(long_mask.get(index, False))
+            short_active = short_mask is not None and bool(short_mask.get(index, False))
+            if long_active and short_active:
+                symbol = str(frame.at[index, symbol_col]) if symbol_col in frame.columns else str(index)
+                raise SpecError(
+                    "selection.long_when and selection.short_when are both true "
+                    "for %s. A candidate cannot be opened long and short by one "
+                    "signal; make the conditions mutually exclusive instead of "
+                    "depending on evaluation order." % symbol
+                )
+            if long_active:
+                return "long"
+            if short_active:
+                return "short"
+            return "neutral"
+
         symbol_col = next((c for c in ("symbol", "instrument_id") if c in frame.columns), None)
         if symbol_col is None:
             raise SpecError(
@@ -713,6 +738,16 @@ def build_selection_fn(spec: Dict[str, Any]) -> Callable[..., List[Dict[str, Any
             ranked = ranked[ranked["score"] >= float(min_score)]
         if max_score is not None:
             ranked = ranked[ranked["score"] <= float(max_score)]
+        if candidate_trade_plan is None and (long_mask is not None or short_mask is not None):
+            # ``long_when`` / ``short_when`` are candidate eligibility for a
+            # plain selector, not a label applied after a pre-filled basket.
+            # Filter before dedupe and ``head(top_k)`` so a high-scoring row
+            # that fails the requested direction cannot displace a lower-ranked
+            # qualifying one (and a non-qualifying quote pair cannot eliminate
+            # a qualifying pair of the same base asset).
+            ranked = ranked.copy()
+            ranked["__side__"] = [_candidate_side(index) for index in ranked.index]
+            ranked = ranked[ranked["__side__"] != "neutral"]
         if dedupe_by == "base_asset":
             # Collapse BEFORE head(top_k), so the basket is top_k distinct bets
             # rather than top_k rows.
@@ -765,24 +800,8 @@ def build_selection_fn(spec: Dict[str, Any]) -> Callable[..., List[Dict[str, Any
         feature_columns = [c for c in frame.columns if c not in (symbol_col,)]
         kept: List[Dict[str, Any]] = []
         for index, row in ranked.iterrows():
-            side = "neutral"
-            long_active = long_mask is not None and bool(long_mask.get(index, False))
-            short_active = short_mask is not None and bool(short_mask.get(index, False))
-            if long_active and short_active:
-                symbol = str(row.get("symbol") or row.get("instrument_id") or index)
-                raise SpecError(
-                    "selection.long_when and selection.short_when are both true "
-                    "for %s. A candidate cannot be opened long and short by one "
-                    "signal; make the conditions mutually exclusive instead of "
-                    "depending on evaluation order." % symbol
-                )
-            if long_active:
-                side = "long"
-            elif short_active:
-                side = "short"
-            elif (long_mask is not None or short_mask is not None) \
-                    and candidate_trade_plan is None:
-                continue          # a direction was asked for and neither held
+            side = (_candidate_side(index) if candidate_trade_plan is not None
+                    else str(row.get("__side__") or "neutral"))
             features = {
                 name: (float(value) if isinstance(value, (int, float)) else str(value))
                 for name, value in frame.loc[index, feature_columns].items()

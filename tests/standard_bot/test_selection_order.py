@@ -90,6 +90,22 @@ def test_top_k_takes_the_head_of_the_requested_end():
     assert _symbols(_spec(order="desc", top_k=2)) == ["BNBUSDT", "ETHUSDT"]
 
 
+def test_direction_screen_filters_before_dedupe_and_top_k():
+    """A non-qualifying top score cannot consume a basket slot."""
+    candidates = _run(_spec(
+        order="desc",
+        top_k=2,
+        long_when={"cond": "conditions.value_below", "args": ["fundingRatePct", 0]},
+    ))
+
+    # BNB/ETH rank first by score but fail the requested long condition. The
+    # actual top two *qualified* names are SOL and BTC, with contiguous ranks.
+    assert [candidate["symbol"] for candidate in candidates] == ["SOLUSDT", "BTCUSDT"]
+    assert [candidate["side"] for candidate in candidates] == ["long", "long"]
+    assert [candidate["rank"] for candidate in candidates] == [1, 2]
+    assert {candidate["scored_pool"] for candidate in candidates} == {2}
+
+
 # --------------------------------------------------------------------------- #
 # the tie-break must not flip with the score                                  #
 # --------------------------------------------------------------------------- #

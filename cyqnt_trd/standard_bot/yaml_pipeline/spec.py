@@ -1429,6 +1429,17 @@ def validate_spec(spec: Dict[str, Any]) -> Tuple[List[str], List[str]]:
             if not isinstance(exit_cfg, dict):
                 err("selection.candidate_trade requires risk.exit as a mapping; "
                     "every executable plan needs an explicit exit")
+            elif str(exit_cfg.get("type") or "") in {
+                    "atr_stop_tp", "atr_trailing_stop"}:
+                # A selector has one cross-sectional decision clock, while an
+                # ATR exit needs an entry ATR for EACH candidate. This dialect
+                # does not yet carry that per-symbol frozen measurement into the
+                # nested trade, so accepting the YAML only to crash at signal
+                # construction would turn an unsupported plan into a false
+                # runtime failure. Do not invent an ATR from the ranking score.
+                err("selection.candidate_trade does not support ATR exits yet: "
+                    "the nested trade needs a per-candidate frozen atr_at_entry; "
+                    "use pct_stop_tp/time_only/opposite_signal or add that data contract")
             if str(data.get("market_type") or "futures").lower() == "spot" \
                     and selection.get("short_when") is not None:
                 err("selection.candidate_trade cannot use selection.short_when "

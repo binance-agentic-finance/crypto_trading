@@ -63,14 +63,16 @@ FROZEN_FRAMES = {"universe", "ticker_rank", "funding", "contract_meta"}
 # point of the exercise.
 #
 # example_selection.yaml — liquidity floor $100m, then ranked by Square mention
-# count, long above bull_ratio 0.55 / short below 0.45. Three of the declared
-# top_k=5 slots fill: only three of the 20 ranked tickers are both liquid enough
-# and decisively enough polled to clear a side threshold. Rows that clear neither
-# are dropped rather than emitted as "neutral" — see the spec's own note.
+# count, long above bull_ratio 0.55 / short below 0.45. Directional screening
+# happens before top_k, so five qualifying rows fill the declared five slots;
+# neutral rows cannot consume a slot and silently push out a lower-ranked but
+# valid long/short candidate.
 NEWS_BUZZ_BASKET = [
     (1, "BNBUSDT", "long"),
     (2, "BTCUSDT", "long"),
     (3, "GIGGLEUSDT", "long"),
+    (4, "KOMAUSDT", "long"),
+    (5, "DOGEUSDT", "long"),
 ]
 
 # example_from_user_chat.yaml — the 30 biggest 24h losers over a $2m floor,

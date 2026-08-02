@@ -30,7 +30,7 @@ from typing import Any, Dict, Iterable, Mapping, NamedTuple, Optional, Set
 from cyqnt_trd.blocks import strategy as blocks_strategy
 
 from ..adapter import batch_to_signals
-from ..core import StandardSignal
+from ..core import MarketBundle, StandardSignal
 from ..data import load_input_bundle
 from .interpreter import SpecError, build_make_signals, build_selection_fn
 from .spec import assumption_warnings, load_spec, validate_spec
@@ -194,10 +194,23 @@ def _build_plugin(spec: Mapping[str, Any]):
     )
 
 
-def _latest_bar_time(snapshot: Any) -> Optional[int]:
+def _latest_bar_time(snapshot: Any, *, instrument_id: Optional[str] = None,
+                     timeframe: Optional[str] = None) -> Optional[int]:
+    """Return the latest bar of one declared series, or all bars for diagnostics.
+
+    A serialized BarFrame can carry several instrument/timeframe series. A
+    trade decision must be compared with the newest bar of *its own* declared
+    series; taking the newest row of a foreign series can silently suppress a
+    valid signal as an apparently ordinary zero-signal replay.
+    """
     market = getattr(snapshot, "market", None)
-    values = [int(bar.timestamp) for bars in (getattr(market, "bars", {}) or {}).values()
-              for bar in bars]
+    series = getattr(market, "bars", {}) or {}
+    if instrument_id is not None or timeframe is not None:
+        if not instrument_id or not timeframe:
+            raise ValueError("latest bar lookup needs both instrument_id and timeframe")
+        series = {MarketBundle.key(instrument_id, timeframe):
+                  series.get(MarketBundle.key(instrument_id, timeframe), [])}
+    values = [int(bar.timestamp) for bars in series.values() for bar in bars]
     return max(values) if values else None
 
 
@@ -280,6 +293,24 @@ def _assert_required_sources(bundle: Mapping[str, Any], spec: Mapping[str, Any])
         raise BundleRunError(
             "required input source unavailable; strategy was not run: "
             + ", ".join(failed)
+        )
+
+
+def _assert_trade_primary_series(snapshot: Any, *, symbol: str, interval: str) -> None:
+    """Refuse a trade replay whose bars do not match the declared primary series.
+
+    A ``klines`` frame being non-empty only proves *some* bars were captured.
+    It does not prove that the Blocks plugin will receive the ``data.symbol`` and
+    ``data.primary.interval`` series that the YAML declares. Returning an empty
+    batch in that case is indistinguishable from a genuine no-signal decision,
+    so keep the contract fail-closed at the canonical YAML + bundle boundary.
+    """
+    market = getattr(snapshot, "market", None)
+    bars = getattr(market, "bars", None)
+    key = MarketBundle.key(symbol, interval)
+    if not isinstance(bars, Mapping) or not bars.get(key):
+        raise BundleRunError(
+            "declared primary kline series is unavailable; strategy was not run"
         )
 
 
@@ -819,6 +850,8 @@ def run_bundle(spec_or_path: Any, bundle_or_path: Any) -> Dict[str, Any]:
     interval = str((data.get("primary") or {}).get("interval")
                    or bundle.get("primary_timeframe") or "1h")
     market_type = str(data.get("market_type") or "futures")
+    if not isinstance(spec.get("selection"), dict):
+        _assert_trade_primary_series(snapshot, symbol=symbol, interval=interval)
     plugin = _build_plugin(spec)
     batch = plugin.run(snapshot, SimpleNamespace(
         instrument_id=symbol, symbol=symbol, timeframe=interval,
@@ -827,7 +860,7 @@ def run_bundle(spec_or_path: Any, bundle_or_path: Any) -> Dict[str, Any]:
 
     envelopes = list(getattr(batch, "signals", ()) or ())
     if not isinstance(spec.get("selection"), dict):
-        latest = _latest_bar_time(snapshot)
+        latest = _latest_bar_time(snapshot, instrument_id=symbol, timeframe=interval)
         # plugin.run evaluates the full warm-up window.  A decision output must
         # not republish old historical entries as if they fired now.
         envelopes = [env for env in envelopes

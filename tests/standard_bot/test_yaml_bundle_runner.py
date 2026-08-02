@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from cyqnt_trd.standard_bot.bot import BotContext
+from cyqnt_trd.standard_bot.data import load_input_bundle
 from cyqnt_trd.standard_bot.yaml_pipeline.bundle_runner import (
     BundleRunError, run_bundle)
 from cyqnt_trd.standard_bot.yaml_pipeline.spec import load_spec
@@ -67,6 +68,76 @@ def test_changing_the_block_condition_changes_the_actual_output():
     changed = copy.deepcopy(spec)
     changed["signals"]["entry"]["long"]["args"][1] = latest_close + 1
     assert run_bundle(changed, bundle)["signal_count"] == 0
+
+
+@pytest.mark.parametrize("field, wrong_value", [
+    ("instrument_id", "ETHUSDT"),
+    ("timeframe", "4h"),
+])
+def test_trade_bundle_requires_the_declared_primary_kline_series(field, wrong_value):
+    """Wrong but schema-valid bars must not look like a genuine zero-signal run."""
+    bundle = _bundle()
+    for row in bundle["frames"]["klines"]["rows"]:
+        row[field] = wrong_value
+
+    with pytest.raises(BundleRunError, match="declared primary kline series"):
+        run_bundle(_always_long_spec(), bundle)
+
+
+def test_mixed_kline_rows_keep_their_own_market_series_after_loading():
+    """The first long-frame row must not determine where every bar is filed."""
+    bundle = _bundle()
+    foreign = copy.deepcopy(bundle["frames"]["klines"]["rows"][0])
+    foreign["instrument_id"] = "ETHUSDT"
+    bundle["frames"]["klines"]["rows"].insert(0, foreign)
+
+    snapshot = load_input_bundle(bundle)
+    assert snapshot.market is not None
+    assert set(snapshot.market.bars) == {"BTCUSDT|1h", "ETHUSDT|1h"}
+    assert all(bar.instrument_id == "BTCUSDT"
+               for bar in snapshot.market.bars["BTCUSDT|1h"])
+    assert all(bar.instrument_id == "ETHUSDT"
+               for bar in snapshot.market.bars["ETHUSDT|1h"])
+
+    # The foreign row is irrelevant to a BTC/1h spec. Its position in the JSON
+    # must therefore not erase the actual BTC primary series or its signal.
+    assert run_bundle(_always_long_spec(), bundle)["signal_count"] == 1
+
+
+def test_same_symbol_different_timeframes_keep_separate_market_series():
+    """MarketBundle keys must include timeframe, not only the instrument ID."""
+    bundle = _bundle()
+    foreign_timeframe = copy.deepcopy(bundle["frames"]["klines"]["rows"][0])
+    foreign_timeframe["timeframe"] = "4h"
+    bundle["frames"]["klines"]["rows"].insert(0, foreign_timeframe)
+
+    snapshot = load_input_bundle(bundle)
+
+    assert snapshot.market is not None
+    assert set(snapshot.market.bars) == {"BTCUSDT|1h", "BTCUSDT|4h"}
+    assert all(bar.timeframe == "1h" for bar in snapshot.market.bars["BTCUSDT|1h"])
+    assert all(bar.timeframe == "4h" for bar in snapshot.market.bars["BTCUSDT|4h"])
+    assert run_bundle(_always_long_spec(), bundle)["signal_count"] == 1
+
+
+def test_foreign_newer_kline_does_not_suppress_the_declared_trade_decision():
+    """The decision clock is the declared BTC/1h key, not a later BTC/4h row."""
+    bundle = _bundle()
+    foreign = copy.deepcopy(bundle["frames"]["klines"]["rows"][-1])
+    next_hour = int(foreign["close_time"]) + 4 * 3_600_000
+    foreign.update({
+        "timeframe": "4h",
+        "open_time": int(foreign["open_time"]) + 3_600_000,
+        "close_time": next_hour,
+        "available_time": next_hour,
+    })
+    bundle["frames"]["klines"]["rows"].append(foreign)
+    bundle["decision_time"] = next_hour
+
+    output = run_bundle(_always_long_spec(), bundle)
+
+    assert output["signal_count"] == 1
+    assert output["signals"][0]["symbol"] == "BTCUSDT"
 
 
 def test_selection_yaml_uses_the_same_batch_and_same_signal_contract():

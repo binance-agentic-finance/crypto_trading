@@ -80,13 +80,10 @@ FRAME_SHAPES: Dict[str, str] = {
     # Bars for MANY instruments at MANY timeframes, for a cross-sectional screen
     # that runs a technical indicator on each candidate. ``BarFrame@1.0`` already
     # requires ``instrument_id`` AND ``timeframe``, so that grain is legal in the
-    # shape as it stands and nothing here needed widening.
-    #
-    # It is a SEPARATE key from ``klines`` on purpose: :func:`load_input_bundle`
-    # special-cases ``klines`` into a ``MarketBundle`` keyed on the FIRST row's
-    # instrument, so a multi-symbol frame landed there would file every
-    # instrument's bars under one name and the strategy would read the wrong
-    # series with no error anywhere.
+    # shape as it stands and nothing here needed widening. ``load_input_bundle``
+    # keeps that grain when it rebuilds a ``MarketBundle``; a serialized
+    # multi-series frame must never be collapsed under whichever row happened to
+    # come first.
     "universe_bars": "BarFrame@1.0",
     "funding": "MetricFrame@1.0",
     "open_interest": "MetricFrame@1.0",
@@ -672,8 +669,17 @@ def load_input_bundle(bundle: Any) -> DataSnapshot:
                                               else available_time)},
             ))
         if bars:
-            key = MarketBundle.key(bars[0].instrument_id, bars[0].timeframe)
-            market = MarketBundle(bars={key: bars})
+            # ``BarFrame@1.0`` is long-form data: every row carries its own
+            # instrument/timeframe grain. Filing the entire frame under the
+            # first row's key makes a harmless ordering change turn the declared
+            # primary series into an empty DataFrame downstream. Group first so
+            # both ordinary single-series bundles and legitimate multi-series
+            # captures retain their actual identity.
+            grouped_bars: Dict[str, List[Bar]] = {}
+            for bar in bars:
+                key = MarketBundle.key(bar.instrument_id, bar.timeframe)
+                grouped_bars.setdefault(key, []).append(bar)
+            market = MarketBundle(bars=grouped_bars)
 
     universe = None
     uni_rows = (frames_in.get("universe") or {}).get("rows")

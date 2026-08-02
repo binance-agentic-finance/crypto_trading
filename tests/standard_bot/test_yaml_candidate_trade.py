@@ -117,6 +117,23 @@ def test_plain_selection_does_not_require_risk_or_sizing():
     assert errors == []
 
 
+@pytest.mark.parametrize("exit_type", ["atr_stop_tp", "atr_trailing_stop"])
+def test_candidate_trade_rejects_atr_exits_without_per_candidate_entry_atr(exit_type):
+    """A valid-looking selector must not crash after it has selected names."""
+    spec = _spec()
+    spec["risk"]["exit"] = {
+        "type": exit_type,
+        "atr_period": 14,
+        "max_bars": 12,
+        **({"stop_mult": 2.0, "tp_mult": 3.0}
+           if exit_type == "atr_stop_tp" else {"trail_mult": 2.0}),
+    }
+
+    errors, _ = validate_spec(spec)
+
+    assert any("does not support ATR exits yet" in error for error in errors), errors
+
+
 def test_plain_selection_rejects_trade_fields_that_would_be_ignored():
     spec = _spec(candidate_trade=False)
     spec["sizing"] = {"size": 0.05}

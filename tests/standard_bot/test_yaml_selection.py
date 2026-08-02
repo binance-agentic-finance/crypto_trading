@@ -74,8 +74,9 @@ def _run(spec):
 def test_a_selection_spec_ranks_the_universe():
     candidates = _run(_spec())
     assert [c["symbol"] for c in candidates] == ["BTCUSDT", "ETHUSDT", "SOLUSDT",
-                                                 "XRPUSDT"]
-    assert [c["score"] for c in candidates] == [512.0, 388.0, 240.0, 120.0]
+                                                 "XRPUSDT", "DOGEUSDT"]
+    assert [c["score"] for c in candidates] == [512.0, 388.0, 240.0, 120.0, 96.0]
+    assert {c["scored_pool"] for c in candidates} == {5}
 
 
 def test_direction_comes_from_the_declared_rules():

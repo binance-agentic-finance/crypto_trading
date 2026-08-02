@@ -111,7 +111,15 @@ def _exit_plan_from_spec(spec: Optional[Dict[str, Any]]) -> Optional[ExitPlan]:
         legs = ()
         tp_mult = spec.get("tp_mult")
         if tp_mult:
-            legs = (TakeProfitLeg(close_pct=1.0, atr_mult=float(tp_mult)),)
+            # An ATR multiplier without the entry ATR cannot resolve a price.
+            # Carry the same frozen entry measurement used by the stop so the
+            # published v2 plan preserves both protective legs of the engine's
+            # ``atr_stop_tp`` exit.
+            legs = (TakeProfitLeg(
+                close_pct=1.0,
+                atr_mult=float(tp_mult),
+                atr_value=float(atr) if atr is not None else None,
+            ),)
         return ExitPlan(stop_loss=stop, take_profit=legs, time_stop=time_stop)
 
     if kind == "pct_stop_tp":

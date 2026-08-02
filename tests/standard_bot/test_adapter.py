@@ -64,6 +64,10 @@ def test_the_exit_spec_round_trips_into_an_exit_plan():
     assert plan.stop_loss.atr_value == pytest.approx(41.5)
     assert not plan.stop_loss.trailing
     assert [leg.atr_mult for leg in plan.take_profit] == [4.0]
+    assert [leg.atr_value for leg in plan.take_profit] == [pytest.approx(41.5)]
+    assert plan.take_profit[0].resolve_price(
+        entry_price=100_000.0, side="long"
+    ) == pytest.approx(100_166.0)
     assert plan.time_stop.max_bars == 120
 
 
