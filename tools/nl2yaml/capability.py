@@ -110,12 +110,15 @@ SCOPES = frozenset({
     "account", "side_channel", "*",
 })
 
-#: Closed. Each names a reason two readings of one sentence give two answers,
+#: Closed, and mirrors :class:`schema.AmbiguityType` — ``unit`` (1e7 USD or 1e7
+#: coins), ``reading`` (window range or ordered run-up), ``conflict`` (two
+#: conditions that cannot both hold), ``undefined`` (no computable meaning).
+#: Each names a reason two readings of one sentence give two answers,
 #: and none of them is closed by adding a block — the only resolutions are to
 #: declare the reading taken or to ask. Kept apart from GAP_IDS for exactly that
 #: reason: mixing them trains a model to ask when it should refuse and refuse
 #: when it should ask.
-AMBIGUITY_TYPES = ("unit", "conflict", "undefined")
+AMBIGUITY_TYPES = ("unit", "reading", "conflict", "undefined")
 
 #: What the user is doing to the subject. Closed so that a case's conditions can
 #: be keyed on it; ``*`` is the wildcard row used when the verdict does not

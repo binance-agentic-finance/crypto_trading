@@ -78,6 +78,15 @@ target: standard_bot
 strategy:
   id: three_month_runup_screen
   description: "E5:Alpha/AI 板塊、持倉 ≥ $5m、週持倉異動 |Δ| ≥ 20%、3 個月低→高漲幅 ≥ 100%"
+  # 上面「range_gain_pct 是區間,不是先低後高」那段講的就是這個選擇。但註解在 load
+  # 的時候就被丟掉,拿到籃子的人一個字都看不到 —— 所以同一件事必須在這裡再說一次,
+  # 這裡的內容會跟著訊號的 warnings 出去。實測這個籃子裡 5 檔有 2 檔的高點在低點
+  # 之前,也就是說這兩檔在另一種讀法下根本不該入選:這不是文件用語問題。
+  assumptions:
+    - cid: runup
+      reading: "「3 個月低點到高點漲幅」讀作窗口區間 (窗口最高 − 窗口最低) / 窗口最低"
+      alternatives: ["先低後高的順序型 run-up(要求低點在高點之前,數字更小)"]
+      basis: "區間是白話讀法,也是看盤軟體 high/low 讀數給的數字;順序型目前無對應指標"
 
 run:
   mode: backtest        # 選幣是單一時點決策;run 會實跑一次選幣並明講「這不是回測」

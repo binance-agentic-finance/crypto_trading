@@ -764,6 +764,7 @@
       "type": "string",
       "enum": [
         "unit",
+        "reading",
         "conflict",
         "undefined"
       ]

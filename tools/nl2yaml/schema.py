@@ -265,6 +265,15 @@ class AmbiguityType(str, Enum):
     #: turnover or 1e7 coins, and the two select different names — measured on
     #: the demo, one candidate passed under one reading and failed under the other
     UNIT = "unit"
+    #: two computable readings of one phrase, and no unit involved: "3 個月的
+    #: 低點到高點漲幅" is the window's RANGE (high over low, either order) or an
+    #: ordered RUN-UP (low first, then high). Both are computable and they are
+    #: different numbers — measured on the three-month screen, 2 of 5 candidates
+    #: had their high BEFORE their low, so the two readings disagree about them.
+    #: Distinct from UNDEFINED, where no reading is computable at all: this one
+    #: is settled by declaring which computation was used, that one cannot be
+    #: settled without asking.
+    READING = "reading"
     #: two conditions cannot both hold: "掃漲幅榜" and "找正在築底的"
     CONFLICT = "conflict"
     #: no computable definition exists for the words used ("築底", "強勢", "吸籌成功")
