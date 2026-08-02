@@ -528,6 +528,45 @@ def fetch_exchange_info(market_type: str = "futures") -> Dict[str, Any]:
     return _request_json(url, {})
 
 
+#: ``exchangeInfo`` on SPOT answers a different question and cannot answer this one.
+#:
+#: Measured 2026-08-03 against api.binance.com/api/v3/exchangeInfo (3,670 symbols):
+#: the per-symbol record carries ``symbol`` / ``baseAsset`` / ``quoteAsset`` /
+#: ``status`` / ``permissions`` / ``isSpotTradingAllowed`` and **no asset-class
+#: field at all** — no ``contractType``, no ``underlyingType``, no
+#: ``underlyingSubType``. ``permissions`` is trading permissions, not asset class.
+#:
+#: And it does not need one. Tokenised equities are a USDⓈ-M product: of the 130
+#: distinct EQUITY base assets on futures, exactly 2 appear on spot and both are
+#: ``BOT`` with ``status=BREAK`` — a ticker collision, not a tokenised stock. So
+#: on spot there is nothing for ``filter_crypto_only`` to remove.
+#:
+#: Which leaves three ways to handle a spot caller, and only one of them is safe:
+#:   * return a frame missing the three columns → the join gives every row a NaN
+#:     ``underlying_type`` and ``filter_crypto_only`` drops the WHOLE universe,
+#:     for being unknown while looking like "not crypto". Worst option.
+#:   * fill ``underlyingType="COIN"`` for every spot symbol → true today, and a
+#:     silent lie the day Binance lists a tokenised stock on spot. This codebase
+#:     spends most of its guards on exactly that failure mode.
+#:   * refuse, and say what the venue does and does not have. That is this.
+_SPOT_HAS_NO_ASSET_CLASS = (
+    "fetch_contract_meta(market_type='spot') has no answer to give: spot "
+    "exchangeInfo carries symbol/baseAsset/quoteAsset/status but no "
+    "contractType, underlyingType or underlyingSubType — the venue publishes no "
+    "asset class for spot pairs. This is refused rather than filled in, because "
+    "the two alternatives are both silent: a frame missing those columns makes "
+    "universe.filter_crypto_only drop the entire universe (NaN reads as 'not "
+    "crypto'), and defaulting every row to COIN would be a lie the day a "
+    "tokenised equity is listed on spot.\n"
+    "You probably do not need it: tokenised equities are USDⓈ-M only (130 EQUITY "
+    "base assets on futures, 2 of them on spot and both halted ticker "
+    "collisions), so a spot basket has nothing for filter_crypto_only to remove. "
+    "Drop the augment_with_contract_meta / filter_crypto_only steps from a "
+    "market_type: spot spec. If you need the quote leg, universe."
+    "filter_quote_suffix reads it off the symbol and needs no metadata."
+)
+
+
 def fetch_contract_meta(market_type: str = "futures") -> pd.DataFrame:
     """One row per listed contract: *what the instrument is*, not how it traded.
 
@@ -562,6 +601,8 @@ def fetch_contract_meta(market_type: str = "futures") -> pd.DataFrame:
     the only place that knows it is about to become a scalar cell in a
     cross-section.
     """
+    if str(market_type).lower() == "spot":
+        raise RuntimeError(_SPOT_HAS_NO_ASSET_CLASS)
     raw = fetch_exchange_info(market_type=market_type)
     symbols = raw.get("symbols") if isinstance(raw, dict) else None
     if not isinstance(symbols, list):
