@@ -1,0 +1,111 @@
+# =============================================================================
+# 範例 7 —— 真實流動性篩選(把「剔除低流動性的空氣幣」講對)
+# =============================================================================
+# 來源:選幣需求裡出現頻率最高的那一條 ——「剔除低流動性 / 沒量的空氣幣」。
+#       repo 裡原本只能用 universe.filter_quote_volume 表達,而那是**代理**,
+#       不是原題:成交額講的是「昨天成交多少」,流動性講的是「現在下得進去嗎」。
+#
+# 用戶條件                     對映                                        結果
+# ---------------------------------------------------------------------------
+# 剔除低流動性(價差太寬)     augment_with_spread + filter_spread          ✅ 完全對應
+# 剔除低流動性(掛單太薄)     augment_with_spread + filter_top_of_book     ✅ 完全對應
+# 保底成交額                   filter_quote_volume                          ✅(仍然有用)
+#
+# ★ 為什麼 quoteVolume 不夠 —— 2026-08-02 實測,同一個截面
+# ---------------------------------------------------------------------------
+#   標的         24h 成交額     spread      盤口可成交金額
+#   SNDKUSDT     $618m          0.083 bps   $839          ← 真的好做
+#   SNXXUSDT     $103m         11.03  bps   $18,475       ← 過 $100m 門檻,價差 133 倍
+#   MMTUSDT      $113m          5.23  bps   $72           ← 過 $100m 門檻,盤口 72 塊
+#   IDOLUSDT     $165m          4.19  bps   $6.01         ← 過 $100m 門檻,盤口 6 塊
+#
+# example_selection.yaml 出廠帶的 min_quote_volume: 100000000 這道門檻,
+# 後三檔全部通過。籃子裡沒有任何一欄會告訴操作者「這單填不到」。
+# 這個截面的中位數價差是 5.5 bps、727 檔裡 395 檔在 5 bps 以上 —— 這是常態不是尾巴。
+#
+# ★ 兩個欄位問的是兩件事,不能只篩一個
+# ---------------------------------------------------------------------------
+# spread_bps        (ask - bid) / mid * 10000,在盤口來回一趟的成本
+# top_of_book_usd   min(bidQty × bid, askQty × ask),盤口「較難的那一邊」有多少錢
+#
+# 取 min 而不是平均:一個籃子要進也要出。買方掛 $500k、賣方掛 $30 的簿子,對任何
+# 需要出場的東西來說就是 $30 的簿子,平均成 $250k 是在描述一個沒人能平掉的倉位。
+# MMTUSDT 就是反例:5.23 bps 的價差看起來完全正常,盤口只有 $72。
+#
+# ★ 這一步沒有順序要求(和衍生品 fan-out 不同)
+# ---------------------------------------------------------------------------
+# /fapi/v1/ticker/bookTicker 省略 symbol 就回全市場(實測 727 檔,一次呼叫,weight 5),
+# 所以 augment_with_spread 放在 pipeline 的任何位置成本都一樣、覆蓋率都是 100%。
+# 對比 augment_with_open_interest —— 那個必須放在收窄步驟之後,否則 coverage 會 raise。
+#
+# ★ 報不出價的簿子是 NaN,不是數字
+# ---------------------------------------------------------------------------
+# 單邊掛單(某一邊沒價)、交叉或鎖定(bid ≥ ask)這三種簿子,spread 會分別是
+# 無限大、負數、剛好 0.0 —— **三種都會通過 max_spread_bps**,於是最爛的簿子會排到
+# 最前面。所以 augment_with_spread 對這三種一律給 NaN 並 warning 說有幾檔,
+# filter_spread 把它們丟掉並數出來:「這檔報不出價」不等於「這檔很好做」。
+#
+# 執行:
+#   python -m cyqnt_trd.standard_bot.yaml_pipeline validate \
+#       docs/strategy_yaml_spec/example_liquidity_screen.yaml
+#   # 可重現(凍結截面,不觸網):
+#   python -m cyqnt_trd.standard_bot.yaml_pipeline run \
+#       docs/strategy_yaml_spec/example_liquidity_screen.yaml \
+#       --input-json tests/standard_bot/fixtures/universe_liquidity.json
+#
+# 實跑結果見 tests/standard_bot/test_universe_spread.py::LIQUIDITY_BASKET ——
+# 籃子釘在那裡,不抄到這裡:行情會走,寫死的數字明天就是假的。
+# =============================================================================
+
+spec_version: "1.0"
+target: standard_bot
+
+strategy:
+  id: real_liquidity_screen
+  description: "真實流動性篩選:成交額 ≥ $20m、價差 ≤ 5 bps、盤口可成交 ≥ $10k"
+
+run:
+  mode: backtest        # 選幣是單一時點決策;run 會實跑一次選幣並明講「這不是回測」
+
+data:
+  symbol: BTCUSDT       # 選幣型仍需宣告代表標的(排程與計價用),不參與排名
+  market_type: futures
+  primary:
+    interval: "1h"
+
+selection:
+  universe:
+    # 1) 成交額保底。這一步沒有被上面那張表否定 —— 它排掉的是「根本沒人交易」,
+    #    和「有人交易但簿子很寬」是兩件不同的事,兩道門檻互相不能取代。
+    - block: universe.filter_quote_volume
+      params: { min_quote_volume: 20000000 }
+
+    # 2) 接上全市場盤口。一次呼叫、覆蓋率 100%,所以放哪裡都可以;
+    #    with: [book_ticker] 是必寫的 —— 少寫的話 block 會自己去打網路,
+    #    validate 就會觸網、回測就會讀到今天的行情(interpreter 會直接拒絕)。
+    - block: universe.augment_with_spread
+      with: [book_ticker]
+
+    # 3) 價差 ≤ 5 bps。門檻寫 bps,因為同一個數字在野生 YAML 裡有三種寫法
+    #    (0.0005 / 0.05% / 5 bps),其中兩種差 100 倍。
+    - block: universe.filter_spread
+      params: { max_spread_bps: 5.0 }
+
+    # 4) 盤口至少有 $10k 可成交。少了這一步,MMTUSDT($72)這種
+    #    「價差正常、掛單是空的」會留在籃子裡,而籃子裡看不出來。
+    - block: universe.filter_top_of_book
+      params: { min_top_of_book_usd: 10000 }
+
+  # 過門檻之後依盤口深度排名:同樣都過了價差門檻,能吃到最多量的最值得先看。
+  # 刻意不用 quoteVolume 當排序鍵 —— 那會讓名單永遠由成交額最大的幣佔滿,
+  # 而成交額大不等於現在進得去,這正是這份 spec 存在的理由。
+  score: top_of_book_usd
+  order: desc
+  top_k: 10             # 上限而非配額:這是一份篩選結果,幾檔過就回幾檔
+
+  # 同一資產只留一對。BTC / ETH / SOL / XRP 在這個場子同時有 USDT 與 USDC 對,
+  # 而 USDC 對的簿子通常薄得多,所以這一步在這份 spec 裡是真的會動到列的。
+  dedupe_by: base_asset
+
+  # 刻意沒有 long_when / short_when:流動性是**篩選**,不是方向。
+  # 掛一個方向會把「這檔好做」讀成「所以做多」,那是 spec 沒說的話。

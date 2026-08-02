@@ -8,6 +8,7 @@ shape of the failure rather than by file, since that is what makes them recur.
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -16,6 +17,12 @@ from cyqnt_trd.standard_bot.yaml_pipeline import cli
 from cyqnt_trd.standard_bot.yaml_pipeline.interpreter import (
     SpecError, build_selection_fn, resolve_block)
 from cyqnt_trd.standard_bot.yaml_pipeline.spec import validate_spec
+
+
+REPLAY_BUNDLE = (
+    Path(__file__).parents[2]
+    / "tests" / "standard_bot" / "fixtures" / "universe_cross_section.json"
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -88,7 +95,10 @@ def test_a_scalar_selection_block_is_refused_not_registered_as_a_trade():
 
 
 @pytest.mark.parametrize("mode", ["paper", "live"])
-def test_a_selection_spec_refuses_paper_and_live(tmp_path, mode, capsys):
+@pytest.mark.parametrize("input_json", [None, str(REPLAY_BUNDLE)])
+def test_a_selection_spec_refuses_paper_and_live(
+    tmp_path, mode, input_json, capsys,
+):
     """Dispatching on spec shape alone sent ``mode: live`` into the one-shot
     printer, which exits 0 — no daemon, no executor, no warning — so an operator
     believes live is running. There is no resolver turning candidates into
@@ -101,20 +111,27 @@ def test_a_selection_spec_refuses_paper_and_live(tmp_path, mode, capsys):
         # both are supplied so the spec reaches the dispatch under test rather
         # than being refused earlier for an unrelated reason.
         "run: {mode: %s, duration_end_at: '2030-01-01T00:00:00Z'}\n"
-        "risk: {live_guards: {max_notional: 100}}\n"
+        "sizing: {size: 0.05}\n"
+        "risk: {exit: {type: time_only, max_bars: 10}, "
+        "live_guards: {max_notional: 100}}\n"
         "data: {symbol: BTCUSDT, market_type: futures, primary: {interval: '1h'}}\n"
         "selection:\n"
         "  universe:\n"
         "    - block: universe.filter_quote_volume\n"
         "      params: {min_quote_volume: 1000}\n"
-        "  score: quoteVolume\n" % mode, encoding="utf-8")
+        "  score: quoteVolume\n"
+        "  long_when: {cond: conditions.value_above, args: [quoteVolume, 0]}\n"
+        "  candidate_trade: {entry_type: market}\n" % mode, encoding="utf-8")
 
-    args = argparse.Namespace(spec=str(path), output_json=None, engine="vectorized",
-                              input_json=None, start=False)
+    output_path = tmp_path / "must_not_write_a_selection_batch.json"
+    args = argparse.Namespace(spec=str(path), output_json=str(output_path),
+                              engine="vectorized", input_json=input_json,
+                              start=False)
     assert cli.cmd_run(args) == 1, "must not exit 0 while doing nothing"
     printed = capsys.readouterr().out
     assert "not supported for a selection spec" in printed
     assert "nothing would be executed" in printed
+    assert not output_path.exists(), "a refused execution mode must not emit a batch"
 
 
 # --------------------------------------------------------------------------- #

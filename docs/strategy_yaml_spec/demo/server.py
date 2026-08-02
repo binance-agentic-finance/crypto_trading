@@ -1,19 +1,32 @@
 """Demo server: 自然語言 → (LLM/LiteLLM) → YAML → 標準訊號 / 回測.
 
-這是一個把自然語言轉成交易或選幣 YAML，再交給確定性 runtime 執行的展示,不是 agent。
-瀏覽器 → 本後端 → LiteLLM(OpenAI 相容 /chat/completions)。API key 只在這次請求中轉送。
+這是一個把自然語言轉成交易或選幣 YAML 的展示,不是 agent。瀏覽器只會把
+自然語言交給本後端；後端才會使用其啟動環境中設定的 LiteLLM/OpenAI-compatible
+端點。瀏覽器不會提供、保存或轉送 API key / endpoint / model。
 
 啟動:
     PYTHONPATH=<repo_root> <venv>/bin/python docs/strategy_yaml_spec/demo/server.py
     # 然後開 http://127.0.0.1:8799
+
+自然語言預設不會送到外部 LLM。僅限已明確同意送出的非敏感測試內容，才以
+``CYQNT_DEMO_ALLOW_EXTERNAL_LLM=1`` 加上伺服器端的
+``CYQNT_DEMO_LLM_API_BASE``、``CYQNT_DEMO_LLM_MODEL``、精確的伺服器端
+``CYQNT_DEMO_LLM_TRUSTED_HOSTS``（和選用的 ``CYQNT_DEMO_LLM_API_KEY``）
+啟動；私有對話語料必須走本地 frozen evaluator，
+不可走這條 demo 路由。此路由只產生靜態 YAML 草稿，並不構成 runtime 或語義驗證
+收據，也不可作為私有資料晉升的依據。
+
+``CYQNT_DEMO_LLM_TRUSTED_HOSTS`` 是逗號分隔的精確 DNS host allowlist（例如
+``llm.example``），不是 URL、萬用字元或 IP；外部端點必須是 HTTPS。唯一 HTTP
+例外是測試時明確設定 ``CYQNT_DEMO_LLM_ALLOW_LOOPBACK_HTTP_FOR_TESTS=1``，並同時
+allowlist ``127.0.0.1`` 的本機 fixture。
 """
 
 from __future__ import annotations
 
 import json
-import re
+import os
 import sys
-import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -32,10 +45,116 @@ import yaml
 from cyqnt_trd.standard_bot.yaml_pipeline import build_make_signals, validate_spec
 from cyqnt_trd.standard_bot.yaml_pipeline.interpreter import resolve_block
 from cyqnt_trd.standard_bot.simulation.vectorized_backtest import run_vectorized_backtest
+from tools.nl2yaml.conversion import LLMClientError, OpenAICompatibleHTTPClient
+
+# Intent classification and post-generation reconciliation live in the package,
+# not in this file: the conversion pipeline (tools/nl2yaml) needs the same two
+# halves, and a tool must not import a module out of docs/. Re-exported here so
+# this module stays the one place the demo routes and its tests look them up.
+from cyqnt_trd.standard_bot.yaml_pipeline.intent import (  # noqa: F401
+    UNSUPPORTED_SELECTION_SOURCES,
+    IntentDecision,
+    candidate_trade_plan,
+    classify_request,
+    generated_strategy_kind,
+    infer_strategy_kind,
+    reconcile_intent,
+)
 
 PORT = 8799
 SCHEMA_PATH = SPEC_DIR / "strategy.schema.yaml"
 FIXTURE_DIR = REPO_ROOT / "tests" / "blocks" / "fixtures"
+
+# The demo is a local convenience UI, not a sanctioned private-corpus egress
+# path.  A user must opt in at process launch before this server sends *any* NL
+# text to a user-supplied OpenAI-compatible endpoint.  Do not replace this guard
+# with redaction: arbitrary free text cannot be reliably made safe by a regex.
+EXTERNAL_LLM_OPT_IN_ENV = "CYQNT_DEMO_ALLOW_EXTERNAL_LLM"
+DEMO_LLM_API_BASE_ENV = "CYQNT_DEMO_LLM_API_BASE"
+DEMO_LLM_API_KEY_ENV = "CYQNT_DEMO_LLM_API_KEY"
+DEMO_LLM_MODEL_ENV = "CYQNT_DEMO_LLM_MODEL"
+# A comma-separated, exact DNS allowlist controlled by the process owner.  It
+# is deliberately independent of the browser request and of api_base so the
+# demo cannot become a generic SSRF proxy merely because external conversion
+# has been opted into.
+DEMO_LLM_TRUSTED_HOSTS_ENV = "CYQNT_DEMO_LLM_TRUSTED_HOSTS"
+# The HTTP ``127.0.0.1`` exception is only for deterministic local tests.  It
+# still requires the exact loopback host in the server-owned allowlist; generic
+# HTTP and ``localhost`` remain forbidden by OpenAICompatibleHTTPClient.
+DEMO_LLM_ALLOW_LOOPBACK_HTTP_FOR_TESTS_ENV = (
+    "CYQNT_DEMO_LLM_ALLOW_LOOPBACK_HTTP_FOR_TESTS"
+)
+MAX_JSON_BODY_BYTES = 64 * 1024
+MAX_NL_BYTES = 16 * 1024
+
+
+class ExternalLLMDisabled(RuntimeError):
+    """Raised before a request body is built or sent to an external endpoint."""
+
+
+class DemoLLMNotConfigured(RuntimeError):
+    """Raised when the browser route has no server-owned LLM configuration."""
+
+
+def _external_llm_enabled() -> bool:
+    return os.environ.get(EXTERNAL_LLM_OPT_IN_ENV, "").strip().lower() in {
+        "1", "true", "yes",
+    }
+
+
+def _server_llm_transport_settings() -> tuple[tuple[str, ...], bool]:
+    """Read only process-owned transport controls for the LLM adapter.
+
+    Host parsing is intentionally small here.  The shared adapter performs the
+    authoritative URL/DNS/IP validation immediately before it can construct a
+    request; this function establishes that an allowlist is mandatory and can
+    never arrive from a browser payload.
+    """
+    trusted_hosts = tuple(
+        item.strip()
+        for item in os.environ.get(DEMO_LLM_TRUSTED_HOSTS_ENV, "").split(",")
+        if item.strip()
+    )
+    if not trusted_hosts:
+        raise DemoLLMNotConfigured("server-owned LLM trusted hosts are not configured")
+    allow_loopback_http_for_tests = os.environ.get(
+        DEMO_LLM_ALLOW_LOOPBACK_HTTP_FOR_TESTS_ENV, "",
+    ).strip().lower() in {"1", "true", "yes"}
+    return trusted_hosts, allow_loopback_http_for_tests
+
+
+def _server_llm_settings() -> tuple[str, str, str]:
+    """Return only process-owned LLM settings for the browser route.
+
+    Values in a browser request are deliberately never considered here: allowing
+    them would turn the local demo into an SSRF/key-forwarding proxy.  An empty
+    key remains valid for a local provider that intentionally has no auth.
+    """
+    api_base = os.environ.get(DEMO_LLM_API_BASE_ENV, "").strip()
+    api_key = os.environ.get(DEMO_LLM_API_KEY_ENV, "")
+    model = os.environ.get(DEMO_LLM_MODEL_ENV, "").strip()
+    if not api_base or not model:
+        raise DemoLLMNotConfigured("server-owned LLM settings are not configured")
+    # Fail the HTTP route closed before it reaches conversion when its
+    # process-owned allowlist is absent.  URL-shape/host validation remains in
+    # the shared client because direct callers of call_llm need it too.
+    _server_llm_transport_settings()
+    return api_base, api_key, model
+
+
+def _as_draft_conversion_response(result: dict) -> dict:
+    """Make the HTTP boundary truthful about what this demo did *not* verify."""
+    response = dict(result)
+    response.update({
+        "runtime_verified": False,
+        "semantic_verified": False,
+        "promotion_eligible": False,
+        "verification_state": (
+            "draft_static_validated" if bool(response.get("valid"))
+            else "draft_static_rejected"
+        ),
+    })
+    return response
 
 
 # ---------------------------------------------------------------------------
@@ -60,7 +179,7 @@ def _prompt_signature(ref: str) -> str:
 def _build_blocks_cheatsheet() -> str:
     indicators = [
         "indicators.ema", "indicators.sma", "indicators.rsi",
-        "indicators.atr", "indicators.adx", "indicators.macd",
+        "indicators.atr", "indicators.adx", "indicators.macd", "indicators.vwap",
     ]
     conditions = [
         "conditions.ma_cross_above", "conditions.ma_cross_below",
@@ -80,6 +199,7 @@ def _build_blocks_cheatsheet() -> str:
           "葉節點:{cond:\"conditions.xxx\",args:[...],params:{...}}\n"
         + "出場 risk.exit.type:pct_stop_tp{stop_pct,tp_pct,max_bars} / "
           "atr_stop_tp{atr_period,stop_mult,tp_mult,max_bars} / "
+          "atr_trailing_stop{atr_period,trail_mult,max_bars} / "
           "time_only{max_bars} / opposite_signal{max_bars}\n"
     )
 
@@ -161,18 +281,58 @@ selection:
   universe:
     - block: universe.filter_quote_volume
       params: { min_quote_volume: 100000000 }
-  score: quote_volume
+  score: quoteVolume
   top_k: 5
   min_score: 1.0
   dedupe_by: base_asset
 """
 
+
+OPEN_INTEREST_SELECTION_EXAMPLE_YAML = """\
+spec_version: "1.0"
+target: standard_bot
+strategy:
+  id: open_interest_selector
+  description: "依目前跨幣別合約未平倉名目金額挑選候選幣"
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary: { interval: "1h" }
+selection:
+  universe:
+    - block: universe.filter_quote_volume
+      params: { min_quote_volume: 100000000 }
+    - block: universe.augment_with_open_interest
+      with: [open_interest_snapshot]
+  score: oi_notional_usd
+  order: desc
+  top_k: 5
+  dedupe_by: base_asset
+"""
+
+
+#: The funding example, ranked on the ANNUALISED rate.
+#:
+#: ``score: fundingRatePct`` — what this shipped before — ranks a column whose
+#: unit differs from row to row: Binance settles 443 of its 743 perpetuals every
+#: 4 hours, 296 every 8 and 4 every hour (measured 2026-08-02), and
+#: ``lastFundingRate`` is the rate for ONE settlement. So two coins both showing
+#: 0.01% were ranked as equal while paying 10.95%/yr and 87.6%/yr. Every
+#: "highest/most-negative funding" basket the demo produced was mis-ordered, and
+#: the output gave no sign of it — five symbols, five plausible rates.
+#:
+#: ``fundingRateApr`` is that rate times the contract's own settlements per year,
+#: which is why the step now needs ``funding_info`` as well: that frame carries
+#: the interval, and ``universe.augment_with_funding`` refuses to assume 8 hours
+#: without it. The multiplier is positive, so ``order`` still means what it did.
 FUNDING_SELECTION_EXAMPLE_YAML = """\
 spec_version: "1.0"
 target: standard_bot
 strategy:
   id: funding_rate_selector
-  description: "依目前跨幣別資金費率挑選候選幣"
+  description: "依目前跨幣別資金費率(年化)挑選候選幣"
 run:
   mode: backtest
 data:
@@ -184,979 +344,454 @@ selection:
     - block: universe.filter_quote_volume
       params: { min_quote_volume: 100000000 }
     - block: universe.augment_with_funding
-      with: [funding]
-  score: fundingRatePct
+      with: [funding, funding_info]
+  score: fundingRateApr
+  order: desc
   top_k: 5
   dedupe_by: base_asset
 """
 
-
-class IntentDecision:
-    """The independently-checkable meaning extracted before YAML generation."""
-
-    __slots__ = (
-        "kind", "evidence", "requested_count", "sources",
-        "bullish_preference", "unsupported_preferences", "named_symbols",
-        "intervals", "market_type", "technical_periods", "stop_pct",
-        "tp_pct", "size_fraction", "directions", "news_metrics", "triggers",
-        "indicator_names", "rsi_thresholds", "ranking_metric",
-    )
-
-    def __init__(
-        self,
-        *,
-        kind: str,
-        evidence=(),
-        requested_count=None,
-        sources=frozenset(),
-        bullish_preference=False,
-        unsupported_preferences=(),
-        named_symbols=(),
-        intervals=(),
-        market_type=None,
-        technical_periods=(),
-        stop_pct=None,
-        tp_pct=None,
-        size_fraction=None,
-        directions=(),
-        news_metrics=(),
-        triggers=(),
-        indicator_names=(),
-        rsi_thresholds=(),
-        ranking_metric=None,
-    ):
-        self.kind = str(kind)
-        self.evidence = tuple(evidence)
-        self.requested_count = requested_count
-        self.sources = frozenset(sources)
-        self.bullish_preference = bool(bullish_preference)
-        self.unsupported_preferences = tuple(unsupported_preferences)
-        self.named_symbols = tuple(named_symbols)
-        self.intervals = tuple(intervals)
-        self.market_type = market_type
-        self.technical_periods = tuple(technical_periods)
-        self.stop_pct = stop_pct
-        self.tp_pct = tp_pct
-        self.size_fraction = size_fraction
-        self.directions = tuple(directions)
-        self.news_metrics = tuple(news_metrics)
-        self.triggers = tuple(triggers)
-        self.indicator_names = tuple(indicator_names)
-        self.rsi_thresholds = tuple(rsi_thresholds)
-        self.ranking_metric = ranking_metric
-
-    def to_dict(self) -> dict:
-        return {
-            "kind": self.kind,
-            "evidence": list(self.evidence),
-            "requested_count": self.requested_count,
-            "sources": sorted(self.sources),
-            "bullish_preference": self.bullish_preference,
-            "unsupported_preferences": list(self.unsupported_preferences),
-            "named_symbols": list(self.named_symbols),
-            "intervals": list(self.intervals),
-            "market_type": self.market_type,
-            "technical_periods": [
-                {"indicator": name, "period": period}
-                for name, period in self.technical_periods
-            ],
-            "stop_pct": self.stop_pct,
-            "tp_pct": self.tp_pct,
-            "size_fraction": self.size_fraction,
-            "directions": list(self.directions),
-            "news_metrics": list(self.news_metrics),
-            "triggers": list(self.triggers),
-            "indicator_names": list(self.indicator_names),
-            "rsi_thresholds": [
-                {"relation": relation, "value": value}
-                for relation, value in self.rsi_thresholds
-            ],
-            "ranking_metric": self.ranking_metric,
-        }
+#: The funding example, flipped to the bottom of the column.
+#:
+#: Written as a substitution rather than a second literal so the two examples
+#: cannot drift apart: the whole point of showing this variant is that ONE key
+#: separates "highest funding" from "most negative funding". A hand-maintained
+#: copy would eventually differ in some other line too, and the model would have
+#: to guess which difference mattered.
+FUNDING_ASC_SELECTION_EXAMPLE_YAML = FUNDING_SELECTION_EXAMPLE_YAML.replace(
+    "order: desc", "order: asc"
+).replace("funding_rate_selector", "lowest_funding_rate_selector")
 
 
-def _rules(*items):
-    return tuple((name, re.compile(pattern, re.IGNORECASE)) for name, pattern in items)
+def _example_without_order(example: str, old_id: str, new_id: str) -> str:
+    """The same example with no ranking direction in it at all.
+
+    Shown when the request never named an end of the column. Handing the model
+    the ``desc`` variant instead would teach it a direction the user did not ask
+    for, and nothing downstream could catch that: with ``intent.score_order``
+    unset, :func:`reconcile_intent` has nothing to compare the generated ``order``
+    against, so whatever the prompt suggests is what ships.
+
+    Raises rather than returning the input unchanged, because a silent no-op here
+    would put ``order: desc`` back in front of a model that was just told the
+    user named no direction — the exact claim this variant exists to avoid.
+    """
+    out = example.replace("  order: desc\n", "", 1).replace(old_id, new_id, 1)
+    if "order:" in out or new_id not in out:
+        raise RuntimeError(
+            "example YAML no longer has exactly one '  order: desc' line, or the "
+            "strategy id %r moved; fix _example_without_order() before this "
+            "variant is used as the no-direction prompt example" % old_id
+        )
+    return out
 
 
-_SELECTION_RULES = _rules(
-    ("zh_explicit_selection", r"選幣"),
-    ("zh_asset_request",
-     r"(?:選|挑|篩|找|列出|推薦).{0,60}(?:幣別|幣種|代幣|候選幣|幣)"),
-    ("zh_which_assets", r"(?:哪些|哪幾個).{0,30}(?:幣別|幣種|代幣|幣)"),
-    ("zh_asset_ranking",
-     r"(?:幣別|幣種|代幣|候選幣|幣).{0,30}(?:排行|排名)|"
-     r"(?:排行|排名).{0,60}(?:幣別|幣種|代幣|候選幣|幣)"),
-    ("zh_hot_assets",
-     r"(?:熱門|熱度|常提到|常被提及|提及最多).{0,40}(?:幣別|幣種|代幣|幣)"),
-    ("en_select_assets",
-     r"\b(?:select|pick|screen|rank)\b.{0,80}\b(?:coins?|tokens?)\b"),
-    ("en_request_assets",
-     r"\b(?:want|find|show|give|list|recommend|discover)\b.{0,80}"
-     r"\b(?:coins?|tokens?)\b"),
-    ("en_hot_assets",
-     r"\b(?:hot|trending|popular|mentioned|undiscovered|under[- ]the[- ]radar)\b"
-     r".{0,40}\b(?:coins?|tokens?)\b"),
-    ("en_top_assets", r"\btop\s*\d*\s*(?:coins?|tokens?)\b"),
-    ("en_selection", r"\b(?:coin|token)\s+selection\b|\bwhich\s+(?:coins?|tokens?)\b"),
+FUNDING_NO_ORDER_SELECTION_EXAMPLE_YAML = _example_without_order(
+    FUNDING_SELECTION_EXAMPLE_YAML,
+    "funding_rate_selector", "default_order_funding_rate_selector",
 )
 
-_TRADE_RULES = _rules(
-    ("zh_trade_action",
-     r"(?:買進|賣出|買入|賣掉|做多|做空|進場|出場|平倉|停損|停利|止損|止盈)"),
-    ("zh_trade_trigger",
-     r"(?:上穿|下穿|突破|跌破|黃金交叉|死亡交叉|交易策略|回測策略)"),
-    ("en_trade_action",
-     r"\b(?:buy|sell|long|short|entry|exit|close|reduce|flip)\b"),
-    ("en_trade_trigger",
-     r"\b(?:stop[- ]loss|take[- ]profit|breakout|cross(?:es|ing)?|trading strategy|backtest)\b"),
+PRICE_CHANGE_SELECTION_EXAMPLE_YAML = """\
+spec_version: "1.0"
+target: standard_bot
+strategy:
+  id: price_change_selector
+  description: "依 24 小時漲跌幅挑選候選幣"
+run:
+  mode: backtest
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary: { interval: "1h" }
+selection:
+  universe:
+    - block: universe.filter_quote_volume
+      params: { min_quote_volume: 100000000 }
+  score: priceChangePercent
+  order: desc
+  top_k: 5
+  dedupe_by: base_asset
+"""
+
+#: Same column, other end: "biggest losers" instead of "biggest gainers".
+PRICE_CHANGE_ASC_SELECTION_EXAMPLE_YAML = PRICE_CHANGE_SELECTION_EXAMPLE_YAML.replace(
+    "order: desc", "order: asc"
+).replace("price_change_selector", "biggest_losers_selector")
+
+PRICE_CHANGE_NO_ORDER_SELECTION_EXAMPLE_YAML = _example_without_order(
+    PRICE_CHANGE_SELECTION_EXAMPLE_YAML,
+    "price_change_selector", "default_order_price_change_selector",
 )
 
-_PLURAL_SCOPE = re.compile(
-    r"(?:一些|幾個|多個|數個|前\s*[一二三四五六七八九十百0-9]+\s*名|哪些|哪幾|候選|排行|排名|清單|幣別|幣種)"
-    r"|\b(?:some|few|several|many|multiple|which|top\s*\d+)\b"
-    r"|\b(?:coins|tokens)\b",
-    re.IGNORECASE,
-)
-_SOURCE_RULES = _rules(
-    ("news",
-     r"(?:新聞|社群|熱度|熱門|提到|提及|Square|news|social|mention|mentioned|buzz|hot|trending|popular)"),
-    ("funding", r"(?:資金費率|funding(?:\s+rate)?)"),
-    ("open_interest", r"(?:未平倉|未平倉量|持倉量|open[\s_-]*interest|\bOI\b)"),
-    ("liquidity", r"(?:流動性|成交量|交易量|quote[\s_-]*volume|\bvolume\b|liquidity)"),
-    ("price_change", r"(?:漲幅|跌幅|漲最多|跌最多|price[\s_-]*change|gainers?|losers?)"),
-)
-_LOWEST_FUNDING_RANKING = re.compile(
-    r"(?:funding.{0,20}(?:最負|最低|most\s+negative|lowest)|"
-    r"(?:最負|最低|most\s+negative|lowest).{0,20}funding)",
-    re.IGNORECASE,
-)
-_BULLISH_PREFERENCE = re.compile(
-    r"(?:可以漲|會漲|上漲|看漲|偏多|適合做多|可能漲|bullish|likely\s+to\s+(?:rise|go\s+up)|upside)",
-    re.IGNORECASE,
-)
-_NEWS_MENTION_METRIC = re.compile(
-    r"(?:常提到|常被提及|提及量|提及最多|熱門|熱度|"
-    r"mentions?|mentioned|buzz|hot|trending|popular)",
-    re.IGNORECASE,
-)
-_NEWS_SENTIMENT_METRIC = re.compile(
-    r"(?:新聞情緒|社群情緒|情緒排行|sentiment|bullish|bearish)",
-    re.IGNORECASE,
-)
-_EXPLICIT_NEWS_SOURCE = re.compile(
-    r"(?:新聞|社群|提到|提及|Square|news|social|mentions?|mentioned|sentiment|buzz)",
-    re.IGNORECASE,
-)
-_VOLUME_RANKING = re.compile(
-    r"(?:by\s+(?:quote[\s_-]*)?volume|(?:依|按|根據).{0,16}(?:成交量|交易量|流動性)|"
-    r"(?:成交量|交易量|流動性).{0,12}(?:最大|最高|排行|排名|top))",
-    re.IGNORECASE,
-)
-_UNSUPPORTED_DISCOVERY = re.compile(
-    r"(?:少見|冷門|未被.{0,8}發現|沒人.{0,8}發現|尚未.{0,8}發現|"
-    r"undiscovered|under[- ]the[- ]radar|havent\s+(?:find|found)|haven't\s+(?:find|found))",
-    re.IGNORECASE,
-)
-_FULL_SYMBOL = re.compile(
-    r"\b[A-Z0-9]{2,12}(?:USDT|USDC|BUSD|FDUSD|USD|BTC|ETH)\b",
-    re.IGNORECASE,
-)
-_KNOWN_BASE_SYMBOL = re.compile(
-    r"\b(?:BTC|ETH|SOL|BNB|XRP|SUI|DOGE|ADA|AVAX|LINK|DOT|TON|TRX)\b",
-    re.IGNORECASE,
-)
-_BARE_UPPER_SYMBOL = re.compile(r"\b[A-Z][A-Z0-9]{1,9}\b")
-_SYMBOL_STOPWORDS = {
-    "ADX", "API", "ATR", "BUY", "CHOOSE", "EMA", "ENTER", "EXIT", "FIND",
-    "LLM", "LONG", "MACD", "OHLCV", "PICK", "RANK", "RSI", "SELECT", "SELL",
-    "SHORT", "SMA", "TOP", "TRADE", "USD", "USDC", "USDT", "VWAP", "YAML",
-}
-_EXECUTION_ACTION = re.compile(
-    r"(?:買進|買入|賣出|賣掉|下單|進場|出場|平倉|自動交易|直接買|"
-    r"\b(?:buy|sell|execute|enter|exit|place\s+orders?|trade\s+them)\b)",
-    re.IGNORECASE,
-)
-_INTERVAL = re.compile(
-    r"(?<![A-Za-z0-9])(\d+)\s*"
-    r"(minutes?|mins?|m|分鐘|分|hours?|hrs?|h|小時|小时|days?|d|天|日|weeks?|w|週|周)"
-    r"(?![A-Za-z])",
-    re.IGNORECASE,
-)
-_TECHNICAL_PERIOD = re.compile(
-    r"(?<![A-Za-z])(EMA|SMA|RSI|ADX)\s*[-_]?\s*(\d{1,4})(?!\d)",
-    re.IGNORECASE,
-)
-_TECHNICAL_NAME = re.compile(r"(?<![A-Za-z])(EMA|SMA|RSI|ADX|MACD)(?![A-Za-z])", re.IGNORECASE)
-_RSI_THRESHOLD = re.compile(
-    r"RSI(?:\s*[-_]?\s*\d{1,4})?.{0,24}?"
-    r"(低於|小於|低于|below|under|高於|大於|高于|above|over)\s*(\d+(?:\.\d+)?)",
-    re.IGNORECASE,
-)
-_LONG_DIRECTION = re.compile(r"(?:買進|買入|做多|多方|\b(?:buy|long)\b)", re.IGNORECASE)
-_SHORT_DIRECTION = re.compile(r"(?:做空|空方|\bshort\b)", re.IGNORECASE)
-_TRIGGER_RULES = _rules(
-    ("cross_above", r"(?:上穿|黃金交叉|golden[\s_-]*cross|cross(?:es|ing)?\s+above)"),
-    ("cross_below", r"(?:下穿|死亡交叉|death[\s_-]*cross|cross(?:es|ing)?\s+below)"),
-    ("breakout_high", r"(?:突破(?:近期|前)?高|向上突破|breakout(?:\s+high)?)"),
-    ("breakout_low", r"(?:跌破(?:近期|前)?低|向下突破|breakdown|breakout\s+low)"),
+#: What the prompt says instead of naming a direction, when the request named
+#: none. ``intent.score_order`` has three states and the demo used to render the
+#: third one as "這次需求是由高到低,寫 order: desc" — i.e. it told the model the
+#: user had asked for the top of the column when the user had asked for nothing,
+#: or (for "funding 為負的幣", before that phrasing was recognised) for the exact
+#: opposite end. ``reconcile_intent`` only checks a direction the user actually
+#: stated, so there is no second line of defence here; the prompt has to stay
+#: silent about the direction and say why it is silent.
+NO_ORDER_DIRECTIVE = (
+    "這次需求沒有指明要取這個欄位的哪一端(或同時提到了兩端),系統不會替使用者決定:"
+    "請完全不要寫 selection.order,讓 schema 預設生效;"
+    "不得聲稱使用者要求了由高到低或由低到高。\n\n"
 )
 
-_CHINESE_DIGITS = {
-    "一": 1, "二": 2, "兩": 2, "三": 3, "四": 4, "五": 5,
-    "六": 6, "七": 7, "八": 8, "九": 9, "十": 10,
-}
 
-_ENGLISH_COUNTS = {
-    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
-    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
-    "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14,
-    "fifteen": 15, "sixteen": 16, "seventeen": 17, "eighteen": 18,
-    "nineteen": 19, "twenty": 20,
-}
+def _score_order_for(intent: IntentDecision | None, column: str) -> str | None:
+    """The requested direction, but only if it was requested FOR ``column``.
 
-
-def _parse_chinese_count(value: str) -> int | None:
-    value = str(value)
-    if value in _CHINESE_DIGITS:
-        return _CHINESE_DIGITS[value]
-    if "十" not in value:
+    ``intent.score_order`` is meaningless without its column: "選 funding rate 的
+    幣,要跌幅最大的" names an end of ``priceChangePercent``, and pasting that ``asc``
+    into a funding prompt asks for the bottom of a different column entirely.
+    Three states in, three states out — ``None`` means the user did not say.
+    """
+    if intent is None or intent.score_order_metric != column:
         return None
-    left, _, right = value.partition("十")
-    tens = _CHINESE_DIGITS.get(left, 1) if left else 1
-    units = _CHINESE_DIGITS.get(right, 0) if right else 0
-    return tens * 10 + units
-
-
-def _requested_count(text: str) -> int | None:
-    for pattern in (
-        r"\b(?:top|select|pick)?\s*(\d+)(?:\s+[a-z-]+){0,3}\s+(?:coins?|tokens?)\b",
-        r"\btop\s*(\d+)\s*(?:coins?|tokens?)?\b",
-        r"(?:前|選出|挑選)?\s*(\d+)\s*(?:個|名|檔|種|coins?|tokens?)",
-    ):
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            return int(match.group(1))
-    english = "|".join(_ENGLISH_COUNTS)
-    match = re.search(
-        rf"\b(?:top|select|pick)?\s*({english})(?:\s+[a-z-]+){{0,3}}\s+"
-        rf"(?:coins?|tokens?)\b",
-        text,
-        re.IGNORECASE,
-    )
-    if match:
-        return _ENGLISH_COUNTS[match.group(1).lower()]
-    match = re.search(r"([一二兩三四五六七八九十]{1,3})\s*(?:個|名|檔|種)", text)
-    return _parse_chinese_count(match.group(1)) if match else None
-
-
-def _named_symbols(text: str) -> tuple[str, ...]:
-    found = [match.group(0).upper() for match in _FULL_SYMBOL.finditer(text)]
-    found.extend(match.group(0).upper() for match in _KNOWN_BASE_SYMBOL.finditer(text))
-    found.extend(
-        match.group(0)
-        for match in _BARE_UPPER_SYMBOL.finditer(text)
-        if match.group(0) not in _SYMBOL_STOPWORDS
-        and not re.fullmatch(r"(?:EMA|SMA|RSI|ADX|MACD)\d*", match.group(0))
-    )
-    return tuple(dict.fromkeys(found))
-
-
-def _requested_intervals(text: str) -> tuple[str, ...]:
-    unit_map = {
-        "m": "m", "min": "m", "mins": "m", "minute": "m", "minutes": "m",
-        "分鐘": "m", "分": "m",
-        "h": "h", "hr": "h", "hrs": "h", "hour": "h", "hours": "h",
-        "小時": "h", "小时": "h",
-        "d": "d", "day": "d", "days": "d", "天": "d", "日": "d",
-        "w": "w", "week": "w", "weeks": "w", "週": "w", "周": "w",
-    }
-    values = []
-    for match in _INTERVAL.finditer(text):
-        unit = unit_map[match.group(2).lower()]
-        values.append("%d%s" % (int(match.group(1)), unit))
-    return tuple(dict.fromkeys(values))
-
-
-def _percent_near(text: str, labels: str) -> float | None:
-    after = re.search(
-        rf"(?:{labels})\s*(?:為|是|=|:)?\s*(\d+(?:\.\d+)?)\s*%",
-        text,
-        re.IGNORECASE,
-    )
-    if after:
-        return float(after.group(1)) / 100.0
-    before = re.search(
-        rf"(\d+(?:\.\d+)?)\s*%\s*(?:的)?\s*(?:{labels})",
-        text,
-        re.IGNORECASE,
-    )
-    return float(before.group(1)) / 100.0 if before else None
-
-
-def _requested_market_type(text: str) -> str | None:
-    if re.search(r"(?:現貨|\bspot\b)", text, re.IGNORECASE):
-        return "spot"
-    if re.search(r"(?:永續|合約|期貨|\b(?:futures?|perpetuals?)\b)", text, re.IGNORECASE):
-        return "futures"
-    return None
-
-
-def classify_request(nl: str) -> IntentDecision:
-    """Classify scope and fail closed when the request is genuinely ambiguous.
-
-    This is intentionally independent of the YAML returned by the model. A
-    generated trade spec cannot validate its own claim that a basket request was
-    actually a trade request.
-    """
-    text = " ".join(str(nl or "").split())
-    selection = [name for name, rule in _SELECTION_RULES if rule.search(text)]
-    trade = [name for name, rule in _TRADE_RULES if rule.search(text)]
-    plural_scope = bool(_PLURAL_SCOPE.search(text))
-
-    if selection and trade and _EXECUTION_ACTION.search(text):
-        # There is no one-spec grammar for "rank a universe, then run this
-        # single-symbol entry rule on every winner". Picking either half would
-        # silently discard user intent, so stop before an LLM can improvise.
-        kind = "ambiguous"
-        evidence = tuple(selection + trade + ["compound_selection_execution"])
-    elif selection and (plural_scope or not trade):
-        kind = "selection"
-        evidence = tuple(selection + (["plural_scope"] if plural_scope else []))
-    elif trade:
-        kind = "trade"
-        evidence = tuple(trade)
-    elif selection:
-        kind = "selection"
-        evidence = tuple(selection)
-    else:
-        kind = "ambiguous"
-        evidence = ()
-
-    unsupported = ()
-    if _UNSUPPORTED_DISCOVERY.search(text):
-        unsupported = ("under_discovered",)
-    sources = {name for name, rule in _SOURCE_RULES if rule.search(text)}
-    if _VOLUME_RANKING.search(text):
-        ranking_metric = "liquidity"
-        # In "hot coins by volume", hot means high activity; it is not enough
-        # evidence to force a Square/news dependency when volume is explicit.
-        if "news" in sources and not _EXPLICIT_NEWS_SOURCE.search(text):
-            sources.discard("news")
-    elif _NEWS_SENTIMENT_METRIC.search(text):
-        ranking_metric = "sentiment"
-    elif _NEWS_MENTION_METRIC.search(text):
-        ranking_metric = "mentions"
-    else:
-        ranking_metric = None
-    sources = frozenset(sources)
-    technical_periods = tuple(
-        (match.group(1).lower(), int(match.group(2)))
-        for match in _TECHNICAL_PERIOD.finditer(text)
-    )
-    directions = []
-    if _LONG_DIRECTION.search(text):
-        directions.append("long")
-    if _SHORT_DIRECTION.search(text):
-        directions.append("short")
-    news_metrics = []
-    if "news" in sources and _NEWS_MENTION_METRIC.search(text) \
-            and ranking_metric != "liquidity":
-        news_metrics.append("mentions")
-    if "news" in sources and _NEWS_SENTIMENT_METRIC.search(text):
-        news_metrics.append("sentiment")
-    rsi_thresholds = []
-    for match in _RSI_THRESHOLD.finditer(text):
-        relation = match.group(1).lower()
-        relation = "below" if relation in {"低於", "小於", "低于", "below", "under"} else "above"
-        rsi_thresholds.append((relation, float(match.group(2))))
-    return IntentDecision(
-        kind=kind,
-        evidence=evidence,
-        requested_count=_requested_count(text),
-        sources=sources,
-        bullish_preference=bool(_BULLISH_PREFERENCE.search(text)),
-        unsupported_preferences=unsupported,
-        named_symbols=_named_symbols(text),
-        intervals=_requested_intervals(text),
-        market_type=_requested_market_type(text),
-        technical_periods=technical_periods,
-        stop_pct=_percent_near(text, r"停損|止損|stop[- ]?loss"),
-        tp_pct=_percent_near(text, r"停利|止盈|take[- ]?profit"),
-        size_fraction=_percent_near(text, r"倉位|資金|投入|size|position[\s_-]*size"),
-        directions=directions,
-        news_metrics=news_metrics,
-        triggers=[name for name, rule in _TRIGGER_RULES if rule.search(text)],
-        indicator_names=tuple(dict.fromkeys(
-            match.group(1).lower() for match in _TECHNICAL_NAME.finditer(text)
-        )),
-        rsi_thresholds=rsi_thresholds,
-        ranking_metric=ranking_metric,
-    )
-
-
-def infer_strategy_kind(nl: str) -> str:
-    """Compatibility helper used by the HTTP prompt route and tests."""
-    return classify_request(nl).kind
-
-
-def _generated_strategy_kind(spec: dict) -> str | None:
-    has_selection = isinstance(spec.get("selection"), dict)
-    has_trade = isinstance(spec.get("signals"), dict)
-    if has_selection and not has_trade:
-        return "selection"
-    if has_trade and not has_selection:
-        return "trade"
-    return None
-
-
-def _base_asset(value: str) -> str:
-    """Use the same pair-to-base normalisation as the news join and dedupe."""
-    from cyqnt_trd.blocks.news_feed import base_token
-
-    return base_token(str(value).upper())
-
-
-def _close_enough(actual, expected: float) -> bool:
-    try:
-        return abs(float(actual) - float(expected)) <= 1e-9
-    except (TypeError, ValueError):
-        return False
-
-
-def _greater_than(actual, threshold: float) -> bool:
-    try:
-        return float(actual) > float(threshold)
-    except (TypeError, ValueError):
-        return False
-
-
-def _feature_dependencies(selection: dict, token, seen=None) -> set[str]:
-    """Resolve a selection feature reference to the frame columns it reads.
-
-    Checking feature *names* is not sufficient: a model could name a
-    quote-volume feature ``news_bull_ratio``. Only the inputs in this dependency
-    graph count as evidence that the requested data affects ranking/direction.
-    """
-    if not isinstance(token, str):
-        return set()
-    features = selection.get("features") or {}
-    if token not in features or not isinstance(features[token], dict):
-        return {token}
-    seen = set() if seen is None else set(seen)
-    if token in seen:
-        return set()
-    seen.add(token)
-    feature = features[token]
-    if "inputs" in feature and isinstance(feature["inputs"], (list, tuple)):
-        refs = list(feature["inputs"])
-    elif "input" in feature:
-        refs = [feature["input"]]
-    else:
-        refs = ["close"]
-    out: set[str] = set()
-    for ref in refs:
-        out.update(_feature_dependencies(selection, ref, seen))
-    return out
-
-
-def _condition_dependencies(selection: dict, node) -> set[str]:
-    if isinstance(node, list):
-        out: set[str] = set()
-        for item in node:
-            out.update(_condition_dependencies(selection, item))
-        return out
-    if not isinstance(node, dict):
-        return set()
-    out: set[str] = set()
-    args = node.get("args")
-    if isinstance(args, (list, tuple)):
-        for ref in args:
-            out.update(_feature_dependencies(selection, ref))
-    for key, value in node.items():
-        if key not in {"args", "params", "cond"}:
-            out.update(_condition_dependencies(selection, value))
-    return out
-
-
-def _selection_usage(selection: dict):
-    steps = [step for step in (selection.get("universe") or [])
-             if isinstance(step, dict)]
-    blocks = {str(step.get("block") or "") for step in steps}
-    score_dependencies = _feature_dependencies(selection, selection.get("score"))
-    direction_dependencies = set()
-    for key in ("long_when", "short_when"):
-        direction_dependencies.update(_condition_dependencies(selection, selection.get(key)))
-    return steps, blocks, score_dependencies, direction_dependencies
-
-
-def _iter_strings(value):
-    if isinstance(value, str):
-        yield value
-    elif isinstance(value, dict):
-        for item in value.values():
-            yield from _iter_strings(item)
-    elif isinstance(value, (list, tuple)):
-        for item in value:
-            yield from _iter_strings(item)
-
-
-def _condition_leaves(node):
-    if isinstance(node, list):
-        for item in node:
-            yield from _condition_leaves(item)
-    elif isinstance(node, dict):
-        if isinstance(node.get("cond"), str):
-            yield node
-        for key, value in node.items():
-            if key not in {"cond", "args", "params"}:
-                yield from _condition_leaves(value)
-
-
-def _indicator_aliases(indicators: dict, name: str, period=None) -> set[str]:
-    out = set()
-    expected_block = "indicators.%s" % name
-    for alias, item in indicators.items():
-        if not isinstance(item, dict) or str(item.get("block") or "").lower() != expected_block:
-            continue
-        if period is not None and not _close_enough((item.get("params") or {}).get("period"), period):
-            continue
-        out.add(str(alias))
-    return out
-
-
-def _leaf_threshold(leaf: dict):
-    params = leaf.get("params") or {}
-    if "threshold" in params:
-        return params.get("threshold")
-    args = leaf.get("args") or []
-    return args[1] if isinstance(args, (list, tuple)) and len(args) > 1 else None
-
-
-def _reconcile_trade(intent: IntentDecision, spec: dict) -> list[str]:
-    errors: list[str] = []
-    data = spec.get("data") or {}
-    actual_symbol = str(data.get("symbol") or "").upper()
-
-    if intent.named_symbols:
-        requested_bases = {_base_asset(item) for item in intent.named_symbols}
-        if len(requested_bases) > 1:
-            errors.append(
-                "trade YAML 一次只能執行一個標的,但需求指定了多個標的: %s"
-                % ", ".join(intent.named_symbols)
-            )
-        elif _base_asset(actual_symbol) not in requested_bases:
-            errors.append(
-                "使用者指定標的是 %s,但 YAML 的 data.symbol=%s"
-                % (", ".join(intent.named_symbols), actual_symbol or None)
-            )
-
-    if intent.intervals:
-        primary = str((data.get("primary") or {}).get("interval") or "").lower()
-        htf = {
-            str(item.get("interval") or "").lower()
-            for item in (data.get("htf") or []) if isinstance(item, dict)
-        }
-        if len(intent.intervals) == 1 and primary != intent.intervals[0]:
-            errors.append(
-                "使用者指定週期 %s,但 YAML 的 primary.interval=%s"
-                % (intent.intervals[0], primary or None)
-            )
-        elif len(intent.intervals) > 1:
-            missing = sorted(set(intent.intervals) - ({primary} | htf))
-            if missing:
-                errors.append("YAML 未包含使用者指定的週期: %s" % ", ".join(missing))
-
-    if intent.market_type and str(data.get("market_type") or "").lower() != intent.market_type:
-        errors.append(
-            "使用者指定 market_type=%s,但 YAML 是 %s"
-            % (intent.market_type, data.get("market_type"))
+    if intent.score_order not in {None, "asc", "desc"}:
+        raise ValueError(
+            "intent.score_order must be 'asc', 'desc' or None, got %r; "
+            "fix classify_request instead of collapsing it here"
+            % (intent.score_order,)
         )
-
-    signals = spec.get("signals") or {}
-    indicators = signals.get("indicators") or {}
-    for indicator_name, period in intent.technical_periods:
-        matched = any(
-            isinstance(item, dict)
-            and str(item.get("block") or "").lower() == "indicators.%s" % indicator_name
-            and _close_enough((item.get("params") or {}).get("period"), period)
-            for item in indicators.values()
-        )
-        if not matched:
-            errors.append(
-                "需求指定 %s%d,但 YAML 沒有使用對應的 Block period"
-                % (indicator_name.upper(), period)
-            )
-
-    period_names = {name for name, _period in intent.technical_periods}
-    for indicator_name in set(intent.indicator_names) - period_names:
-        if not _indicator_aliases(indicators, indicator_name):
-            errors.append(
-                "需求指定 %s,但 YAML 沒有使用對應的 indicator Block"
-                % indicator_name.upper()
-            )
-
-    entry = signals.get("entry") or {}
-    if "long" in intent.directions and not entry.get("long"):
-        errors.append("需求包含做多/買進,但 YAML 沒有 signals.entry.long")
-    if "short" in intent.directions and not entry.get("short"):
-        errors.append("需求包含做空,但 YAML 沒有 signals.entry.short")
-    if intent.directions == ("long",) and entry.get("short"):
-        errors.append("使用者只要求做多/買進,但模型擅自加入 signals.entry.short")
-    if intent.directions == ("short",) and entry.get("long"):
-        errors.append("使用者只要求做空,但模型擅自加入 signals.entry.long")
-
-    requested_nodes = [entry.get(side) for side in intent.directions if entry.get(side)]
-    if not requested_nodes:
-        requested_nodes = [value for value in entry.values() if isinstance(value, dict)]
-    leaves = [leaf for node in requested_nodes for leaf in _condition_leaves(node)]
-    condition_refs = {str(leaf.get("cond")) for leaf in leaves}
-    used_args = {
-        str(arg) for leaf in leaves for arg in (leaf.get("args") or [])
-        if isinstance(arg, str)
-    }
-
-    for indicator_name, period in intent.technical_periods:
-        aliases = _indicator_aliases(indicators, indicator_name, period)
-        if aliases and not aliases.intersection(used_args):
-            errors.append(
-                "YAML 雖宣告 %s%d,但使用者要求的 entry 條件沒有引用它"
-                % (indicator_name.upper(), period)
-            )
-    for indicator_name in set(intent.indicator_names) - period_names:
-        aliases = _indicator_aliases(indicators, indicator_name)
-        if aliases and not aliases.intersection(used_args):
-            errors.append(
-                "YAML 雖宣告 %s,但使用者要求的 entry 條件沒有引用它"
-                % indicator_name.upper()
-            )
-
-    requested_indicators = {name for name, _period in intent.technical_periods}
-    for trigger in intent.triggers:
-        if trigger == "cross_above":
-            accepted = (
-                {"conditions.ma_cross_above"}
-                if requested_indicators & {"ema", "sma"}
-                else {"conditions.ma_cross_above", "conditions.macd_golden_cross"}
-            )
-        elif trigger == "cross_below":
-            accepted = (
-                {"conditions.ma_cross_below"}
-                if requested_indicators & {"ema", "sma"}
-                else {"conditions.ma_cross_below", "conditions.macd_death_cross"}
-            )
-        elif trigger == "breakout_high":
-            accepted = {"conditions.breakout_high"}
-        else:
-            accepted = {"conditions.breakout_low"}
-        if not accepted.intersection(condition_refs):
-            errors.append(
-                "需求指定 %s,但 YAML entry 沒有使用對應條件 Block (%s)"
-                % (trigger, ", ".join(sorted(accepted)))
-            )
-
-        ma_periods = [
-            (name, period) for name, period in intent.technical_periods
-            if name in {"ema", "sma"}
-        ]
-        if trigger in {"cross_above", "cross_below"} and len(ma_periods) >= 2:
-            first_name, first_period = ma_periods[0]
-            second_name, second_period = ma_periods[1]
-            first_aliases = _indicator_aliases(indicators, first_name, first_period)
-            second_aliases = _indicator_aliases(indicators, second_name, second_period)
-            required = (
-                "conditions.ma_cross_above" if trigger == "cross_above"
-                else "conditions.ma_cross_below"
-            )
-            wired = any(
-                leaf.get("cond") == required
-                and isinstance(leaf.get("args"), (list, tuple))
-                and len(leaf["args"]) >= 2
-                and str(leaf["args"][0]) in first_aliases
-                and str(leaf["args"][1]) in second_aliases
-                for leaf in leaves
-            )
-            if not wired:
-                errors.append(
-                    "需求指定 %s%d 與 %s%d 的 %s,但 entry args 沒有接到這兩個指標"
-                    % (first_name.upper(), first_period, second_name.upper(),
-                       second_period, trigger)
-                )
-
-        if trigger in {"cross_above", "cross_below"} and "macd" in intent.indicator_names:
-            line_aliases = {
-                alias for alias in _indicator_aliases(indicators, "macd")
-                if int((indicators[alias].get("output", 0))) == 0
-            }
-            signal_aliases = {
-                alias for alias in _indicator_aliases(indicators, "macd")
-                if int((indicators[alias].get("output", 0))) == 1
-            }
-            required = (
-                "conditions.macd_golden_cross" if trigger == "cross_above"
-                else "conditions.macd_death_cross"
-            )
-            wired = any(
-                leaf.get("cond") == required
-                and isinstance(leaf.get("args"), (list, tuple))
-                and len(leaf["args"]) >= 2
-                and str(leaf["args"][0]) in line_aliases
-                and str(leaf["args"][1]) in signal_aliases
-                for leaf in leaves
-            )
-            if not wired:
-                errors.append(
-                    "需求指定 MACD %s,但 entry 沒有引用 MACD line/signal 輸出"
-                    % trigger
-                )
-
-    rsi_periods = [period for name, period in intent.technical_periods if name == "rsi"]
-    rsi_aliases = set()
-    for period in rsi_periods or [None]:
-        rsi_aliases.update(_indicator_aliases(indicators, "rsi", period))
-    for relation, value in intent.rsi_thresholds:
-        acceptable = (
-            {"conditions.rsi_oversold", "conditions.value_below"}
-            if relation == "below"
-            else {"conditions.rsi_overbought", "conditions.value_above"}
-        )
-        wired = any(
-            leaf.get("cond") in acceptable
-            and isinstance(leaf.get("args"), (list, tuple))
-            and leaf["args"]
-            and str(leaf["args"][0]) in rsi_aliases
-            and _close_enough(_leaf_threshold(leaf), value)
-            for leaf in leaves
-        )
-        if not wired:
-            errors.append(
-                "需求指定 RSI %s %.4g,但 entry 沒有以該 RSI 與門檻建立條件"
-                % (relation, value)
-            )
-
-    exit_cfg = (spec.get("risk") or {}).get("exit") or {}
-    for label, expected, key in (
-        ("停損", intent.stop_pct, "stop_pct"),
-        ("停利", intent.tp_pct, "tp_pct"),
-    ):
-        if expected is not None and not _close_enough(exit_cfg.get(key), expected):
-            errors.append(
-                "使用者指定%s %.4g,但 YAML risk.exit.%s=%r"
-                % (label, expected, key, exit_cfg.get(key))
-            )
-    if intent.size_fraction is not None:
-        actual_size = (spec.get("sizing") or {}).get("size")
-        if not _close_enough(actual_size, intent.size_fraction):
-            errors.append(
-                "使用者指定倉位 %.4g,但 YAML sizing.size=%r"
-                % (intent.size_fraction, actual_size)
-            )
-
-    functional_tokens = set(_iter_strings(signals))
-    if "funding" in intent.sources and not any("funding_rate" in item for item in functional_tokens):
-        errors.append("需求指定 funding rate,但交易規則沒有實際讀取 funding_rate 欄位")
-    if "open_interest" in intent.sources and not any(
-        "open_interest" in item for item in functional_tokens
-    ):
-        errors.append("需求指定 open interest,但交易規則沒有實際讀取 open_interest 欄位")
-    if "liquidity" in intent.sources and not any(
-        "quote_volume" in item or "liquidity" in item for item in functional_tokens
-    ):
-        errors.append("需求指定成交量/流動性,但交易規則沒有實際讀取對應欄位或 Block")
-    return errors
+    return intent.score_order
 
 
-def reconcile_intent(intent: IntentDecision, spec: dict) -> tuple[list[str], list[str]]:
-    """Check meaning and data dependencies after structural validation."""
-    errors: list[str] = []
-    warnings: list[str] = []
-    generated = _generated_strategy_kind(spec)
+def _long_short_ratio_selection_example(intent: IntentDecision) -> str:
+    """A runnable spelling of the precise crowd-long threshold the user named."""
 
-    if generated != intent.kind:
-        errors.append(
-            "使用者需求是 %s,但模型產生的是 %s;拒絕把需求改成另一種策略"
-            % (intent.kind, generated or "mixed/unknown")
-        )
-        return errors, warnings
+    minimum = intent.long_short_min_account_pct
+    if minimum is None:
+        raise ValueError("a long/short selection example needs an explicit minimum")
+    comparator = intent.long_short_min_account_operator
+    if comparator not in {">", ">="}:
+        raise ValueError("a long/short selection example needs an explicit lower-bound operator")
+    filter_param = ("min_long_account_pct_exclusive"
+                    if comparator == ">" else "min_long_account_pct")
+    return yaml.safe_dump({
+        "spec_version": "1.0",
+        "target": "standard_bot",
+        "strategy": {
+            "id": "retail_long_account_selector",
+            "description": "篩選散戶多方帳戶佔比達門檻的候選幣",
+        },
+        "run": {"mode": "backtest"},
+        "data": {
+            "symbol": "BTCUSDT", "market_type": "futures",
+            "primary": {"interval": "1h"},
+        },
+        "selection": {
+            "universe": [
+                {
+                    "block": "universe.filter_quote_volume",
+                    "params": {"min_quote_volume": 100000000},
+                },
+                {
+                    "block": "universe.augment_with_long_short_ratio",
+                    "with": ["long_short_ratio_snapshot"],
+                },
+                {
+                    "block": "universe.filter_long_short_ratio",
+                    "params": {filter_param: minimum},
+                },
+            ],
+            # The source condition is a filter, not a rank.  Use a stable
+            # liquidity tie-breaker rather than claiming the raw ratio is a
+            # cross-contract ranking score.
+            "score": "quoteVolume",
+            "top_k": intent.requested_count or 5,
+            "dedupe_by": "base_asset",
+        },
+    }, allow_unicode=True, sort_keys=False)
 
-    if intent.kind == "trade":
-        if "news" in intent.sources:
-            errors.append(
-                "目前 trade YAML 的逐根 make_signals(df) 路徑不能讀取新聞 EventFrame;"
-                "拒絕用 EMA/RSI 等技術指標冒充新聞交易條件"
-            )
-        errors.extend(_reconcile_trade(intent, spec))
-        return errors, warnings
 
-    if intent.kind != "selection":
-        return errors, warnings
+def _supertrend_selection_example(intent: IntentDecision) -> str:
+    """Render the exact per-symbol MTF Supertrend contract the runtime supports."""
 
-    selection = spec["selection"]
-    steps, blocks, score_dependencies, direction_dependencies = _selection_usage(selection)
-    functional_dependencies = score_dependencies | direction_dependencies
-    data = spec.get("data") or {}
-    if intent.market_type and str(data.get("market_type") or "").lower() != intent.market_type:
-        errors.append(
-            "使用者指定 market_type=%s,但 YAML 是 %s"
-            % (intent.market_type, data.get("market_type"))
-        )
-    if len(intent.intervals) == 1:
-        actual_interval = str((data.get("primary") or {}).get("interval") or "").lower()
-        if actual_interval != intent.intervals[0]:
-            errors.append(
-                "使用者指定週期 %s,但 YAML 的 primary.interval=%s"
-                % (intent.intervals[0], actual_interval or None)
-            )
+    if len(intent.supertrend_parameters) != 1:
+        raise ValueError("a Supertrend selection needs exactly one explicit parameter pair")
+    if not intent.intervals:
+        raise ValueError("a Supertrend selection needs explicit timeframes")
+    directions = [side for side in ("long", "short") if side in intent.directions]
+    if len(directions) != 1:
+        raise ValueError("a Supertrend selection needs exactly one explicit direction")
 
-    sentiment_filters = [
-        step for step in steps if step.get("block") == "universe.filter_sentiment"
+    period, multiplier = intent.supertrend_parameters[0]
+    side = directions[0]
+    relation = "value_above" if side == "long" else "value_below"
+    aliases = ["st_dir_%s" % timeframe for timeframe in intent.intervals]
+    universe = [
+        {
+            "block": "universe.filter_quote_volume",
+            "params": {"min_quote_volume": 100000000},
+        },
     ]
-    meaningful_sentiment_filter = any(
-        isinstance(step.get("params"), dict)
-        and _greater_than((step.get("params") or {}).get("min_bull_ratio", 0.5), 0.5)
-        for step in sentiment_filters
+    # A combined crowd condition remains independently checkable; it must not
+    # disappear just because the Supertrend branch owns the prompt.
+    if "long_short_ratio" in intent.sources:
+        minimum = intent.long_short_min_account_pct
+        comparator = intent.long_short_min_account_operator
+        if minimum is None or comparator not in {">", ">="}:
+            raise ValueError("Supertrend crowd filter needs an exact lower bound")
+        filter_param = ("min_long_account_pct_exclusive"
+                        if comparator == ">" else "min_long_account_pct")
+        universe.extend([
+            {
+                "block": "universe.augment_with_long_short_ratio",
+                "with": ["long_short_ratio_snapshot"],
+            },
+            {
+                "block": "universe.filter_long_short_ratio",
+                "params": {filter_param: minimum},
+            },
+        ])
+    universe.extend(
+        {
+            "block": "universe.augment_with_indicator",
+            "with": ["universe_bars"],
+            "params": {
+                "indicator": "supertrend", "timeframe": timeframe,
+                # Supertrend returns (line, direction); the direction is output 1.
+                "output": 1, "as": alias, "agg": "last", "window_bars": 1,
+                "period": period, "multiplier": multiplier,
+            },
+        }
+        for timeframe, alias in zip(intent.intervals, aliases)
     )
-    bullish_direction = any(
-        leaf.get("cond") == "conditions.value_above"
-        and isinstance(leaf.get("args"), (list, tuple))
-        and leaf["args"]
-        and "news_bull_ratio" in _feature_dependencies(selection, leaf["args"][0])
-        and _greater_than(_leaf_threshold(leaf), 0.5)
-        for leaf in _condition_leaves(selection.get("long_when"))
-        if _leaf_threshold(leaf) is not None
+    leaves = [
+        {"cond": "conditions.%s" % relation, "args": [alias, 0]}
+        for alias in aliases
+    ]
+    condition = {"all_of": leaves} if len(leaves) > 1 else leaves[0]
+    return yaml.safe_dump({
+        "spec_version": "1.0",
+        "target": "standard_bot",
+        "strategy": {
+            "id": "multi_timeframe_supertrend_selector",
+            "description": "Supertrend(%d,%g) 多時框同時偏%s的候選"
+                           % (period, multiplier, "多" if side == "long" else "空"),
+        },
+        "run": {"mode": "backtest"},
+        "data": {
+            "symbol": "BTCUSDT", "market_type": "futures",
+            "primary": {"interval": "1h" if "1h" in intent.intervals
+                        else intent.intervals[0]},
+        },
+        "selection": {
+            "universe": universe,
+            "score": "quoteVolume",
+            "top_k": intent.requested_count or 5,
+            "dedupe_by": "base_asset",
+            "%s_when" % side: condition,
+        },
+    }, allow_unicode=True, sort_keys=False)
+
+
+def _supertrend_selection_prompt(intent: IntentDecision) -> str:
+    example = _supertrend_selection_example(intent)
+    period, multiplier = intent.supertrend_parameters[0]
+    frames = ", ".join(intent.intervals)
+    direction = "偏多" if "long" in intent.directions else "偏空"
+    crowd_note = ""
+    if "long_short_ratio" in intent.sources:
+        minimum = intent.long_short_min_account_pct
+        comparator = intent.long_short_min_account_operator
+        if minimum is None or comparator not in {">", ">="}:
+            raise ValueError("Supertrend crowd prompt needs an exact lower bound")
+        filter_param = ("min_long_account_pct_exclusive"
+                        if comparator == ">" else "min_long_account_pct")
+        wording = "大於" if comparator == ">" else "至少"
+        crowd_note = (
+            "使用者也指定散戶多方帳戶佔比%s %.4g%%:必須先 "
+            "augment_with_long_short_ratio(with: [long_short_ratio_snapshot]),再以 "
+            "filter_long_short_ratio(%s: %.4g) 篩選。"
+            % (wording, minimum, filter_param, minimum)
+        )
+    return (
+        "你是一個把自然語言選幣需求轉成 StandardBot YAML 的轉換器。"
+        "只輸出一份合法 YAML,不要 markdown、解釋或多餘文字。\n\n"
+        "這次需求是每個候選幣的 Supertrend(%d,%g) 在 %s 同時%s。"
+        "選幣必須先用 universe.filter_quote_volume 收窄,然後每個 timeframe 都用 "
+        "universe.augment_with_indicator(with: [universe_bars])，參數必須是 "
+        "indicator: supertrend、period: %d、multiplier: %g、output: 1。"
+        "Supertrend output 0 是價格線,不能拿來判斷方向。%s_when 必須是 all_of，"
+        "每一個 timeframe 的 alias 都必須以 conditions.%s(_, 0) 接入。"
+        "%s\n\n=== 範例輸出 ===\n%s"
+        % (period, multiplier, frames, direction, period, multiplier,
+           "long" if "long" in intent.directions else "short",
+           "value_above" if "long" in intent.directions else "value_below",
+           crowd_note, example)
     )
 
-    unsupported_sources = sorted(intent.sources & {"open_interest", "price_change"})
-    if unsupported_sources:
-        errors.append(
-            "目前 selection runtime 尚未把 %s 的跨幣別 frame 接到 UniverseBundle;"
-            "拒絕改用新聞或技術分析代替"
-            % ", ".join(unsupported_sources)
+
+def _candidate_trade_selection_prompt(intent: IntentDecision) -> str:
+    """Prompt one outer selection with complete nested candidate trades.
+
+    This branch deliberately precedes the source-specific plain-selection
+    prompts.  Those prompts correctly prohibit ``risk``/``sizing`` for a plain
+    basket, but those sections are required by ``selection.candidate_trade``.
+    """
+
+    sources = set(intent.sources)
+    if "open_interest" in sources:
+        source_steps = (
+            "    - block: universe.filter_quote_volume\n"
+            "      params: { min_quote_volume: 100000000 }\n"
+            "    - block: universe.augment_with_open_interest\n"
+            "      with: [open_interest_snapshot]\n"
+        )
+        score = "oi_notional_usd"
+        order = "desc"
+        source_note = (
+            "選幣依據是 open interest:先用 filter_quote_volume 收窄,再用 "
+            "augment_with_open_interest(with: [open_interest_snapshot]),並以 "
+            "oi_notional_usd 排名。"
+        )
+    elif "funding" in sources:
+        source_steps = (
+            "    - block: universe.filter_quote_volume\n"
+            "      params: { min_quote_volume: 100000000 }\n"
+            "    - block: universe.augment_with_funding\n"
+            "      with: [funding, funding_info]\n"
+        )
+        score = "fundingRateApr"
+        order = _score_order_for(intent, "fundingRatePct")
+        source_note = (
+            "選幣依據是 funding:使用 augment_with_funding(with: [funding, "
+            "funding_info])與可跨結算週期比較的 fundingRateApr。"
+        )
+    elif "price_change" in sources:
+        source_steps = (
+            "    - block: universe.filter_quote_volume\n"
+            "      params: { min_quote_volume: 100000000 }\n"
+        )
+        score = "priceChangePercent"
+        order = _score_order_for(intent, "priceChangePercent")
+        source_note = (
+            "選幣依據是 24h 漲跌幅:priceChangePercent 已在 universe frame,"
+            "不得虛構 augment_with_price_change。"
+        )
+    elif "news" in sources:
+        source_steps = (
+            "    - block: universe.filter_quote_volume\n"
+            "      params: { min_quote_volume: 100000000 }\n"
+            "    - block: universe.augment_with_news\n"
+            "      with: [ticker_rank]\n"
+        )
+        score = ("news_bull_ratio" if intent.ranking_metric == "sentiment"
+                 else "news_mention_count")
+        order = "desc"
+        source_note = (
+            "選幣依據是新聞/社群:使用 augment_with_news(with: [ticker_rank]),"
+            "並以使用者要求的 news_mention_count 或 news_bull_ratio 排名。"
+        )
+    else:
+        source_steps = (
+            "    - block: universe.filter_quote_volume\n"
+            "      params: { min_quote_volume: 100000000 }\n"
+        )
+        score = "quoteVolume"
+        order = "desc"
+        source_note = "選幣依據是 24h 成交額,以 quoteVolume 排名。"
+
+    plan = candidate_trade_plan(intent)
+    period = plan["period"]
+    interval = intent.intervals[0] if len(intent.intervals) == 1 else "1h"
+    alias = plan["alias"]
+    condition_lines = []
+    for side in plan["sides"]:
+        relation, value = plan["thresholds"][side]
+        condition_lines.append(
+            "  %s_when: { cond: conditions.value_%s, args: [%s, %g] }"
+            % (side, relation, alias, value)
         )
 
-    if "funding" in intent.sources:
-        augment = [step for step in steps
-                   if step.get("block") == "universe.augment_with_funding"]
-        if not augment or not any(
-            isinstance(step.get("with"), (list, tuple))
-            and "funding" in step.get("with")
-            for step in augment
-        ):
-            errors.append(
-                "需求提到 funding rate,selection 必須使用 "
-                "universe.augment_with_funding 並傳入 funding"
-            )
-        funding_used = (
-            "fundingRatePct" in functional_dependencies
-            or "universe.filter_funding_rate" in blocks
-        )
-        if not funding_used:
-            errors.append(
-                "需求提到 funding rate,但 selection 的排名或過濾沒有實際讀取 "
-                "fundingRatePct"
-            )
+    top_k = intent.requested_count or 5
+    order_line = "  order: %s\n" % order if order else ""
+    assumptions = list(plan["assumptions"])
+    assumption_block = ""
+    if assumptions:
+        rendered = yaml.safe_dump(
+            {"assumptions": assumptions}, allow_unicode=True, sort_keys=False
+        ).rstrip()
+        assumption_block = "\n".join(
+            "  " + line for line in rendered.splitlines()
+        ) + "\n"
+    description = (
+        "先選幣,再以逐候選 RSI 快照產生需確認的買賣計畫;"
+        + ("未指定值已列於 strategy.assumptions" if assumptions else "未使用隱含預設")
+    )
+    example = (
+        'spec_version: "1.0"\n'
+        "target: standard_bot\n"
+        "strategy:\n"
+        "  id: rsi_candidate_trade_selector\n"
+        "  description: %s\n%s"
+        "run:\n"
+        "  mode: backtest\n"
+        "data:\n"
+        "  symbol: BTCUSDT\n"
+        "  market_type: futures\n"
+        "  primary: { interval: \"%s\" }\n"
+        "selection:\n"
+        "  universe:\n%s"
+        "    - block: universe.augment_with_indicator\n"
+        "      with: [universe_bars]\n"
+        "      params: { indicator: rsi, timeframe: \"%s\", period: %d, as: %s }\n"
+        "  score: %s\n%s"
+        "  top_k: %d\n"
+        "  dedupe_by: base_asset\n%s\n"
+        "  candidate_trade: { entry_type: market }\n"
+        "sizing: { size: %g }\n"
+        "risk:\n"
+        "  exit: { type: pct_stop_tp, stop_pct: %g, tp_pct: %g, max_bars: 48 }\n"
+        % (json.dumps(description, ensure_ascii=False), assumption_block,
+           interval, source_steps, interval, period, alias, score, order_line,
+           top_k, "\n".join(condition_lines), plan["size"], plan["stop_pct"],
+           plan["tp_pct"])
+    )
+    return (
+        "你是一個把自然語言『選幣 + 每個候選的技術買賣點』轉成 StandardBot "
+        "YAML 的轉換器。只輸出合法 YAML,不要 markdown 或解釋。\n\n"
+        "外層必須只有 selection:,不得同時產生頂層 signals:。必須寫 "
+        "selection.candidate_trade: {entry_type: market};外層執行結果仍是 kind=selection,"
+        "每個 candidates[].trade 才是完整 kind=trade。這些 nested trades 固定 "
+        "auto_trade_eligible=false、requires_confirmation=true,不是自動下單授權。\n"
+        + source_note + "\n"
+        "RSI 必須使用 universe.augment_with_indicator 並精確傳 "
+        "with: [universe_bars]。fan-out 前必須先收窄 universe。其輸出 alias 必須真的"
+        "出現在 long_when/short_when;只計算 RSI 卻不用它判斷買賣點一律不接受。"
+        "任何未由使用者指定的 RSI 門檻、size、stop 或 take-profit 只能採範例中的"
+        "固定預設,而且必須逐項保留範例的 strategy.assumptions cid 與 reading；漏掉"
+        "宣告或宣告值和實際條件不同都會被拒絕。\n\n"
+        "=== 範例輸出 ===\n" + example
+    )
 
-    if "news" in intent.sources:
-        augment = [step for step in steps
-                   if step.get("block") == "universe.augment_with_news"]
-        if not augment or not any(
-            isinstance(step.get("with"), (list, tuple))
-            and "ticker_rank" in step.get("with")
-            for step in augment
-        ):
-            errors.append(
-                "需求提到新聞/社群/熱度,selection 必須使用 "
-                "universe.augment_with_news 並傳入 ticker_rank"
-            )
-        news_blocks = {"universe.filter_sentiment", "universe.top_mentioned",
-                       "universe.top_bullish"}
-        if (not any(item.startswith("news_") for item in functional_dependencies)
-                and not news_blocks.intersection(blocks)):
-            errors.append(
-                "需求提到新聞/熱度,但 selection 的排名與條件沒有實際讀取 news_* 欄位"
-            )
-        if "mentions" in intent.news_metrics:
-            mentions_used = "news_mention_count" in score_dependencies
-            if not mentions_used:
-                errors.append(
-                    "需求指定新聞提及量/熱度排名,但 selection.score 沒有實際依賴"
-                    " news_mention_count"
-                )
-        if "sentiment" in intent.news_metrics:
-            sentiment_used = "news_bull_ratio" in score_dependencies
-            if not sentiment_used:
-                errors.append(
-                    "需求指定新聞/社群情緒排名,但 selection 沒有實際使用 news_bull_ratio"
-                )
 
-    if intent.bullish_preference:
-        bullish_used = (
-            meaningful_sentiment_filter
-            or "news_bull_ratio" in score_dependencies
-            or bullish_direction
-        )
-        if not bullish_used:
-            errors.append(
-                "需求偏好可能上漲/偏多候選,但 YAML 沒有使用 "
-                "min_bull_ratio > 0.5 或 news_bull_ratio 排名作可驗證代理"
-            )
+def _trade_prompt_sides(intent: IntentDecision | None) -> tuple[str, ...]:
+    """Resolve the same direction default that semantic reconciliation enforces."""
+    if intent is None:
+        return ("long",)
+    excluded = set(intent.excluded_directions)
+    requested = tuple(
+        side for side in ("long", "short")
+        if side in intent.directions and side not in excluded
+    )
+    if requested:
+        return requested
+    if "long" in excluded and "short" not in excluded:
+        return ("short",)
+    return ("long",)
 
-    if "liquidity" in intent.sources:
-        liquidity_blocks = {"universe.filter_quote_volume"}
-        score_uses_volume = bool(
-            {"quote_volume", "quoteVolume"}.intersection(score_dependencies)
-        )
-        combined_filter = (
-            intent.ranking_metric != "liquidity"
-            and "news" in intent.sources
-            and bool(liquidity_blocks.intersection(blocks))
-        )
-        if not score_uses_volume and not combined_filter:
-            errors.append(
-                "需求以成交量/流動性作選幣依據,但 selection.score 沒有實際依賴"
-                " quote_volume"
-            )
 
-    if not intent.directions and not intent.bullish_preference:
-        if selection.get("long_when") or selection.get("short_when"):
-            errors.append("使用者只要求排名,但模型擅自加入 long_when/short_when 方向條件")
-    elif "long" in intent.directions and not selection.get("long_when"):
-        errors.append("需求明確要求做多候選,但 YAML 沒有 selection.long_when")
-    elif "short" in intent.directions and not selection.get("short_when"):
-        errors.append("需求明確要求做空候選,但 YAML 沒有 selection.short_when")
-
-    if intent.requested_count is not None:
-        try:
-            actual_count = int(selection.get("top_k"))
-        except (TypeError, ValueError):
-            actual_count = None
-        if actual_count != intent.requested_count:
-            errors.append(
-                "使用者要求 %d 個候選,但 selection.top_k=%r"
-                % (intent.requested_count, selection.get("top_k"))
-            )
-
-    requested_symbols = {_base_asset(item) for item in intent.named_symbols}
-    for step in steps:
-        if step.get("block") != "universe.only_symbols":
-            continue
-        symbols = {str(item).upper() for item in
-                   ((step.get("params") or {}).get("symbols") or [])}
-        unexpected = sorted(
-            symbol for symbol in symbols if _base_asset(symbol) not in requested_symbols
-        )
-        if unexpected:
-            errors.append(
-                "模型擅自把選幣宇宙限制為使用者未指定的標的: %s"
-                % ", ".join(unexpected)
-            )
-
-    if "under_discovered" in intent.unsupported_preferences:
-        warnings.append(
-            "「少見/尚未被市場發現」目前沒有直接資料欄位;本策略只能使用"
-            "流動性、Square 提及量與情緒作代理,不能宣稱已證明尚未被發現"
-        )
-    return errors, warnings
+def _trade_prompt_example(sides: tuple[str, ...]) -> str:
+    """Remove unrequested sides so the example cannot contradict the instruction."""
+    example = yaml.safe_load(EXAMPLE_YAML)
+    entry = example["signals"]["entry"]
+    for side in ("long", "short"):
+        if side not in sides:
+            entry.pop(side, None)
+    return yaml.safe_dump(example, allow_unicode=True, sort_keys=False)
 
 
 def build_system_prompt(
@@ -1165,7 +800,72 @@ def build_system_prompt(
     if kind not in {"trade", "selection"}:
         raise ValueError("strategy kind must be trade or selection, got %r" % kind)
     if kind == "selection":
+        if intent is not None and intent.candidate_trade_requested:
+            return _candidate_trade_selection_prompt(intent)
+        if intent is not None and "supertrend" in intent.indicator_names:
+            return _supertrend_selection_prompt(intent)
+        if intent is not None and "long_short_ratio" in intent.sources:
+            minimum = intent.long_short_min_account_pct
+            comparator = intent.long_short_min_account_operator
+            if minimum is None or comparator not in {">", ">="}:
+                raise ValueError(
+                    "long/short-ratio selection prompt requires an explicit "
+                    "lower-bound threshold and comparator"
+                )
+            filter_param = ("min_long_account_pct_exclusive"
+                            if comparator == ">" else "min_long_account_pct")
+            wording = "大於" if comparator == ">" else "至少"
+            return (
+                "你是一個把自然語言選幣需求轉成 StandardBot YAML 的轉換器。"
+                "只輸出一份合法 YAML,不要 markdown、解釋或多餘文字。\n\n"
+                "這次需求指定散戶多空比偏多,而且門檻是多方帳戶佔比%s %.4g%%。"
+                "頂層只用 selection:,不得產生 signals:、sizing:、risk: 或 backtest:。"
+                "先用 universe.filter_quote_volume 收窄,再精確寫 "
+                "universe.augment_with_long_short_ratio(with: "
+                "[long_short_ratio_snapshot])，最後必須使用 "
+                "universe.filter_long_short_ratio(%s: %.4g)。"
+                "long_account_pct 的單位是百分點,60 表示六成帳戶偏多,不是 0.6。"
+                "『多空比偏多』是群眾部位篩選,不得轉成新聞情緒或 long_when。\n\n"
+                "=== 範例輸出 ===\n%s"
+                % (wording, minimum, filter_param, minimum,
+                   _long_short_ratio_selection_example(intent))
+            )
+        if intent is not None and "open_interest" in intent.sources:
+            return (
+                "你是一個把自然語言選幣需求轉成 StandardBot YAML 的轉換器。"
+                "只輸出一份合法 YAML,不要 markdown、解釋或多餘文字。\n\n"
+                "這次需求指定跨幣別 open interest。頂層只用 selection:,不得產生"
+                " signals:、sizing:、risk: 或 backtest:。使用 data.symbol=BTCUSDT"
+                " 作排程代表標的,它不是候選結果。open interest 沒有全市場端點,"
+                "所以必須先用 universe.filter_quote_volume 收窄名單,再使用"
+                " universe.augment_with_open_interest 並精確寫"
+                " with: [open_interest_snapshot]。selection.score 必須使用"
+                " oi_notional_usd,因為 oi_base 是不同幣種的合約數量,不能跨幣比較。"
+                "不得改用新聞、成交量排名或技術指標。top_k 必須依使用者要求,"
+                "未指定時為 5。\n\n"
+                "=== 可用的 open interest 選幣 BLOCKS / 欄位 ===\n"
+                "universe.filter_quote_volume\n"
+                "universe.augment_with_open_interest "
+                "(with: [open_interest_snapshot])\n"
+                "universe.filter_open_interest\n"
+                "oi_base, oi_notional_usd, quoteVolume\n\n"
+                "=== 範例輸出 ===\n" + OPEN_INTEREST_SELECTION_EXAMPLE_YAML
+            )
         if intent is not None and "funding" in intent.sources:
+            # Three states, not two. ``ascending = score_order == "asc"`` used to
+            # collapse "the user did not say" into "the user said desc".
+            direction_note, funding_example = {
+                "asc": (
+                    "這次需求是『最負/最低 funding』,必須寫 order: asc;"
+                    "不得改寫成 desc,也不得改用 top_k 之後自行反向解讀。\n\n",
+                    FUNDING_ASC_SELECTION_EXAMPLE_YAML,
+                ),
+                "desc": (
+                    "這次需求是『最正/最高 funding』,寫 order: desc。\n\n",
+                    FUNDING_SELECTION_EXAMPLE_YAML,
+                ),
+                None: (NO_ORDER_DIRECTIVE, FUNDING_NO_ORDER_SELECTION_EXAMPLE_YAML),
+            }[_score_order_for(intent, "fundingRatePct")]
             return (
                 "你是一個把自然語言選幣需求轉成 StandardBot YAML 的轉換器。"
                 "只輸出一份合法 YAML,不要 markdown、解釋或多餘文字。\n\n"
@@ -1173,16 +873,77 @@ def build_system_prompt(
                 " signals:、sizing:、risk: 或 backtest:。使用 data.symbol=BTCUSDT"
                 " 作排程代表標的,它不是候選結果。必須先用"
                 " universe.filter_quote_volume 過濾最低流動性,再精確使用"
-                " universe.augment_with_funding 並寫 with: [funding]。"
-                "selection.score 必須是 fundingRatePct,使 funding 真正控制候選排名;"
+                " universe.augment_with_funding 並寫 with: [funding, funding_info]。"
+                "selection.score 必須是 fundingRateApr,使 funding 真正控制候選排名;"
                 "不得改用新聞、EMA/RSI 或自行猜單一幣種。top_k 必須依使用者要求,"
                 "未指定時為 5。這是當下截面選幣訊號,不是歷史回測。\n\n"
+                # Why the annualised column and not the raw one: Binance settles
+                # different perpetuals every 8h / 4h / 1h, so fundingRatePct's unit
+                # differs per row and ranking it puts 0.01%@1h (87.6%/yr) level
+                # with 0.01%@8h (10.95%/yr). The model is told to ask for
+                # funding_info because without it the block leaves the annualised
+                # column NaN — deliberately, rather than assuming 8 hours.
+                "fundingRatePct 是「單次結算」的費率,而幣安各合約結算間隔不同"
+                "(8h / 4h / 1h),直接排名會把年化差 8 倍的兩個幣當成一樣。"
+                "fundingRateApr = 年化後的 carry,是唯一可跨合約比較的欄位;"
+                "它需要 funding_info 提供結算間隔,少寫 funding_info 會讓該欄位全部是"
+                " NaN 而選出空籃子。若使用者要求年化門檻(例如年化 30% 以上),"
+                "用 selection.min_score / max_score 表達。\n\n"
+                # fundingRateApr is signed, so the two ends of the column are two
+                # opposite trades (paid-to-be-long vs paid-to-be-short). The model
+                # is told the key by name because a basket taken from the wrong
+                # end looks perfectly healthy in the output. Annualising multiplies
+                # by a positive number, so it does not change which end is which.
+                "selection.order 決定取欄位的哪一端:desc(預設)= 由高到低,"
+                " asc = 由低到高(年化不改變正負,方向語意與原始費率相同)。"
+                + direction_note +
                 "=== 可用的 funding 選幣 BLOCKS / 欄位 ===\n"
                 "universe.filter_quote_volume\n"
-                "universe.augment_with_funding (with: [funding])\n"
+                "universe.augment_with_funding (with: [funding, funding_info])\n"
                 "universe.filter_funding_rate\n"
-                "fundingRatePct, quote_volume\n\n"
-                "=== 範例輸出 ===\n" + FUNDING_SELECTION_EXAMPLE_YAML
+                "fundingRateApr, fundingRatePct, fundingIntervalHours, quoteVolume\n\n"
+                "=== 範例輸出 ===\n" + funding_example
+            )
+        if intent is not None and "price_change" in intent.sources \
+                and "news" not in intent.sources:
+            # Same three states. The notes describe the END OF THE COLUMN rather
+            # than the words the user used, because both ends have two phrasings:
+            # 跌幅最小 asks for the top of the column, 漲幅最小 for the bottom.
+            direction_note, change_example = {
+                "asc": (
+                    "這次需求指向欄位低端(跌幅最大/漲幅最小),必須寫 order: asc。\n\n",
+                    PRICE_CHANGE_ASC_SELECTION_EXAMPLE_YAML,
+                ),
+                "desc": (
+                    "這次需求指向欄位高端(漲幅最大/跌幅最小),寫 order: desc。\n\n",
+                    PRICE_CHANGE_SELECTION_EXAMPLE_YAML,
+                ),
+                None: (NO_ORDER_DIRECTIVE,
+                       PRICE_CHANGE_NO_ORDER_SELECTION_EXAMPLE_YAML),
+            }[_score_order_for(intent, "priceChangePercent")]
+            return (
+                "你是一個把自然語言選幣需求轉成 StandardBot YAML 的轉換器。"
+                "只輸出一份合法 YAML,不要 markdown、解釋或多餘文字。\n\n"
+                "這次需求指定 24 小時漲跌幅。頂層只用 selection:,不得產生 signals:。"
+                "使用 data.symbol=BTCUSDT 作排程代表標的,它不是候選結果。"
+                # priceChangePercent needs no augment step: the universe frame IS
+                # the Binance 24h ticker and already carries it. Saying so stops
+                # the model inventing an augment_with_price_change block.
+                "priceChangePercent 已經在 universe frame 裡,不需要任何 augment 步驟;"
+                "不得虛構 universe.augment_with_price_change。"
+                "先用 universe.filter_quote_volume 過濾最低流動性(漲幅榜前段常是"
+                "沒有量的小幣,接不到單),再以 score: priceChangePercent 排名。"
+                "不得改用 news_mention_count 或技術指標。top_k 必須依使用者要求,"
+                "未指定時為 5。\n\n"
+                "selection.order:漲幅最大用 desc(預設);跌幅最大用 asc。" +
+                direction_note +
+                "=== 可用的漲跌幅選幣 BLOCKS / 欄位 ===\n"
+                "universe.filter_quote_volume\n"
+                "universe.top_gainers (params: {n: 30})\n"
+                "universe.top_losers (params: {n: 30})\n"
+                "universe.filter_change_pct\n"
+                "priceChangePercent, quoteVolume\n\n"
+                "=== 範例輸出 ===\n" + change_example
             )
         if intent is not None and "liquidity" in intent.sources \
                 and "news" not in intent.sources:
@@ -1192,7 +953,7 @@ def build_system_prompt(
                 "這次需求指定成交量/流動性。頂層只用 selection:,不得產生 signals:。"
                 "使用 data.symbol=BTCUSDT 作排程代表標的；它不是候選結果。"
                 "使用 universe.filter_quote_volume 過濾最低流動性，並以"
-                " score: quote_volume 排名。不得改用 news_mention_count、技術指標或"
+                " score: quoteVolume 排名。不得改用 news_mention_count、技術指標或"
                 "自行猜單一幣種。top_k 必須依使用者要求。\n\n=== 範例輸出 ===\n"
                 + LIQUIDITY_SELECTION_EXAMPLE_YAML
             )
@@ -1233,11 +994,34 @@ def build_system_prompt(
             "universe.filter_quote_volume\n"
             "universe.augment_with_news (with: [ticker_rank])\n"
             "universe.filter_sentiment (params: {min_bull_ratio: 0.55})\n"
-            "news_mention_count, news_bull_ratio, news_unique_authors, quote_volume\n\n"
+            "news_mention_count, news_bull_ratio, news_unique_authors, quoteVolume\n\n"
             "=== 範例輸出 ===\n" + selection_example
         )
 
     schema = SCHEMA_PATH.read_text(encoding="utf-8")
+    prompt_sides = _trade_prompt_sides(intent)
+    if prompt_sides == ("short",) and intent is not None \
+            and "long" in intent.excluded_directions:
+        direction_note = (
+            "使用者明確禁止做多且只允許做空:只能給 signals.entry.short,"
+            "不得產生 signals.entry.long。\n\n"
+        )
+    elif prompt_sides == ("short",):
+        direction_note = "使用者只要求做空:只能給 signals.entry.short。\n\n"
+    elif prompt_sides == ("long",) and intent is not None \
+            and intent.directions == ("long",):
+        direction_note = "使用者只要求做多:只能給 signals.entry.long。\n\n"
+    elif prompt_sides == ("long",):
+        direction_note = (
+            "使用者未指定方向,採 long-only:只能給 signals.entry.long,"
+            "不得擅自加入 signals.entry.short。\n\n"
+        )
+    else:
+        direction_note = (
+            "使用者同時明確要求多空兩邊:必須同時給 signals.entry.long 與 "
+            "signals.entry.short。\n\n"
+        )
+    prompt_example = _trade_prompt_example(prompt_sides)
     return (
         "你是一個把「自然語言交易策略描述」轉成 YAML 規格的轉換器。"
         "只輸出一份合法 YAML,不要有 markdown 圍欄(```)、不要解釋、不要多餘文字。\n\n"
@@ -1245,10 +1029,10 @@ def build_system_prompt(
         "不要使用 data.htf(單一時間框即可)。若使用者沒指定,採保守預設:"
         "market_type=futures、interval=1h、fees commission_bps=4 slippage_bps=2、size=0.95、"
         "出場預設 pct_stop_tp{stop_pct:0.02,tp_pct:0.04,max_bars:96}。\n"
-        "若使用者語意含『下穿做空 / 空方』就同時給 entry.long 與 entry.short;否則 long-only(只給 long)。\n\n"
+        + direction_note +
         "=== SCHEMA ===\n" + schema + "\n\n"
         "=== 可用 BLOCKS ===\n" + BLOCKS_CHEATSHEET + "\n\n"
-        "=== 範例輸出 ===\n" + EXAMPLE_YAML
+        "=== 範例輸出 ===\n" + prompt_example
     )
 
 
@@ -1266,36 +1050,115 @@ def _strip_fences(text: str) -> str:
 
 
 def call_llm(api_base: str, api_key: str, model: str, nl: str) -> str:
-    base = api_base.rstrip("/")
-    url = base if base.endswith("/chat/completions") else base + "/chat/completions"
-    headers = {"Content-Type": "application/json"}
-    if api_key:
-        headers["Authorization"] = "Bearer " + api_key
+    if not _external_llm_enabled():
+        raise ExternalLLMDisabled(
+            "外部 LLM 路由預設停用，因為自然語言可能包含私人內容。"
+            "若這是你明確允許送出的非敏感測試內容，請在啟動 demo 前設定 "
+            "%s=1；私有對話語料不可使用此路徑。" % EXTERNAL_LLM_OPT_IN_ENV
+        )
     intent = classify_request(nl)
-    body = {
-        "model": model,
-        "temperature": 0,
-        "messages": [
-            {"role": "system", "content": build_system_prompt(intent.kind, intent)},
-            {"role": "user", "content": nl},
-        ],
-    }
-    resp = requests.post(url, headers=headers, json=body, timeout=120)
-    if resp.status_code >= 400:
-        raise RuntimeError(f"LLM HTTP {resp.status_code}: {resp.text[:500]}")
-    data = resp.json()
-    content = data["choices"][0]["message"]["content"]
+    try:
+        trusted_hosts, allow_loopback_http_for_tests = _server_llm_transport_settings()
+        client = OpenAICompatibleHTTPClient(
+            api_base=api_base,
+            api_key=api_key,
+            model=model,
+            allow_external=True,
+            trusted_hosts=trusted_hosts,
+            allow_loopback_http_for_tests=allow_loopback_http_for_tests,
+            timeout_seconds=120,
+        )
+    except (DemoLLMNotConfigured, ValueError) as exc:
+        # Do not echo a malformed endpoint or allowlist back to a browser; an
+        # operator can inspect only the server-owned launch configuration.
+        raise RuntimeError("LLM transport is not safely configured") from exc
+    try:
+        content = client.complete(
+            system_prompt=build_system_prompt(intent.kind, intent),
+            user_request=nl,
+        )
+    except LLMClientError as exc:
+        # The adapter's codes deliberately omit request/provider content.  The
+        # demo still returns a single stable public error rather than making
+        # endpoint details part of its UI contract.
+        raise RuntimeError("LLM request failed") from exc
     return _strip_fences(content)
+
+
+def _trade_preflight_clarification(intent: IntentDecision) -> str | None:
+    """Return a deterministic stop reason before a trade request leaves host.
+
+    These are not model-quality problems.  They describe an execution intent
+    the current single-instrument contract cannot safely infer, so calling an
+    opted-in model first would needlessly disclose the request and still leave
+    a semantic mismatch to catch later.
+    """
+    if intent.kind != "trade":
+        return None
+    if "bare_sell_direction_ambiguous" in intent.evidence:
+        return (
+            "『賣出/sell』可能代表平多(close_long)或開空(open_short)。"
+            "請明確指定其中一種；系統不會把下穿條件併入開多訊號。"
+        )
+    if len(intent.included_symbols) > 1:
+        return (
+            "目前 trade YAML 一次只能建立一個標的的規則；請分成各自的單標的策略，"
+            "或改成可驗證的 selection/candidate_trade 需求。"
+        )
+    if intent.market_type == "spot" and "short" in intent.directions:
+        return (
+            "現貨不能開空；請改成 futures/perpetual，或明確指定既有多單的 close_long。"
+        )
+    if intent.condition_join == "mixed":
+        return (
+            "進場條件同時混合 AND 與 OR（例如 EMA 條件加上一組 RSI 的 OR）；"
+            "目前 intent 尚無法可靠保留巢狀分組。請拆成可獨立驗證的策略，"
+            "或明確改寫為單一 all_of/any_of 規則。"
+        )
+    if intent.exit_type == "atr_trailing_stop":
+        missing = []
+        if intent.exit_atr_period is None:
+            missing.append("ATR period（例如 ATR14）")
+        if intent.exit_trail_mult is None:
+            missing.append("追蹤倍數（例如 2x ATR）")
+        if missing:
+            return (
+                "ATR 追蹤停損需要明確的%s；系統不會改用固定百分比停損。"
+                % "、".join(missing)
+            )
+    return None
 
 
 def convert_nl(api_base: str, api_key: str, model: str, nl: str) -> dict:
     """Convert, validate and ensure the generated YAML matches user intent."""
     intent = classify_request(nl)
+    unsupported_gaps = sorted({
+        item.split(":", 1)[1]
+        for item in intent.unsupported_preferences
+        if item.startswith("gap:")
+    })
+    if unsupported_gaps:
+        return {
+            "ok": True,
+            "status": "unsupported",
+            "yaml": "",
+            "valid": False,
+            "strategy_kind": intent.kind,
+            "generated_strategy_kind": None,
+            "intent": intent.to_dict(),
+            "errors": [
+                "需求包含目前 YAML/runtime 無法忠實表達的能力: %s；"
+                "系統已停止，不會以相關指標、下單或通知代理替代。"
+                % ", ".join(unsupported_gaps)
+            ],
+            "warnings": [],
+        }
     if intent.kind == "ambiguous":
         compound = "compound_selection_execution" in intent.evidence
         message = (
-            "目前一份 YAML 不能同時表達『先跨幣別選幣，再對每個候選執行交易規則』;"
-            "請拆成選幣與交易兩個需求"
+            "這個『先選幣再交易』要求缺少目前 candidate_trade 可驗證的逐候選"
+            "進場條件;請補 RSI 門檻/技術買賣點。直接買入與 EMA 跨越等逐根事件"
+            "不會被偷偷改寫成另一個策略"
             if compound else
             "無法可靠判斷你要『挑選一組候選幣』還是『為單一標的建立交易規則』;"
             "系統已停止,不會預設成技術分析"
@@ -1312,24 +1175,50 @@ def convert_nl(api_base: str, api_key: str, model: str, nl: str) -> dict:
             "warnings": [],
         }
 
+    preflight_error = _trade_preflight_clarification(intent)
+    if preflight_error:
+        return {
+            "ok": True,
+            "status": "needs_clarification",
+            "yaml": "",
+            "valid": False,
+            "strategy_kind": intent.kind,
+            "generated_strategy_kind": None,
+            "intent": intent.to_dict(),
+            "errors": [preflight_error],
+            "warnings": [],
+        }
+
+    unmapped_categories = [
+        item.split(":", 1)[1]
+        for item in intent.unsupported_preferences
+        if item.startswith("category_exclusion:")
+    ]
+    if unmapped_categories:
+        return {
+            "ok": True,
+            "status": "needs_clarification",
+            "yaml": "",
+            "valid": False,
+            "strategy_kind": intent.kind,
+            "generated_strategy_kind": None,
+            "intent": intent.to_dict(),
+            "errors": [
+                "你要求排除資產類別(%s)，但 demo 尚未有經核對的 "
+                "exchange metadata 映射；已停止，請先指定可審核的分類映射，"
+                "不會猜測或以近似篩選代替。"
+                % ", ".join(unmapped_categories)
+            ],
+            "warnings": [],
+        }
+
     if intent.kind == "selection":
-        if "funding" in intent.sources and _LOWEST_FUNDING_RANKING.search(nl):
-            return {
-                "ok": True,
-                "status": "unsupported",
-                "yaml": "",
-                "valid": False,
-                "strategy_kind": "selection",
-                "generated_strategy_kind": None,
-                "intent": intent.to_dict(),
-                "errors": [
-                    "目前 funding selection 的 score 只支援由高到低排名;"
-                    "『最負/最低 funding』需要明確的 ascending 排名規格,系統已停止,"
-                    "不會反向選錯幣"
-                ],
-                "warnings": [],
-            }
-        unsupported = sorted(intent.sources & {"open_interest", "price_change"})
+        # "Most negative funding" and "biggest gainers" used to be refused here.
+        # Both refusals are gone, for different reasons: selection.order: asc now
+        # expresses the bottom of a column, and priceChangePercent was never
+        # missing — it rides along in the universe frame. What is left is the one
+        # source with no cross-section endpoint behind it at all.
+        unsupported = sorted(intent.sources & UNSUPPORTED_SELECTION_SOURCES)
         if unsupported:
             return {
                 "ok": True,
@@ -1346,7 +1235,47 @@ def convert_nl(api_base: str, api_key: str, model: str, nl: str) -> dict:
                 ],
                 "warnings": [],
             }
-        if not intent.sources:
+        if "long_short_ratio" in intent.sources and (
+                intent.long_short_min_account_pct is None
+                or intent.long_short_min_account_operator not in {">", ">="}):
+            return {
+                "ok": True,
+                "status": "needs_clarification",
+                "yaml": "",
+                "valid": False,
+                "strategy_kind": "selection",
+                "generated_strategy_kind": None,
+                "intent": intent.to_dict(),
+                "errors": [
+                    "散戶多空比需要明確的多方帳戶百分比門檻，例如「偏多 > 60%」；"
+                    "系統不會猜測 min_long_account_pct。"
+                ],
+                "warnings": [],
+            }
+        if "supertrend" in intent.indicator_names:
+            missing = []
+            if not intent.supertrend_parameters:
+                missing.append("Supertrend(period,multiplier)，例如 Supertrend(10,3)")
+            if not intent.intervals:
+                missing.append("timeframe，例如 H4/H1/M15")
+            if len([side for side in ("long", "short") if side in intent.directions]) != 1:
+                missing.append("明確方向（偏多或偏空）")
+            if missing:
+                return {
+                    "ok": True,
+                    "status": "needs_clarification",
+                    "yaml": "",
+                    "valid": False,
+                    "strategy_kind": "selection",
+                    "generated_strategy_kind": None,
+                    "intent": intent.to_dict(),
+                    "errors": [
+                        "Supertrend 選幣需要 %s；系統不會用漲跌幅或其他技術指標代替。"
+                        % "、".join(missing)
+                    ],
+                    "warnings": [],
+                }
+        if not intent.sources and "supertrend" not in intent.indicator_names:
             return {
                 "ok": True,
                 "status": "needs_clarification",
@@ -1359,7 +1288,20 @@ def convert_nl(api_base: str, api_key: str, model: str, nl: str) -> dict:
                 "warnings": [],
             }
 
-    yaml_text = call_llm(api_base, api_key, model, nl)
+    try:
+        yaml_text = call_llm(api_base, api_key, model, nl)
+    except ExternalLLMDisabled as exc:
+        return {
+            "ok": True,
+            "status": "external_llm_disabled",
+            "yaml": "",
+            "valid": False,
+            "strategy_kind": intent.kind,
+            "generated_strategy_kind": None,
+            "intent": intent.to_dict(),
+            "errors": [str(exc)],
+            "warnings": [],
+        }
     errors: list[str] = []
     warnings: list[str] = []
     generated_kind = None
@@ -1377,7 +1319,7 @@ def convert_nl(api_base: str, api_key: str, model: str, nl: str) -> dict:
             validation_errors, validation_warnings = validate_spec(spec)
             errors.extend(validation_errors)
             warnings.extend(validation_warnings)
-            generated_kind = _generated_strategy_kind(spec)
+            generated_kind = generated_strategy_kind(spec)
             # Semantic reconciliation expects a structurally valid tree. Running
             # it after (for example) ``with: 123`` turns a useful validation error
             # into an unrelated TypeError and a generic HTTP 500.
@@ -1712,17 +1654,16 @@ def run_selection(yaml_text: str) -> dict:
 
     import time
 
-    from cyqnt_trd.standard_bot.data.live_snapshot import build_live_snapshot
     from cyqnt_trd.standard_bot.yaml_pipeline.bundle_runner import (
-        live_sections_for_spec, run_bundle)
+        collect_live_bundle_for_spec, run_bundle)
 
     market_type = (spec.get("data") or {}).get("market_type", "futures")
     started = time.time()
     data = spec.get("data") or {}
     symbol = str(data.get("symbol") or "BTCUSDT").upper()
     interval = str((data.get("primary") or {}).get("interval") or "1h")
-    _snapshot_obj, bundle = build_live_snapshot(
-        sections=live_sections_for_spec(spec), symbol=symbol, interval=interval,
+    bundle = collect_live_bundle_for_spec(
+        spec, symbol=symbol, interval=interval,
         market_type=market_type,
     )
     batch = run_bundle(spec, bundle)
@@ -1761,9 +1702,20 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _read_json(self):
-        length = int(self.headers.get("Content-Length", 0))
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("invalid JSON request") from exc
+        if length < 0 or length > MAX_JSON_BODY_BYTES:
+            raise ValueError("invalid JSON request")
         raw = self.rfile.read(length) if length else b"{}"
-        return json.loads(raw or b"{}")
+        try:
+            value = json.loads(raw or b"{}")
+        except (TypeError, ValueError) as exc:
+            raise ValueError("invalid JSON request") from exc
+        if not isinstance(value, dict):
+            raise ValueError("invalid JSON request")
+        return value
 
     def log_message(self, fmt, *args):
         sys.stderr.write("[demo] " + (fmt % args) + "\n")
@@ -1789,13 +1741,21 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if self.path == "/api/convert":
                 b = self._read_json()
-                if not b.get("nl", "").strip():
+                nl = b.get("nl", "")
+                if not isinstance(nl, str) or not nl.strip():
                     return self._send(400, {"ok": False, "error": "請輸入自然語言描述"})
-                if not b.get("api_base") or not b.get("model"):
-                    return self._send(400, {"ok": False, "error": "請填 LLM API Base URL 與 model"})
-                return self._send(200, convert_nl(
-                    b["api_base"], b.get("api_key", ""), b["model"], b["nl"]
-                ))
+                if len(nl.encode("utf-8")) > MAX_NL_BYTES:
+                    return self._send(400, {"ok": False, "error": "自然語言描述過長"})
+                try:
+                    api_base, api_key, model = _server_llm_settings()
+                except DemoLLMNotConfigured:
+                    return self._send(503, {
+                        "ok": False,
+                        "error": "demo_llm_not_configured",
+                    })
+                return self._send(200, _as_draft_conversion_response(convert_nl(
+                    api_base, api_key, model, nl
+                )))
             if self.path == "/api/backtest":
                 b = self._read_json()
                 return self._send(200, run_backtest(b.get("yaml", "")))
@@ -1811,9 +1771,8 @@ class Handler(BaseHTTPRequestHandler):
                 b = self._read_json()
                 return self._send(200, run_selection(b.get("yaml", "")))
             return self._send(404, {"ok": False, "error": "not found"})
-        except Exception as exc:
-            sys.stderr.write(traceback.format_exc())
-            return self._send(200, {"ok": False, "error": f"{type(exc).__name__}: {exc}"})
+        except Exception:  # Do not echo provider/YAML/request details to the browser or log.
+            return self._send(500, {"ok": False, "error": "request_failed"})
 
 
 def main():

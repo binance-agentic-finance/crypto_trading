@@ -513,13 +513,49 @@ def funding_window_safe(
 # ---------------------------------------------------------------------------
 
 
+def _as_boolean_vote(s, position: int) -> pd.Series:
+    """One alignment input, rejected unless it is already a yes/no.
+
+    Every other ``.astype(bool)`` in this module is applied to the result of a
+    comparison, which is boolean before the cast. This is the only place the
+    cast lands on data the CALLER supplied, and that is where it went wrong: a
+    Supertrend direction column is ``-1.0`` / ``+1.0``, and ``bool(-1.0)`` is
+    ``True``, so feeding three of them in turned "aligned on three timeframes"
+    into "always aligned" — measured on the frozen cross-section, all five names
+    passed, including one that was bullish on all three, and all five came back
+    labelled ``short``, with ``validate`` fully green.
+
+    Coercing cannot be made safe here, only silent: for a ``-1`` the caller may
+    mean "bearish, count it" or "not aligned, drop it", the two answers are
+    disjoint, and nothing in the value says which. So anything outside
+    ``{0, 1}`` raises and names the conversion to write instead.
+    """
+    out = ensure_series(s)
+    if out.dtype == bool:
+        return out
+    numeric = pd.to_numeric(out, errors="coerce")
+    stray = numeric.dropna()
+    stray = stray[~stray.isin((0, 1))]
+    if len(stray):
+        raise ValueError(
+            "multi_timeframe_alignment expects yes/no votes, but signal %d holds "
+            "%s. A direction column (-1 / +1) is not a vote: -1 casts to True, "
+            "so ANDing three of them returns True everywhere and the basket is "
+            "the whole universe wearing an alignment label. Compare it first — "
+            "in YAML that is a features: entry such as "
+            "{ block: conditions.value_below, args: [<col>, 0] } for bearish, or "
+            "conditions.value_above for bullish — and pass the result here."
+            % (position, sorted(set(stray.head(4).tolist()))))
+    return numeric.fillna(0).astype(bool)
+
+
 def multi_timeframe_alignment(*signals: pd.Series) -> pd.Series:
     """All boolean signals are True at the same time."""
     if not signals:
         raise ValueError("at least one signal required")
-    out = ensure_series(signals[0]).fillna(False).astype(bool)
-    for s in signals[1:]:
-        out = out & ensure_series(s).fillna(False).astype(bool)
+    out = _as_boolean_vote(signals[0], 0)
+    for position, s in enumerate(signals[1:], start=1):
+        out = out & _as_boolean_vote(s, position)
     return out
 
 

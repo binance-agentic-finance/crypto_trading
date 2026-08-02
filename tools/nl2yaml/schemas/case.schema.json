@@ -1,0 +1,391 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "case.schema.json",
+  "title": "case",
+  "description": "One user request with its conditions, adjudication and gold spec(s). PUBLIC: no user text, no per-condition quotes, pseudonymous ids only.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "case_id",
+    "text_sha256",
+    "canon_sha256",
+    "dup_cluster_id",
+    "dup_count",
+    "preset_case",
+    "pseudonym_id",
+    "lang",
+    "zh_variant",
+    "month",
+    "mining_source",
+    "source_snapshot_id",
+    "text_provenance",
+    "conditions",
+    "intent_slots",
+    "capability_map",
+    "tier",
+    "text_len_chars",
+    "playbook_version",
+    "playbook_sha256",
+    "fewshot_set_id",
+    "fewshot_case_ids",
+    "block_vocab_id",
+    "block_refs",
+    "block_registry_sha",
+    "schema_sha",
+    "system_prompt_sha256",
+    "prompt_tokens_by_component",
+    "converter_model",
+    "temperature",
+    "seed",
+    "repo_git_sha",
+    "gold_specs",
+    "gold_source",
+    "gold_verification_level",
+    "gold_condition_verdicts",
+    "gold_is_refusal",
+    "refusal_gap_ids",
+    "gold_invalidated_by_gap_closure",
+    "human_reviewed_by",
+    "human_reviewed_at",
+    "human_edit_diff",
+    "gold_disagreement",
+    "resolution_path",
+    "n_conditions",
+    "n_quantified",
+    "scope_counts",
+    "gold_unverifiable_cids",
+    "proxy_used",
+    "proxy_cids",
+    "gold_eligible_for_sft",
+    "gold_eligible_loose"
+  ],
+  "properties": {
+    "case_id": {
+      "type": "string",
+      "pattern": "^(case_[0-9a-f]{16}|[0-9A-HJKMNP-TV-Z]{26}|[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$"
+    },
+    "text_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "canon_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "dup_cluster_id": {
+      "type": "string",
+      "pattern": "^dup_[0-9a-f]{16}$"
+    },
+    "dup_count": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "preset_case": {
+      "type": "boolean"
+    },
+    "pseudonym_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^pid_[a-z2-7]{26}$"
+    },
+    "lang": {
+      "$ref": "common.schema.json#/$defs/Lang"
+    },
+    "zh_variant": {
+      "anyOf": [
+        {
+          "$ref": "common.schema.json#/$defs/ZhVariant"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "month": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}$"
+    },
+    "mining_source": {
+      "$ref": "common.schema.json#/$defs/MiningSource"
+    },
+    "source_snapshot_id": {
+      "type": "string"
+    },
+    "text_provenance": {
+      "$ref": "common.schema.json#/$defs/TextProvenance"
+    },
+    "conditions": {
+      "type": "array",
+      "items": {
+        "$ref": "common.schema.json#/$defs/Condition"
+      }
+    },
+    "intent_slots": {
+      "anyOf": [
+        {
+          "$ref": "common.schema.json#/$defs/IntentSlots"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "capability_map": {
+      "type": "array",
+      "items": {
+        "$ref": "common.schema.json#/$defs/CapabilityEntry"
+      }
+    },
+    "tier": {
+      "anyOf": [
+        {
+          "$ref": "common.schema.json#/$defs/CaseTier"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "text_len_chars": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "playbook_version": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "playbook_sha256": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "fewshot_set_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "fewshot_case_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "block_vocab_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "block_refs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "block_registry_sha": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "schema_sha": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "system_prompt_sha256": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "prompt_tokens_by_component": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "propertyNames": {
+        "enum": [
+          "system",
+          "playbook",
+          "block_vocab",
+          "fewshot",
+          "schema",
+          "request",
+          "repair_feedback",
+          "other"
+        ]
+      }
+    },
+    "converter_model": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "temperature": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 2
+    },
+    "seed": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 2147483647
+    },
+    "repo_git_sha": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "gold_specs": {
+      "type": "array",
+      "items": {
+        "$ref": "common.schema.json#/$defs/GoldSpec"
+      }
+    },
+    "gold_source": {
+      "$ref": "common.schema.json#/$defs/GoldSource"
+    },
+    "gold_verification_level": {
+      "$ref": "common.schema.json#/$defs/GoldVerificationLevel"
+    },
+    "gold_condition_verdicts": {
+      "type": "array",
+      "items": {
+        "$ref": "common.schema.json#/$defs/ConditionVerdict"
+      }
+    },
+    "gold_is_refusal": {
+      "type": "boolean"
+    },
+    "refusal_gap_ids": {
+      "type": "array",
+      "items": {
+        "$ref": "common.schema.json#/$defs/GapId"
+      }
+    },
+    "gold_invalidated_by_gap_closure": {
+      "type": "boolean"
+    },
+    "human_reviewed_by": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "human_reviewed_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+(Z|[+-][0-9]{2}:?[0-9]{2})$"
+    },
+    "human_edit_diff": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "gold_disagreement": {
+      "anyOf": [
+        {
+          "$ref": "common.schema.json#/$defs/GoldDisagreement"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "resolution_path": {
+      "anyOf": [
+        {
+          "$ref": "common.schema.json#/$defs/ResolutionPath"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "n_conditions": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "n_quantified": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "scope_counts": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "propertyNames": {
+        "$ref": "common.schema.json#/$defs/Scope"
+      }
+    },
+    "gold_unverifiable_cids": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "proxy_used": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "proxy_cids": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "gold_eligible_for_sft": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "gold_eligible_loose": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    }
+  }
+}

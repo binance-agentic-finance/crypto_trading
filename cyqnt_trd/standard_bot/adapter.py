@@ -111,7 +111,15 @@ def _exit_plan_from_spec(spec: Optional[Dict[str, Any]]) -> Optional[ExitPlan]:
         legs = ()
         tp_mult = spec.get("tp_mult")
         if tp_mult:
-            legs = (TakeProfitLeg(close_pct=1.0, atr_mult=float(tp_mult)),)
+            # An ATR multiplier without the entry ATR cannot resolve a price.
+            # Carry the same frozen entry measurement used by the stop so the
+            # published v2 plan preserves both protective legs of the engine's
+            # ``atr_stop_tp`` exit.
+            legs = (TakeProfitLeg(
+                close_pct=1.0,
+                atr_mult=float(tp_mult),
+                atr_value=float(atr) if atr is not None else None,
+            ),)
         return ExitPlan(stop_loss=stop, take_profit=legs, time_stop=time_stop)
 
     if kind == "pct_stop_tp":
@@ -151,6 +159,8 @@ def _candidates_from_payload(rows: Sequence[Dict[str, Any]]) -> tuple:
             direction=direction,
             reason=str(row.get("reason") or ""),
             features=dict(row.get("features") or {}),
+            trade=(StandardSignal.from_dict(row["trade"])
+                   if isinstance(row.get("trade"), dict) else None),
         ))
     return tuple(out)
 
@@ -197,20 +207,28 @@ def envelope_to_signal(
 
     if kind == SignalKind.SELECTION.value:
         candidates = _candidates_from_payload(payload.get("candidates") or [])
-        if not candidates:
+        universe_size = int(payload.get("universe_size") or 0)
+        summary = str(payload.get("summary") or "")
+        reason_codes = tuple(payload.get("reason_codes") or ())
+        if not candidates and not (
+                universe_size > 0 and (summary or reason_codes)):
             raise AdapterError(
-                "selection envelope %r carries no candidates; a cross-sectional "
-                "signal with an empty basket says nothing" % envelope.signal_id)
+                "selection envelope %r carries no candidates and does not prove "
+                "that a universe was evaluated or state why the basket is empty"
+                % envelope.signal_id)
+        if not candidates and not reason_codes:
+            reason_codes = ("empty_basket", "no_candidate_qualified")
         return StandardSignal(
             bot_id=provenance.strategy_id, decision_time=int(ts), provenance=provenance,
             signal_id=envelope.signal_id, bot_version=provenance.strategy_version,
             venue=venue, product=product, market_scope=MarketScope.CROSS_SECTION,
             intent=PositionIntent.HOLD, direction=Direction.NEUTRAL,
             candidates=candidates,
-            universe_size=int(payload.get("universe_size") or len(candidates)),
+            universe_size=universe_size or len(candidates),
             score=min(100.0, max(0.0, float(envelope.strength) * 100.0)),
             confidence=min(1.0, max(0.0, float(envelope.strength))),
-            summary=str(payload.get("summary") or ""),
+            summary=summary,
+            reason_codes=reason_codes,
             time_horizon=_horizon(envelope.time_horizon),
             valid_until=envelope.valid_until,
         )

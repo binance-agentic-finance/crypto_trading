@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "measure_gap_header.schema.json",
+  "title": "Gate0 measurement-gap stream header",
+  "description": "Versioned file header for aggregate Gate0 gap counts. This is not the per-case gap.schema.json ledger.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "record_schema"
+  ],
+  "properties": {
+    "schema": {
+      "const": "cyqnt.nl2yaml.gate0-gaps/v1"
+    },
+    "record_schema": {
+      "const": "cyqnt.nl2yaml.gate0-gap/v1"
+    }
+  }
+}

@@ -70,6 +70,26 @@ def test_hold_with_nothing_else_stays_a_trade_signal():
     assert _signal(symbol="BTCUSDT").kind is SignalKind.TRADE
 
 
+def test_an_empty_cross_section_is_still_a_selection_signal():
+    """No qualified names is a selection result, not a trade instruction."""
+    signal = _signal(
+        market_scope=MarketScope.CROSS_SECTION,
+        universe_size=10,
+        reason_codes=("no_candidate_qualified",),
+    )
+    assert signal.kind is SignalKind.SELECTION
+    assert signal.to_dict()["kind"] == "selection"
+
+
+def test_an_empty_single_instrument_signal_stays_a_trade_signal():
+    signal = _signal(
+        symbol="BTCUSDT",
+        universe_size=10,
+        reason_codes=("no_entry",),
+    )
+    assert signal.kind is SignalKind.TRADE
+
+
 def test_kind_uses_the_same_enum_as_the_engine_envelope():
     """One vocabulary. ``SignalEnvelope.kind`` and ``StandardSignal.kind`` are
     the same type, so a consumer switching on it does not need two mappings."""
@@ -98,6 +118,25 @@ def test_a_producer_cannot_mislabel_a_trade_as_a_basket():
 def test_declaring_the_kind_that_matches_is_accepted():
     signal = _signal(kind=SignalKind.SELECTION, candidates=(_candidate(),))
     assert signal.kind is SignalKind.SELECTION
+
+
+def test_a_producer_cannot_mislabel_an_empty_cross_section_as_a_trade():
+    with pytest.raises(ValueError, match="contradicts the payload"):
+        _signal(
+            kind=SignalKind.TRADE,
+            market_scope=MarketScope.CROSS_SECTION,
+            universe_size=10,
+            reason_codes=("no_candidate_qualified",),
+        )
+
+
+def test_a_producer_cannot_mislabel_an_empty_single_signal_as_a_selection():
+    with pytest.raises(ValueError, match="contradicts the payload"):
+        _signal(
+            kind=SignalKind.SELECTION,
+            symbol="BTCUSDT",
+            reason_codes=("no_entry",),
+        )
 
 
 # --------------------------------------------------------------------------- #

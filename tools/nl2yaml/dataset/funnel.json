@@ -1,0 +1,293 @@
+{
+  "dup_count_histogram": {
+    "<=1": 27132,
+    "<=10": 1952,
+    "<=100": 1024,
+    "<=2": 3842,
+    "<=5": 3337,
+    "<=50": 3532,
+    "<=500": 4578,
+    ">500": 6198
+  },
+  "family_rows": {
+    "asset": 10099,
+    "direction": 8392,
+    "indicator": 5326,
+    "rank_topn": 2504,
+    "risk": 9450,
+    "threshold": 2461,
+    "timeframe": 5622,
+    "universe_filter": 6784
+  },
+  "fragment_reasons": {
+    "all_chatter": 491,
+    "empty": 2286,
+    "leading_chatter_no_conditions": 478
+  },
+  "funnel": {
+    "after_fragment_filter": 48340,
+    "candidates_rows": 26161,
+    "candidates_split_groups": 16472,
+    "candidates_unique_canon": 17446,
+    "continuation_fragments": 3255,
+    "total_rows": 51595,
+    "unique_canon_after_fragment_filter": 30882
+  },
+  "leading_chatter_but_kept": 549,
+  "miner": "gate0-mine/1",
+  "n_conditions_histogram": {
+    "0": 25434,
+    "1": 11255,
+    "2": 6208,
+    "3": 2919,
+    "4": 1811,
+    "5": 1039,
+    "6": 608,
+    "7": 492,
+    "8": 290,
+    "9": 272,
+    "10": 1267
+  },
+  "salt_fingerprint": "88ca319b9b2f",
+  "shape_base_rows": {
+    "ambiguous": 32815,
+    "selection": 2313,
+    "trade": 13212
+  },
+  "shape_by_tier_rows": {
+    "both": {
+      "A": 1868,
+      "B": 283,
+      "C": 199,
+      "D": 77
+    },
+    "selection": {
+      "A": 307,
+      "B": 349,
+      "C": 582,
+      "D": 546
+    },
+    "trade": {
+      "A": 2878,
+      "B": 2804,
+      "C": 5340,
+      "D": 1188
+    },
+    "unclear": {
+      "A": 607,
+      "B": 3432,
+      "C": 7512,
+      "D": 20368
+    }
+  },
+  "shape_by_tier_unique_canon": {
+    "both": {
+      "A": 1241,
+      "B": 232,
+      "C": 157,
+      "D": 67
+    },
+    "selection": {
+      "A": 218,
+      "B": 265,
+      "C": 472,
+      "D": 489
+    },
+    "trade": {
+      "A": 2097,
+      "B": 2088,
+      "C": 3725,
+      "D": 1009
+    },
+    "unclear": {
+      "A": 452,
+      "B": 1541,
+      "C": 4958,
+      "D": 11871
+    }
+  },
+  "shape_rows": {
+    "both": 2427,
+    "selection": 1784,
+    "trade": 12210,
+    "unclear": 31919
+  },
+  "split_groups": {
+    "groups_from_preset_case": 15,
+    "largest": [
+      {
+        "rows": 1507,
+        "split_group_key": "dup:dup_4e3c6855076f090e"
+      },
+      {
+        "rows": 755,
+        "split_group_key": "dup:dup_d384d4e4d36cc2ef"
+      },
+      {
+        "rows": 600,
+        "split_group_key": "dup:dup_2e4fc22a36ad0d48"
+      },
+      {
+        "rows": 518,
+        "split_group_key": "dup:dup_c0295309b9471bc2"
+      },
+      {
+        "rows": 518,
+        "split_group_key": "dup:dup_6672ea361b5529b7"
+      },
+      {
+        "rows": 504,
+        "split_group_key": "preset:volume-surge-daily-report"
+      },
+      {
+        "rows": 455,
+        "split_group_key": "preset:square-buzz-screener"
+      },
+      {
+        "rows": 443,
+        "split_group_key": "dup:dup_d2158618c4d12205"
+      },
+      {
+        "rows": 443,
+        "split_group_key": "preset:structured-trade-plan"
+      },
+      {
+        "rows": 416,
+        "split_group_key": "preset:prediction-market"
+      },
+      {
+        "rows": 409,
+        "split_group_key": "preset:popular-trading-bot"
+      },
+      {
+        "rows": 357,
+        "split_group_key": "dup:dup_2b1d7cb47489506e"
+      },
+      {
+        "rows": 355,
+        "split_group_key": "dup:dup_c79356ad8344d859"
+      },
+      {
+        "rows": 340,
+        "split_group_key": "preset:kline-indicator-checkup"
+      },
+      {
+        "rows": 282,
+        "split_group_key": "dup:dup_4b96ab9fc3395311"
+      },
+      {
+        "rows": 266,
+        "split_group_key": "preset:earnings-tradfi-scanner"
+      },
+      {
+        "rows": 246,
+        "split_group_key": "preset:three-tier-strategy"
+      },
+      {
+        "rows": 231,
+        "split_group_key": "dup:dup_300395bf80bd847b"
+      },
+      {
+        "rows": 228,
+        "split_group_key": "dup:dup_d681f1e423842de2"
+      },
+      {
+        "rows": 226,
+        "split_group_key": "dup:dup_401d434bf9ac7ccc"
+      }
+    ],
+    "max_group_rows": 1507,
+    "n_groups": 29562,
+    "rows_in_preset_groups": 3424,
+    "size_histogram": {
+      "<=1": 26334,
+      "<=10": 262,
+      "<=100": 15,
+      "<=2": 1845,
+      "<=5": 894,
+      "<=50": 174,
+      "<=500": 32,
+      ">500": 6
+    }
+  },
+  "tier_rows": {
+    "A": 5660,
+    "B": 6868,
+    "C": 13633,
+    "D": 22179
+  },
+  "tier_split_groups": {
+    "A": 3687,
+    "B": 3932,
+    "C": 8888,
+    "D": 12755
+  },
+  "tier_unique_canon": {
+    "A": 4008,
+    "B": 4126,
+    "C": 9312,
+    "D": 13436
+  },
+  "top_preset_case": [
+    {
+      "preset_case": "volume-surge-daily-report",
+      "rows": 504
+    },
+    {
+      "preset_case": "square-buzz-screener",
+      "rows": 455
+    },
+    {
+      "preset_case": "structured-trade-plan",
+      "rows": 443
+    },
+    {
+      "preset_case": "prediction-market",
+      "rows": 416
+    },
+    {
+      "preset_case": "popular-trading-bot",
+      "rows": 409
+    },
+    {
+      "preset_case": "kline-indicator-checkup",
+      "rows": 340
+    },
+    {
+      "preset_case": "earnings-tradfi-scanner",
+      "rows": 266
+    },
+    {
+      "preset_case": "three-tier-strategy",
+      "rows": 246
+    },
+    {
+      "preset_case": "macro-event-driven-scanner",
+      "rows": 147
+    },
+    {
+      "preset_case": "tradfi-daily",
+      "rows": 111
+    },
+    {
+      "preset_case": "golden-ratio-fibonacci",
+      "rows": 25
+    },
+    {
+      "preset_case": "world-cup-predictor",
+      "rows": 23
+    },
+    {
+      "preset_case": "serenity-stock-research",
+      "rows": 22
+    },
+    {
+      "preset_case": "funding-rate-scanner",
+      "rows": 16
+    },
+    {
+      "preset_case": "black-swan-insurance",
+      "rows": 1
+    }
+  ]
+}

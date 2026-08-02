@@ -47,12 +47,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Build a cyqnt.input/v1 bundle from live nodes and "
                     "optionally run a strategy on it")
-    parser.add_argument("--symbol", default="BTCUSDT")
-    parser.add_argument("--interval", default="1h")
+    # ``None`` distinguishes a caller's explicit override from the ordinary
+    # single-instrument defaults.  A YAML spec owns its own data contract, so
+    # passing parser defaults through it would silently turn (say) ETH/4h into
+    # BTC/1h before the runner ever sees the spec.
+    parser.add_argument("--symbol", default=None,
+                        help="single-instrument symbol (default BTCUSDT)")
+    parser.add_argument("--interval", default=None,
+                        help="single-instrument interval (default 1h)")
     parser.add_argument("--limit", type=int, default=500,
                         help="bars requested (also sizes the per-node windows)")
-    parser.add_argument("--market-type", default="futures",
-                        choices=("spot", "futures"))
+    parser.add_argument("--market-type", default=None,
+                        choices=("spot", "futures"),
+                        help="single-instrument market type (default futures)")
     parser.add_argument(
         "--sections", default=None,
         help="comma-separated data sections to fetch (derivatives,news,"
@@ -176,22 +183,69 @@ def main(argv: Optional[List[str]] = None) -> int:
 
         yaml_spec = load_spec(args.strategy_yaml)
 
+        # The YAML is the only source of truth for a canonical YAML run.  Do
+        # not silently let generic bundle flags collect a different market from
+        # the one that ``run_bundle`` will interpret.  Matching values are fine
+        # (and make scripts self-documenting); mismatches must be fixed in YAML.
+        yaml_data = yaml_spec.get("data") or {}
+        yaml_primary = yaml_data.get("primary") or {}
+        requested = (
+            ("--symbol", args.symbol, str(yaml_data.get("symbol") or "BTCUSDT")),
+            ("--interval", args.interval,
+             str(yaml_primary.get("interval") or "1h")),
+            ("--market-type", args.market_type,
+             str(yaml_data.get("market_type") or "futures")),
+        )
+        for flag, supplied, declared in requested:
+            if supplied is not None and str(supplied).lower() != declared.lower():
+                raise SystemExit(
+                    "%s cannot override --strategy-yaml data (%s); edit the YAML "
+                    "so collection and execution use the same contract"
+                    % (flag, declared)
+                )
+
+    symbol = str(args.symbol or "BTCUSDT").upper()
+    interval = str(args.interval or "1h")
+    market_type = str(args.market_type or "futures")
+    if yaml_spec is not None:
+        yaml_data = yaml_spec.get("data") or {}
+        yaml_primary = yaml_data.get("primary") or {}
+        symbol = str(yaml_data.get("symbol") or "BTCUSDT").upper()
+        interval = str(yaml_primary.get("interval") or "1h")
+        market_type = str(yaml_data.get("market_type") or "futures")
+
     if args.replay:
         with open(args.replay, encoding="utf-8") as handle:
             bundle = json.load(handle)
         snapshot = load_input_bundle(bundle)
         origin = "replay %s" % args.replay
     else:
-        sections = ([s.strip() for s in args.sections.split(",") if s.strip()]
-                    if args.sections else None)
-        if sections is None and yaml_spec is not None:
-            from ..yaml_pipeline.bundle_runner import live_sections_for_spec
+        if yaml_spec is not None:
+            if args.sections:
+                raise SystemExit(
+                    "--sections cannot override --strategy-yaml; declare every "
+                    "required source with the YAML selection/signals blocks"
+                )
+            from ..yaml_pipeline.bundle_runner import collect_live_bundle_for_spec
 
-            sections = live_sections_for_spec(yaml_spec)
-        snapshot, bundle = build_live_snapshot(
-            sections=sections, symbol=args.symbol, interval=args.interval,
-            limit=args.limit, market_type=args.market_type,
-            include_account=args.include_account, write_bundle=args.out)
+            # Selection fan-out sources cannot be collected in one blind pass:
+            # the correct per-symbol roster only exists after earlier YAML
+            # filters run.  This is the same multi-pass path used by the YAML
+            # CLI and demo, and its output is the replay boundary.
+            bundle = collect_live_bundle_for_spec(
+                yaml_spec,
+                limit=args.limit,
+                include_account=args.include_account,
+                write_bundle=args.out,
+            )
+            snapshot = load_input_bundle(bundle)
+        else:
+            sections = ([s.strip() for s in args.sections.split(",") if s.strip()]
+                        if args.sections else None)
+            snapshot, bundle = build_live_snapshot(
+                sections=sections, symbol=symbol, interval=interval,
+                limit=args.limit, market_type=market_type,
+                include_account=args.include_account, write_bundle=args.out)
         origin = "live"
 
     status: Dict[str, str] = dict(bundle.get("source_status") or {})
@@ -205,15 +259,15 @@ def main(argv: Optional[List[str]] = None) -> int:
         "source_status": status,
         "warnings": list(bundle.get("warnings") or []),
         "strategy_columns": _column_count(
-            snapshot, symbol=args.symbol, interval=args.interval),
+            snapshot, symbol=symbol, interval=interval),
     }
     if args.out and not args.replay:
         result["bundle_path"] = args.out
 
     if args.strategy:
         result.update(_run_strategy(
-            snapshot, args.strategy, symbol=args.symbol,
-            interval=args.interval, market_type=args.market_type))
+            snapshot, args.strategy, symbol=symbol,
+            interval=interval, market_type=market_type))
 
     signal_batch = None
     if yaml_spec is not None:

@@ -1,0 +1,49 @@
+# 選幣 + 逐候選交易計畫。外層輸出仍是 kind=selection；每個候選的
+# candidates[].trade 是一份完整 cyqnt.signal/v2(kind=trade)。
+
+spec_version: "1.0"
+target: standard_bot
+
+strategy:
+  id: liquid_rsi_candidate_trades
+  description: "成交額前段候選；RSI14 低於 30 做多、高於 70 做空。"
+
+run:
+  mode: backtest
+
+data:
+  symbol: BTCUSDT
+  market_type: futures
+  primary:
+    interval: "1h"
+
+selection:
+  universe:
+    # 逐幣抓 K 線前必須先收窄，否則會超過 fan-out 預算。
+    - block: universe.filter_quote_volume
+      params: { min_quote_volume: 100000000 }
+    - block: universe.augment_with_indicator
+      with: [universe_bars]
+      params:
+        indicator: rsi
+        timeframe: "1h"
+        period: 14
+        as: rsi14
+  score: quoteVolume
+  order: desc
+  top_k: 5
+  dedupe_by: base_asset
+  long_when: { cond: conditions.value_below, args: [rsi14, 30] }
+  short_when: { cond: conditions.value_above, args: [rsi14, 70] }
+  candidate_trade:
+    entry_type: market
+
+sizing:
+  size: 0.05
+
+risk:
+  exit:
+    type: pct_stop_tp
+    stop_pct: 0.02
+    tp_pct: 0.04
+    max_bars: 48

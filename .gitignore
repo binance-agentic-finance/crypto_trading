@@ -80,3 +80,17 @@ strategies/_standard/BOT_STANDARD_AND_STRATEGIES.md
 # ⚠️ 移除只影響 HEAD —— 金鑰仍留在 git 歷史中,必須輪換才算修復。
 cyqnt_trd/test.py
 cyqnt_trd/diagnose_api.py
+
+# nl2yaml: mined corpus is a 43 MB derived artifact, regenerable with
+#   python -m tools.nl2yaml.mine --csv <the gitignored CSV>
+# Committing it puts a fresh 43 MB blob in history on every miner tweak. The
+# conclusions drawn from it (funnel.json / measure.json / gaps.jsonl /
+# funnel_report.md) are small and ARE tracked, so the numbers stay reviewable.
+# Note this also removes it from test_privacy's "publishable files" sweep —
+# correct, because a PR no longer publishes it.
+tools/nl2yaml/dataset/candidates.jsonl
+
+# 對照內部 Confluence 案例文件寫成的能力審核報告。內容含未發布的產品規格與
+# 內部頁面/採購編號,而這個 repo 的兩個 remote 都是公開的 —— 程式碼可以公開,
+# 未發布的產品規劃不見得。報告本身留在本機,結論以人工方式貼回 Confluence。
+docs/capability_audit_*.md

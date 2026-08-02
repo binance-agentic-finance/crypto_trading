@@ -260,7 +260,7 @@ OHLCV candles. The base series every technical block reads.
 }
 ```
 
-### `MetricFrame@1.0` - 29 个节点
+### `MetricFrame@1.0` - 31 个节点
 
 **一行 = one instrument × metric × time**
 
@@ -308,7 +308,7 @@ Discrete dated events: news, announcements, calendar entries, unlocks, macro rel
 }
 ```
 
-### `RankFrame@1.0` - 15 个节点
+### `RankFrame@1.0` - 20 个节点
 
 **一行 = one instrument at one as-of**
 
@@ -398,7 +398,7 @@ Wide time × instrument numeric panel — the natural input for a cross-sectiona
 | `data.klines_multi_tf` | indicators_api | `BACKTESTABLE` | yes |
 | `data.premium_index` | public_binance | `SEMI` | -- |
 
-#### `metric` / MetricFrame@1.0 -- 29 个
+#### `metric` / MetricFrame@1.0 -- 31 个
 
 | 节点 | 通道 | 可回放 | 已接线 |
 |---|---|---|:-:|
@@ -412,6 +412,7 @@ Wide time × instrument numeric panel — the natural input for a cross-sectiona
 | `data.fear_greed` | public_binance | `BACKTESTABLE` | yes |
 | `data.funding` | public_binance | `BACKTESTABLE` | yes |
 | `data.funding_current` | public_binance | `FORWARD_ONLY` | yes |
+| `data.funding_snapshot` | public_binance | `FORWARD_ONLY` | yes |
 | `data.funding_widget` | internal_http | `FORWARD_ONLY` | yes |
 | `data.futures_radar` | internal_http | `FORWARD_ONLY` | yes |
 | `data.large_flow` | internal_http | `SEMI` | yes |
@@ -419,6 +420,7 @@ Wide time × instrument numeric panel — the natural input for a cross-sectiona
 | `data.liquidations` | local_parquet | `SEMI` | yes |
 | `data.long_short_ratio` | public_binance | `SEMI` | yes |
 | `data.macro_indicators` | external_vendor | `EXTERNAL_PENDING` | -- |
+| `data.oi_change_snapshot` | public_binance | `FORWARD_ONLY` | yes |
 | `data.onchain_signals` | internal_http | `FORWARD_ONLY` | -- |
 | `data.open_interest` | public_binance | `SEMI` | yes |
 | `data.options_chain` | external_vendor | `EXTERNAL_PENDING` | -- |
@@ -448,16 +450,21 @@ Wide time × instrument numeric panel — the natural input for a cross-sectiona
 | `data.news_vendor` | external_vendor | `EXTERNAL_PENDING` | -- |
 | `data.token_unlock` | internal_http | `SEMI` | yes |
 
-#### `rank` / RankFrame@1.0 -- 15 个
+#### `rank` / RankFrame@1.0 -- 20 个
 
 | 节点 | 通道 | 可回放 | 已接线 |
 |---|---|---|:-:|
 | `data.ai_signal` | internal_http | `FORWARD_ONLY` | yes |
 | `data.bdp_screen` | bdp_screening | `FORWARD_ONLY` | yes |
+| `data.book_ticker` | public_binance | `FORWARD_ONLY` | yes |
 | `data.coin_metrics` | internal_http | `SEMI` | yes |
+| `data.contract_meta` | public_binance | `FORWARD_ONLY` | yes |
 | `data.etf_metadata` | external_vendor | `EXTERNAL_PENDING` | -- |
+| `data.funding_info` | public_binance | `FORWARD_ONLY` | yes |
 | `data.hot_coin` | internal_http | `FORWARD_ONLY` | yes |
+| `data.long_short_ratio_snapshot` | public_binance | `FORWARD_ONLY` | yes |
 | `data.market_scan` | public_binance | `FORWARD_ONLY` | yes |
+| `data.open_interest_snapshot` | public_binance | `FORWARD_ONLY` | yes |
 | `data.sector_flow` | internal_http | `SEMI` | yes |
 | `data.sentiment` | square_skill | `FORWARD_ONLY` | yes |
 | `data.strategy_ranking` | internal_http | `FORWARD_ONLY` | yes |

@@ -18,6 +18,18 @@ target: standard_bot                  # 固定
 strategy:
   id: <str>                           # 策略唯一 ID(→ --strategy)
   description: <str>?
+  assumptions:                        # ? spec 承認自己替使用者選了哪一邊
+    # 有些需求本身就兩種讀法,而且**沒有任何 block 能替它決定** ——「成交量一千萬」
+    # 是 1e7 美元成交額還是 1e7 顆幣?兩種讀法篩出不同名單。系統的預設是宣告而不是
+    # 阻斷:取比較可能的讀法、然後說出來。但寫在 YAML 註解裡不算數 —— 註解在 load
+    # 的時候就被丟掉,拿到籃子的人看不到。寫在這裡才會跟著訊號的 warnings 一起出去,
+    # 並讓 reason_codes 多一個 assumption_declared 供程式判斷。
+    #
+    # 這跟「做不到」是兩件事:缺 block 是補 block 就能解,讀法歧義補再多 block 都沒用。
+    - cid: <str>                      # 對應的需求條件 id;一個條件只能有一則
+      reading: <str>                  # 採用的讀法
+      alternatives: [<str>, ...]?     # 沒有採用的讀法 —— 讀者要看得到放棄了什麼
+      basis: <str>?                   # 為什麼這樣選
 
 # --- 真實交易 / paper trade ----------------------------------------------------
 run:                                  # 真实交易 / paper trade
@@ -51,6 +63,9 @@ data:                                 # 数据源 / 每个数据源拉取周期
     # 條件可用 args: [df, "_htf_4h_sma_200"] 引用。
 
 # --- 信號計算 + 方向 -----------------------------------------------------------
+# 這一段是「單一標的、逐根 K」的那條路。若你要的是「一次對整個幣種宇宙排名、
+# 輸出一籃候選」,跳到下面的 selection: 段 —— signals: 與 selection: 互斥,
+# 一份 spec 只能是其中一種。
 signals:                              # 信号计算
   indicators:                         # 命名的指標(factors);之後被條件引用
     <name>:
@@ -59,7 +74,7 @@ signals:                              # 信号计算
                                       #   smc_structure|smc_liquidity|verdicts|scoring
       input: <close|open|high|low|volume|df|<name>>?   # 第一個參數(預設 close;
                                       #   若 block 第一參數是 df 會自動傳 df)
-      params: { <k>: <v> }?           # 其餘 kwargs
+      params: "{ <k>: <v> }?"         # 其餘 kwargs
       output: <int>?                  # 若 block 回傳 tuple(macd/adx/donchian/bollinger),取第幾個
 
   entry:                              # 方向:給 long/short = 多空;只給 long = long-only
@@ -87,7 +102,7 @@ risk:                                 # 风控
     # atr_trailing_stop:  { atr_period, trail_mult, max_bars? }
     # ma_cross_exit:      { period, ma_type, max_bars? }
     # opposite_signal:    { max_bars? }(預設:靠反向訊號出場)
-  fees: { commission_bps: <float>?, slippage_bps: <float>? }   # backtest/paper
+  fees: "{ commission_bps: <float>?, slippage_bps: <float>? }" # backtest/paper
   live_guards:                        # run.mode=live 時必填
     max_notional: <float>             # 單筆名目硬上限(USDT)
     notional_fraction: <float>?       # 下單佔可用餘額比例(預設 0.95)
@@ -96,6 +111,151 @@ risk:                                 # 风控
 backtest:
   initial_capital: <float>?           # 預設 10000
   execution_model: <close_fill|next_bar_open>?   # 預設 next_bar_open(較真實)
+
+# --- 選幣 / 截面排名(與 signals: 互斥)----------------------------------------
+selection:                            # 选币 / 截面排名
+  # signals:   軸是時間,一根 K 一個決策,一個標的        → kind=trade
+  # selection: 軸是幣,  一個時點一個決策,整個宇宙        → kind=selection
+  #
+  # ★ 頂層 signals: 與 selection: 仍互斥:同時給會被 validate 擋掉,因為外層輸出
+  #   的 kind 不同。「先跨幣種選幣、再對每個候選給交易規則」不要再塞一個頂層
+  #   signals:,而是使用下面的 selection.candidate_trade。外層仍是 selection,
+  #   每個 candidates[].trade 則是一份完整 cyqnt.signal/v2(kind=trade)。
+  #
+  # ★ 選幣是「單一時點決策」:此刻對整個宇宙排一次名。沒有逐根 K 的權益曲線,
+  #   這個 repo 也沒有截面回測引擎。所以即使寫 run.mode: backtest,run 也是
+  #   「真的跑一次選幣、印出籃子、輸出 cyqnt.signal/v2」,不會產生權益曲線、
+  #   不會有 trades / win_rate —— 而且它會明講,不會回一條 trades=0 的假回測。
+  #
+  # 純選幣只讀 strategy / run / data / selection,此時 sizing / risk 不影響籃子。
+  # 宣告 candidate_trade 時例外:sizing.size 與 risk.exit 會被套到每個觸發進場的
+  # 候選,而且兩者都必填,避免一份「可執行」訊號沒有倉位或退出方式。
+  # data.symbol 仍只是排程與計價代表標的;宇宙來自 input bundle 的 universe frame。
+
+  universe:                           # 依序套用的 pipeline;每一步吃上一步的輸出 frame
+    - block: <str>                    # "universe.<fn>";清單見檔尾附錄
+      params: { <k>: <v> }            # 可選:其餘 kwargs
+      with: [<str>, ...]              # 可選:從 input bundle 注入的「資料來源名稱」
+      # 呼叫形狀 = fn(running_frame, *[bundle[name] for name in with], **params):
+      #   frame 永遠是第一個位置參數,with 裡的名稱依序接在它後面。
+      # 選幣路徑目前會蒐集到的來源名稱:
+      #   ticker_rank   —— Binance Square 提及量 / 情緒排行(給 augment_with_news)
+      #   funding       —— 跨幣別資金費率快照(給 augment_with_funding)
+      #   funding_info  —— 各合約的資金費率**結算間隔**(8h / 4h / 1h)與費率上下限
+      #                    (給 augment_with_funding,和 funding 一起寫)
+      #   contract_meta —— 合約上架清單:合約類型 / 標的類別 / 板塊標籤 / 基礎+計價幣
+      #                    (給 augment_with_contract_meta)
+      #   book_ticker   —— 全市場最佳買賣價與掛單量(給 augment_with_spread)
+      #   universe      —— 原始宇宙 frame 本身
+      #   ▼ 以下三個是 fan-out 來源(沒有全市場端點,逐幣抓,一檔一個 request):
+      #   open_interest_snapshot    —— 當下合約持倉(幣本位)+ 換算用的 markPrice
+      #                                (給 augment_with_open_interest)
+      #   oi_change_snapshot        —— 近 8 天日線持倉序列,幣數與美元各一組
+      #                                (給 augment_with_oi_change)
+      #   long_short_ratio_snapshot —— 最新多空帳戶比
+      #                                (給 augment_with_long_short_ratio)
+      #   universe_bars             —— 逐幣 × 逐時框的 OHLCV K 線
+      #                                (給 augment_with_indicator)
+      #
+      # ★ fan-out 來源的步驟順序是硬要求。省略 symbol 去打 /fapi/v1/openInterest 會回
+      #   HTTP 400(實測),所以這三個 frame 只能逐幣抓 —— capture 是照**收窄後**的名單
+      #   抓的。因此這三個 augment 步驟必須排在收窄步驟(filter_sub_type /
+      #   filter_crypto_only / filter_quote_volume)之後;放在前面等於把 127 檔的名單
+      #   join 回完整 727 列,只蓋住 17%,coverage 防線會直接 raise 並指出是順序問題。
+      #   實測成本:先收窄再 fan-out = 381 次呼叫;反過來 = 2181 次,超出
+      #   /futures/data/* 的 1000 次 / 5 分鐘預算,根本跑不完。
+      #
+      # ★ with: 永遠不會 fallback 到即時網路。名稱沒給、或 bundle 裡是 None →
+      #   直接 SpecError,不會偷偷改成線上抓。這是安全性質而非便利性:validate 會
+      #   dry-run 編出來的 selection,一個「沒給來源就自己抓」的 block 等於讓前端
+      #   送來的 spec 觸發對外 REST 流量,也讓「回測」讀到今天的資料。
+      #   因此 universe.augment_with_news 必須寫 with: [ticker_rank]、
+      #   universe.augment_with_funding 必須寫 with: [funding]、
+      #   universe.augment_with_spread 必須寫 with: [book_ticker]、
+      #   universe.augment_with_contract_meta 必須寫 with: [contract_meta]、
+      #   universe.augment_with_open_interest 必須寫 with: [open_interest_snapshot]、
+      #   universe.augment_with_oi_change 必須寫 with: [oi_change_snapshot]、
+      #   universe.augment_with_long_short_ratio 必須寫
+      #     with: [long_short_ratio_snapshot]、
+      #   universe.augment_with_indicator 必須寫 with: [universe_bars],
+      #   否則 validate 失敗(錯誤訊息會直接告訴你要補哪一個名稱)。
+      #   後面這三個更嚴重:它們沒給來源時的 fallback 是**逐幣 fan-out**,
+      #   所以漏寫 with: 不是觸網一次,是觸網 727 次。
+      #
+      # 每一步都必須回傳 DataFrame(收窄或加欄位);中途變成空 frame → 沒有候選,
+      # pipeline 就此結束、輸出空籃子。跑完的 frame 必須還有 symbol 或
+      # instrument_id 欄位 —— 沒有標的的候選不可下單。
+
+  features:                           # 逐幣的 Series;語法與 signals.indicators 完全相同
+    <name>:
+      block: <str>
+      input: <ref>                    # 欄位名 / 先前算好的 feature 名 / "df"
+      inputs: [<ref>, ...]            # 或多輸入(與 input 二選一,不能同時給)
+      params: { <k>: <v> }
+      output: <int>                   # 回傳 tuple 時取第幾個
+      column: <str>                   # 回傳 DataFrame 時取哪一欄
+    # 唯一的差別是「軸」:這裡 frame 的一列是一個幣,不是一根 K。所以
+    # indicators.rolling_zscore 在這裡是沿著幣種排名跑,不是沿著時間跑 ——
+    # 同一個 block,不同的軸。也因此沒有第二套運算式語言:欄位就是欄位,
+    # conditions.value_above 不在意軸是時間還是標的。
+
+  score: <str>                        # 必填:排名依據的欄位名,或上面算出的 feature 名。
+                                      # 沒有 score 的籃子不是決策 → validate 直接失敗。
+  order: <desc|asc>?                  # 預設 desc(分數大的排前面);asc = 由小到大。
+                                      # asc 讓「跌幅最大 / 資金費率最負」能直述:
+                                      #   score: priceChangePercent + order: asc
+                                      # 不必再繞路(先 top_losers 收窄、再換一個天生
+                                      # descending 的欄位當 score)。
+  min_score: <float>?                 # 絕對下界(floor):只留 score >= min_score
+  max_score: <float>?                 # 絕對上界(ceiling):只留 score <= max_score
+  # ★ min_score / max_score 是絕對邊界(含端點),而且**不隨 order 翻轉**:
+  #   order: asc 時 min_score 仍是下界、max_score 仍是上界。
+  #   為什麼不做成「贏的那一端的門檻」(即 asc 時讓 min_score 變上界):那會讓
+  #   同一個 min_score: 1.0 在兩份 spec 裡意思不同,而 example_selection.yaml 與
+  #   demo 模板都已經寫著 min_score: 1.0 —— 後人只加一行 order: asc,就會靜靜地
+  #   反轉一個他根本沒碰到的過濾條件。所以:floor 就是 floor。
+  #   要「從欄位底端挑,而且只要低於某個值」就寫 order: asc + max_score,例:
+  #     score: fundingRateApr, order: asc, max_score: -10.0
+  #     =「最負的資金費率,而且只要年化 -10% 以下的」。
+  #     (用年化那一欄的理由見檔尾 augment_with_funding —— 原始 fundingRatePct 是
+  #      單次結算的費率,各合約結算間隔不同,拿它排名等於用每列單位都不同的數字排序。)
+  #   min_score > max_score 在 validate 就被擋掉(那組條件永遠是空籃子)。
+
+  top_k: <int>?                       # 取前幾名(預設 10);在 dedupe 之後才截斷
+  dedupe_by: <base_asset|none>?       # 預設 base_asset
+  # base_asset:BTCUSDT 與 BTCUSDC 算「同一個名字」,只留一個,而且在 top_k 之前
+  #   收斂 —— 所以籃子是 top_k 個不同的賭注,不是 top_k 個列。
+  #   為什麼是預設:提及量 / 情緒這類分數是按 base token 統計的,同一個分數會 join
+  #   到該資產的每一個計價對,於是 top_k=5 曾經回來變成「3 個資產佔 5 個位置」,
+  #   BTC 與 SOL 各拿雙倍權重 —— 照那張表下單的人在沒要求的情況下加倍了曝險。
+  #   同分時留成交額大的那一對(誰真的能成交,而不是誰先出現在 API 回應裡)。
+  # none:每一列都留,給真的把計價對當成不同標的的策略(USDC/USDT 基差之類)。
+
+  long_when: <node>?                  # 與 signals.entry 完全相同的 combinator tree
+  short_when: <node>?                 # (all_of / any_of / not / exclude_when / cond)
+  # 兩邊都不給 → 每個候選 side=neutral(純排名 / 挑選)。
+  # 只給一邊   → 它同時是方向標註**與過濾器**:兩邊都不符合的列會被**丟棄**,
+  #              不會退化成 neutral。所以「排名 + 標註方向」要兩邊都給;
+  #              「只留符合條件的做多候選」就只給 long_when。
+  # candidate_trade 存在時例外:top_k 的候選不因目前沒有進場點而消失;未觸發者
+  # 仍留在籃子,side=neutral,candidates[].trade.intent=hold。觸發 long/short 的列
+  # 則得到 open_long/open_short 與完整 entry / exit_plan / size。
+  # score 算不出來(NaN)的幣一律丟棄、不補預設值:NaN 與真數字一起排序位置隨機,
+  # 而輸出到最後會被當成一個推薦來讀。
+
+  candidate_trade:                    # ? 讓每個候選帶完整的巢狀交易訊號
+    entry_type: <market>               # 首版只允許 market;limit/stop 沒有價格就拒絕
+  # candidate_trade 的方向只由 long_when / short_when 決定,不得在這裡再寫一套。
+  # 同時必須在頂層提供:
+  #   sizing: { size: <0..1> }
+  #   risk: { exit: { type: ..., ... } }
+  # 系統永遠輸出 auto_trade_eligible=false、requires_confirmation=true;這個欄位
+  # 建立的是可檢查的交易計畫,不是授權自動下單。
+
+  # 輸出:每個候選 = { symbol, score, side, rank, reason, features, trade }。
+  #   rank 在方向過濾之後才編號(所以連號,"rank N of M" 的 M 就是實際回傳的籃子大小);
+  #   reason 會帶上 order=desc|asc —— 只寫 "rank 1 of 5" 分不出第一名是資金費率最高
+  #   還是最低,而那正好是做空篩選與做多篩選的差別。
 
 # =============================================================================
 # 附錄:常用可組合 blocks(全部可在 signals 內排列組合;完整清單見 docs/block_registry.json)
@@ -118,3 +278,246 @@ backtest:
 #
 # ★ 安全邊界:signals 只能呼叫上列白名單 module 內的函式(interpreter.ALLOWED_NAMESPACES);
 #   不能 import 任意程式碼。密鑰不入 YAML,由 config.py 從 .env 讀。
+#
+# =============================================================================
+# 附錄:常用 universe blocks(用於 selection.universe 的每一步)
+# =============================================================================
+# 以下都真實存在於 cyqnt_trd/blocks/universe.py 的 __all__。
+# 括號裡只列 params 要給的 kwargs:第一個位置參數(跑到這一步的 frame)由執行器帶入,
+# 不要自己寫;? = 可選。
+#
+# 過濾(收窄 frame):
+#   filter_quote_volume(min_quote_volume)     24h 計價幣成交額下限
+#                                             (吃 quoteVolume 或 quote_volume)
+#   filter_change_pct(max_abs_pct, min_pct?)  |24h 漲跌幅| <= max_abs_pct
+#                                             (需 priceChangePercent)
+#   filter_quote_suffix(suffix, exclude?)     依計價幣挑或排除;suffix 可給 "USDT",
+#                                             也可給 [USDT, USDC];exclude: true = 反向
+#                                             排除。比 exclude_symbols 逐一列名可靠
+#                                             (名單不會隨新上架的計價對過期)。
+#   filter_funding_rate(max_abs_pct)          |fundingRatePct| 上限
+#                                             (要先 augment_with_funding)
+#   filter_sentiment(min_bull_ratio)          news_bull_ratio 下限
+#                                             (要先 augment_with_news)
+#   exclude_symbols(symbols) / only_symbols(symbols)    明確黑 / 白名單
+#   filter_crypto_only()                      只留真正的加密幣(underlying_type == COIN)
+#                                             (要先 augment_with_contract_meta)
+#                                             ★「排除 TradFi / 排除美股」一律寫這個。
+#                                             三種寫法不等價(見下面的說明),這一個把
+#                                             意圖命名一次,不用每次重新選一種。
+#   filter_underlying_type(include? exclude?) 依標的類別挑或排除;純量、完全比對、
+#                                             不分大小寫、不做子字串(EQUITY 不會命中
+#                                             KR_EQUITY)。值:COIN / EQUITY / COMMODITY
+#                                             / HK_EQUITY / KR_EQUITY / INDEX / PREMARKET。
+#                                             include 與 exclude 只能給一個(這一欄一列
+#                                             只有一個值,給兩個只能互相矛盾)。
+#   filter_sub_type(include? exclude?)        依板塊標籤挑或排除;一列可以有多個標籤,
+#                                             所以是「集合交集」語意:include = 帶到其中
+#                                             任一個標籤就留,exclude = 帶到其中任一個就
+#                                             丟。標籤:DeFi / TradFi / Alpha / AI /
+#                                             Layer-1 / Layer-2 / Meme / Infrastructure /
+#                                             Gaming / PoW / NFT / Payment / ETF /
+#                                             Pre-IPO / Storage / Metaverse ...
+#                                             include 與 exclude 可以同時給(這裡有意義:
+#                                             include: [ETF] + exclude: [TradFi] =
+#                                             「ETF 但不要同時掛 TradFi 的那些」)。
+#                                             (要先 augment_with_contract_meta)
+#   filter_open_interest(min_notional_usd? max_notional_usd?)
+#                                             合約持倉的**美元**上下限
+#                                             (要先 augment_with_open_interest)
+#                                             ★ 參數名寫 usd 是刻意的:端點回的
+#                                             openInterest 是幣的數量,2.79e9 DOGEUSDT
+#                                             與 1.09e5 BTCUSDT 分別是 1.93 億與 68.3
+#                                             億美元。拿幣數去比 5,000,000 會留下一堆
+#                                             不到一美元的小幣、把 BTC 丟掉,而籃子裡
+#                                             每個數字看起來都很合理。
+#   filter_oi_change(min_abs_pct? min_pct? max_pct? basis?)
+#                                             持倉變化(百分點)。min_abs_pct = 雙向幅度
+#                                             (「動得很兇」)、min_pct = 有號下限
+#                                             (「持倉在增加」)、max_pct = 有號上限。
+#                                             basis: notional(預設)| base ——
+#                                             notional 篩美元持倉(會跟著幣價動,
+#                                             「持倉異動 20%」講的就是這個),
+#                                             base 篩幣數(與幣價無關)。
+#                                             ★ 兩者答案不同:同一批幣、同一個 ±20%
+#                                             門檻,美元欄留 5 檔、幣數欄留 3 檔,只重疊
+#                                             1 檔。所以 basis 一定要明寫。
+#                                             (要先 augment_with_oi_change)
+#   filter_long_short_ratio(min_long_account_pct? max_long_account_pct?
+#                           min_long_account_pct_exclusive?)
+#                                             多空帳戶比:多方帳戶佔比的百分點上下限
+#                                             (60 = 「至少六成帳戶偏多」)。若使用者
+#                                             明說「> 60%」，要用 exclusive 參數，
+#                                             不得用 inclusive 的 min 偷換邊界。
+#                                             (要先 augment_with_long_short_ratio)
+#   filter_spread(max_spread_bps? min_spread_bps?)
+#                                             盤口價差的上下限,單位是**基點**
+#                                             (要先 augment_with_spread)
+#                                             ★「剔除低流動性的空氣幣」寫這個,不是只寫
+#                                             filter_quote_volume:成交額講的是昨天成交
+#                                             多少,價差講的是現在下得進去嗎。實測同一
+#                                             截面,SNXXUSDT 成交額 $103m(過 $100m 門檻)
+#                                             價差 11.03 bps,是 BTCUSDT 0.016 bps 的
+#                                             683 倍。參數名寫 bps 是因為同一個門檻在野生
+#                                             YAML 裡有 0.0005 / 0.05% / 5 bps 三種寫法,
+#                                             其中兩種差 100 倍。
+#                                             min_spread_bps 不是對稱補齊:做價 / 均值
+#                                             回歸的選幣要的是價差**夠寬**才有得賺。
+#   filter_top_of_book(min_top_of_book_usd? max_top_of_book_usd?)
+#                                             盤口可成交金額(美元)的上下限
+#                                             (要先 augment_with_spread)
+#                                             ★ 和 filter_spread 是兩件事,不能只篩一個:
+#                                             實測 TAKEUSDT 價差 7.78 bps(看起來正常)、
+#                                             最佳賣價後面只有 $0.03;MMTUSDT 成交額
+#                                             $113m、價差 5.23 bps、盤口 $72。
+# 截斷(取前 N;單純要前幾名交給 selection.top_k 就好):
+#   top_gainers(n) / top_losers(n)            依 priceChangePercent
+#   top_mentioned(n)                          依 news_mention_count(需 augment_with_news)
+#   top_bullish(n, min_mentions?)             依 news_bull_ratio;min_mentions 先剔掉
+#                                             冷門幣,免得一篇看多貼文就把它排到第一
+# 加欄位(必須給 with:,見上面 selection.universe 的安全說明):
+#   augment_with_funding  with: [funding, funding_info]
+#                                             → fundingRatePct(單次結算的費率,百分點)
+#                                               / fundingIntervalHours(該合約結算間隔)
+#                                               / fundingRateApr(= 前兩者年化)
+#     ★ 排名一律用 fundingRateApr。fundingRatePct 是「單次結算」的費率,而幣安各合約
+#     結算間隔不同 —— 實測 743 檔裡 443 檔是 4h、296 檔 8h、4 檔 1h,所以這一欄的
+#     單位每一列都可能不一樣。0.01%@1h 年化 87.6%、0.01%@8h 年化 10.95%,差 8 倍,
+#     而 score: fundingRatePct 把它們排成一樣。實測凍結截面上「最負 funding 前五名」
+#     兩種排法只差一個名字,而差的那個(DEXEUSDT,每小時結算)原始費率排第 14、
+#     年化 −265.85% 排第 3 —— 原始排法整檔漏掉。
+#     fundingRatePct 的語意與數值刻意保持不變(既有 spec 與凍結籃子都釘著它),
+#     修正是新增一欄並把單位寫進欄位名。
+#     ★ 少寫 funding_info 會怎樣:block 會發 warning 並把兩個新欄位留成 NaN,
+#     **不會**假設 8 小時 —— 假設會讓 447/743 檔算出看起來正常的錯數字,而沒人會去查。
+#     所以 score / 條件用到 fundingRateApr 卻沒寫 funding_info 時,validate 直接報錯
+#     (否則會是「validate 綠燈、真跑回空籃子」)。只要 fundingRatePct 的話不必寫。
+#     交割合約(BTCUSDT_260925 這種)沒有 funding,premiumIndex 卻回 0.0 ——
+#     「缺失 ≠ 零」的現成例子。它們在 funding_info 裡沒有列,所以年化欄是 NaN,
+#     排名時被丟掉;拿 fundingRatePct 篩「接近零 carry」會把它們留下來。
+#   augment_with_spread  with: [book_ticker]  → spread_bps(=(ask−bid)/mid×10000)
+#                                               / top_of_book_usd
+#                                                 (= min(bidQty×bid, askQty×ask))
+#     取 min 而不是平均:一個籃子要進也要出,買方 $500k / 賣方 $30 的簿子對任何需要
+#     出場的東西就是 $30 的簿子。
+#     這一步**沒有**順序要求(和三個 fan-out 來源不同):bookTicker 省略 symbol 就回
+#     全市場(實測 727 檔、一次呼叫、weight 5),覆蓋率 100%,放哪裡成本都一樣。
+#     單邊簿(某一邊沒價)、交叉或鎖定(bid ≥ ask)一律給 NaN 並 warning ——
+#     這三種算出來分別是無限大、負數、剛好 0.0,**三種都會通過 max_spread_bps**,
+#     於是最爛的簿子會排到最前面。filter_spread 會把 NaN 丟掉並數出來。
+#     掛單量剛好是 0 則是**真的 0**(不是 NaN):「盤口沒東西」是事實,
+#     min_top_of_book_usd 本來就該因為它小而丟掉它。只有「價」必須可用。
+#   augment_with_news     with: [ticker_rank] → news_mention_rank / news_mention_count /
+#                                               news_unique_authors / news_bullish_count /
+#                                               news_bearish_count / news_neutral_count /
+#                                               news_bull_ratio
+#     (augment_with_news 的 window / limit / env 只在直接用 Python 讓它自己抓時才有意義;
+#      YAML 一律走 with: [ticker_rank],所以不要寫這三個參數。)
+#   augment_with_contract_meta  with: [contract_meta]
+#                                             → contract_type / underlying_type /
+#                                               underlying_sub_type / base_asset /
+#                                               quote_asset / contract_status
+#     (market_type 同上,只在直接用 Python 時才有意義。)
+#     underlying_sub_type 是「逗號分隔的純量字串」(如 "Alpha,DeFi"),不是陣列 ——
+#     一個幣可以掛多個板塊。要比對板塊請用 filter_sub_type(集合交集),不要自己對這個
+#     字串做 conditions.state_equals:多標籤幣永遠不會等於單一標籤。
+#     覆蓋率防線:contract_meta 是同一個交易所的上架清單,所以它必須蓋住宇宙裡幾乎
+#     每一檔(實測 727/727)。蓋不到 95% 直接 raise —— 最常見的原因是 market_type
+#     給錯(拿現貨的 exchangeInfo 去 join 合約宇宙)。
+#     沒 join 到的那幾列 metadata 是 NaN,而 NaN 在 include 與 exclude **兩個方向都會被
+#     丟掉**(「不知道它是什麼」既不能證明符合、也不能證明不符合),並發出 warning。
+#   augment_with_open_interest  with: [open_interest_snapshot]
+#                                             → oi_base(幣數)/ oi_mark_price(換算價)
+#                                               / oi_notional_usd(= 前兩者相乘)
+#     為什麼 markPrice 由持倉那個來源自己帶、不要求 with: [funding]:funding frame 裡
+#     的 markPrice 只是「沒宣告的順帶欄位」(funding_snapshot 宣告的 value_columns
+#     只有 funding_rate),哪天它被 melt 成 metric 或正規化不再帶未宣告欄位,
+#     oi_notional_usd 就整欄變 NaN、≥ $5m 那道門檻會安靜地把籃子清空。而且
+#     premiumIndex 一次抓全市場,不進 fan-out,成本是零。
+#     對帳:openInterest × markPrice 與交易所自己的 sumOpenInterestValue 在
+#     BTC/ETH/DOGE 上差 0.25% 以內(差的是統計端點 5 分鐘桶的時間差)。
+#   augment_with_oi_change  with: [oi_change_snapshot]   params: { lookback_days: 7 }
+#                                             → oi_change_pct(美元持倉變化)
+#                                               / oi_base_change_pct(幣數持倉變化)
+#     定義:(最新一筆 − 前 lookback_days 筆的算術平均) / 該平均 × 100。
+#     兩欄都給,因為兩者經常不一致而且差很多(見 filter_oi_change 的說明);
+#     送出去的 candidate.features 裡兩個數字都在,所以沒用到的那個也看得見。
+#     讀數不足 lookback_days + 1 筆的幣是 NaN,**不會**拿手上的幾天去平均 ——
+#     剛上架的幣持倉是從 0 長起來的,短基期會替最新、最薄的那些幣製造出漂亮的變化率。
+#     基期全為 0 的幣也是 NaN(不是 0%、也不是無限大),兩種情況都會發 warning。
+#     另外會實測時間間距:period 不是 1d 卻寫 lookback_days=7 會直接 raise,
+#     免得「近一週」偷偷變成「近 35 分鐘」還掛同一個欄位名。
+#   augment_with_long_short_ratio  with: [long_short_ratio_snapshot]
+#                                             → long_short_ratio / long_account_pct
+#     long_account_pct 是**百分點**(67.28,不是 0.6728),與 fundingRatePct /
+#     priceChangePercent 同一個單位。端點送的是 0~1 的佔比,而且會驗「多方 + 空方
+#     佔比 = 1」—— 來源哪天改送百分比,這裡直接 raise,而不是給出 6728 這種數字
+#     讓「六成偏多」的門檻命中所有幣。
+#   augment_with_indicator  with: [universe_bars]
+#     params: { indicator: <blocks.indicators 裡的函式名>, timeframe: "4h",
+#               as: <欄位名>, agg: last|min|max|mean|any_negative|all_negative,
+#               window_bars: 1, output: <tuple 索引>, column: <DataFrame 欄名>,
+#               input: auto|df|<K線欄名>, min_bars_multiple: 3,
+#               ...其餘參數原封不動轉給指標(period / multiplier / tenkan ...) }
+#                                             → 一欄:as 指定的名字(預設
+#                                               "<indicator>_<timeframe>")
+#     這是「先掃全市場、再對每個候選跑技術指標」唯一的寫法。三個只差 timeframe 與 as
+#     的步驟 + entry.all_of(三個 conditions.value_below) 就是「三時框同時偏空」,
+#     不需要新的組合子 —— 指標算完就只是 frame 上的一欄。
+#     ★ bundle 帶的是**K 線**,不是算好的指標值。若 bundle 焊死 period=14,
+#       這份 spec 寫 period: 10 也照樣 validate、照樣跑、照樣回報 Supertrend(10,3),
+#       但實際上用 14 算 —— spec 就是一句謊話,而輸出裡沒有任何一欄會說。
+#     ★ output: 必寫(對 2-tuple 指標)。supertrend 回 (線, 方向):output: 0 是一個
+#       **價格**、永遠是正的,配 value_below(_, 0) 會篩出零列;output: 1 才是 ±1 方向。
+#       這個索引的語意與 signals.indicators 的 output: 共用同一份程式碼
+#       (blocks/_utils.py),兩套實作就會出現「validate 過了但篩錯欄」。
+#     ★ agg + window_bars:「近 2 小時內」在 M15 是 8 根。last/1 = 現在;
+#       min/8 = 這 8 根裡有任何一根偏空。兩者選到的幣不同。
+#     ★ input: 預設 auto(第一參數叫 df 就給整個 frame,否則給 close)。
+#       indicators.lowest 要寫 input: low —— 三個月的**低點**不是最低收盤價。
+#     ★ min_bars_multiple 預設 3,是給 RMA/EMA 遞迴起頭的指標(supertrend/adx/rsi)
+#       留收斂空間。純滾動窗口(highest/lowest/donchian/range_gain_pct)沒有種子,
+#       要明寫 1 —— 否則 period: 90 會要求 270 根日線,把上市不到 9 個月的幣全部
+#       raise 掉,而那正好是「漲 100%」這種篩選要找的族群。
+#     ★ 覆蓋率是 100%(比其他 join 都嚴):K 線名單是從**同一條 pipeline 的前綴**推導
+#       出來的,所以少一檔不是行情事實,是「在跑的 frame 不是當初規劃 capture 的 frame」。
+#     ★ 順序:和三個 fan-out 一樣必須排在收窄步驟之後,但理由是算術而非覆蓋率 ——
+#       klines 逐 (幣, 時框) 一個 request,weight 隨 limit 變(實測:≤100 → 1、
+#       101–500 → 2、501–1000 → 5)。727 檔 × 3 時框 × 2 = 4362 weight,
+#       而 /fapi/v1 一分鐘只有 2400,根本跑不起來。收窄後 5 檔 × 3 時框 = 30 weight。
+#       超過上限一律 raise 不截斷:砍名單是偷偷決定哪些幣可以被選上,砍時框是拿
+#       兩個時框回答一個三時框的問題。
+#     ★ 暖身不足 / 指標算出 NaN 都直接 raise 並指名是哪一檔。NaN 會被
+#       value_below 讀成「不偏空」、也被 value_above 讀成「不偏多」——
+#       兩邊都無聲地少一檔,而少掉的是上市最短、動能最大的那些。
+#
+# ★「排除 TradFi」為什麼只認 filter_crypto_only:三種編碼給三個不同答案,
+#   同一個交易所快照(727 檔 TRADING)實測差 2 檔 ——
+#     contract_type != TRADIFI_PERPETUAL     → 577
+#     "TradFi" 不在 underlying_sub_type 裡    → 577
+#     underlying_type == "COIN"              → 575
+#   差集是 {ALLUSDT, BTCDOMUSDT},兩者都是 underlying_type=INDEX 的合成加密指數:
+#   它們確實不是 TradFi(所以兩種黑名單寫法都「答對了被問的問題」),但也不是能用
+#   單一資產論述去持有的幣。filter_crypto_only 定義為最緊的白名單,而且白名單是
+#   面對未來較安全的一半 —— 交易所下次上架的新資產類別預設被排除,而不是悄悄
+#   出現在一個原本全是加密幣的籃子裡。
+#
+# 常見的 score 欄位:quoteVolume、priceChangePercent、fundingRateApr、
+#   spread_bps、top_of_book_usd、news_mention_count、news_bull_ratio、
+#   news_unique_authors
+#   (資金費率排名用 fundingRateApr,不要用 fundingRatePct —— 見上面
+#    augment_with_funding;流動性用 spread_bps / top_of_book_usd,
+#    quoteVolume 只是代理。)
+# ★ score 是**純欄位查找**,沒有別名表:名字要跟 frame 上的欄位一字不差。
+#   宇宙 frame 帶的是 Binance 的 camelCase,所以 score: quoteVolume 可以,
+#   score: quote_volume 會 SpecError: cannot resolve reference 'quote_volume'。
+#   (只有 universe.filter_quote_volume 這個 block 兩種都吃 —— 那是它自己的容忍,
+#    不會傳染給 score。)
+#
+# ★ universe.fetch_perpetual_universe 不可用(interpreter.DENIED_FUNCTION_NAMES):
+#   它是一個 REST 呼叫,宇宙一律由 input bundle 的 universe frame 提供。
+#   universe.UniverseFilter 是 Python 端的 fluent builder(回傳自己而不是 frame),
+#   不是 universe step —— YAML 請用上面的 module-level 函式。
+# ★ 安全邊界(選幣):selection 走同一套 block 解析,並額外拒絕會自己發網路請求的
+#   block(interpreter.DENIED_FUNCTION_NAMES / DENIED_PREFIXES);資料一律由 input
+#   bundle 經 with: 注入。

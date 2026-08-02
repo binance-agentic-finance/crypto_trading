@@ -81,6 +81,22 @@
     "pit_hazard": "archive currently holds ~400 days; a >=3yr backfill is an open item."
   },
   {
+    "node": "universe_bars",
+    "emits": "bar",
+    "schema": "BarFrame@1.0",
+    "access": "public_binance",
+    "availability": "BACKTESTABLE",
+    "wired": true,
+    "strategy_types": [
+      "C",
+      "L",
+      "P",
+      "S",
+      "R"
+    ],
+    "pit_hazard": ""
+  },
+  {
     "node": "chip_distribution",
     "emits": "book",
     "schema": "BookFrame@1.0",
@@ -470,6 +486,20 @@
     "pit_hazard": ""
   },
   {
+    "node": "oi_change_snapshot",
+    "emits": "metric",
+    "schema": "MetricFrame@1.0",
+    "access": "public_binance",
+    "availability": "FORWARD_ONLY",
+    "wired": true,
+    "strategy_types": [
+      "D",
+      "L",
+      "P"
+    ],
+    "pit_hazard": "Two hazards, not one. The public endpoint keeps only ~30 days, so a longer lookback silently starts mid-series. And the ROSTER is point-in-time: it was chosen from the universe as it looked at capture, so replaying this frame against a different decision time screens a set of instruments that was picked using the future."
+  },
+  {
     "node": "onchain_signals",
     "emits": "metric",
     "schema": "MetricFrame@1.0",
@@ -685,6 +715,20 @@
     "pit_hazard": "bdp exposes only the CURRENT snapshot. A walk-forward backtest reuses today's value at every bar — strictly lookahead. Honest for live selection at t=now; every bdp strategy must carry this note."
   },
   {
+    "node": "book_ticker",
+    "emits": "rank",
+    "schema": "RankFrame@1.0",
+    "access": "public_binance",
+    "availability": "FORWARD_ONLY",
+    "wired": true,
+    "strategy_types": [
+      "L",
+      "P",
+      "S"
+    ],
+    "pit_hazard": "The top of an order book, which is the fastest-moving quantity in this catalog: it is rewritten many times a second and the endpoint serves no history at all. Replaying today's spread at an earlier decision time states this second's liquidity as last month's, and does it for the instruments whose liquidity changed most. Capture it forward alongside the universe it will be joined to; there is no backtestable substitute in this repo (the L2 archives under orderbook-research are a separate collection, not this node)."
+  },
+  {
     "node": "coin_metrics",
     "emits": "rank",
     "schema": "RankFrame@1.0",
@@ -699,6 +743,20 @@
     "pit_hazard": "cache refreshed hourly; treat as slow-moving, not tick-accurate."
   },
   {
+    "node": "contract_meta",
+    "emits": "rank",
+    "schema": "RankFrame@1.0",
+    "access": "public_binance",
+    "availability": "FORWARD_ONLY",
+    "wired": true,
+    "strategy_types": [
+      "L",
+      "P",
+      "S"
+    ],
+    "pit_hazard": "Listing REGISTRY, current only. A symbol's row appears when it is listed and disappears when it is delisted, and the venue re-tags sectors without notice — so replaying today's table at an earlier decision time both invents metadata for coins that did not exist yet and hides the tags a delisted one had. Capture it forward alongside the universe it will be joined to."
+  },
+  {
     "node": "etf_metadata",
     "emits": "rank",
     "schema": "RankFrame@1.0",
@@ -709,6 +767,20 @@
       "R"
     ],
     "pit_hazard": ""
+  },
+  {
+    "node": "funding_info",
+    "emits": "rank",
+    "schema": "RankFrame@1.0",
+    "access": "public_binance",
+    "availability": "FORWARD_ONLY",
+    "wired": true,
+    "strategy_types": [
+      "D",
+      "L",
+      "P"
+    ],
+    "pit_hazard": "A schedule, not a measurement — but a schedule the venue REWRITES: Binance has moved large batches of perpetuals from 8h to 4h settlement, and 443 of 743 contracts are 4-hourly today (measured 2026-08-02). So replaying today's table at an earlier decision time annualises past funding with a divisor the contract did not have, which is a wrong number rather than a missing one. Capture it forward alongside the funding snapshot it will be joined to."
   },
   {
     "node": "hot_coin",
@@ -724,6 +796,20 @@
     "pit_hazard": "snapshot."
   },
   {
+    "node": "long_short_ratio_snapshot",
+    "emits": "rank",
+    "schema": "RankFrame@1.0",
+    "access": "public_binance",
+    "availability": "FORWARD_ONLY",
+    "wired": true,
+    "strategy_types": [
+      "D",
+      "L",
+      "P"
+    ],
+    "pit_hazard": "One reading per instrument with no history kept, and a point-in-time ROSTER — see `oi_change_snapshot`. For the ratio's own history on one instrument use `long_short_ratio` (~30d)."
+  },
+  {
     "node": "market_scan",
     "emits": "rank",
     "schema": "RankFrame@1.0",
@@ -734,7 +820,21 @@
       "L",
       "S"
     ],
-    "pit_hazard": "snapshot."
+    "pit_hazard": "Current listing snapshot, and it is a bare name list — it carries no timestamp at all, so nothing downstream can gate it. Never replay it as the universe of an earlier decision: today's list contains coins that were not listed then and omits the delisted ones a historical basket would have held."
+  },
+  {
+    "node": "open_interest_snapshot",
+    "emits": "rank",
+    "schema": "RankFrame@1.0",
+    "access": "public_binance",
+    "availability": "FORWARD_ONLY",
+    "wired": true,
+    "strategy_types": [
+      "D",
+      "L",
+      "P"
+    ],
+    "pit_hazard": "Point read of a live inventory, all-market snapshot only: the endpoint has no history at all, and the mark price that converts it to dollars is today's. Replaying it at an earlier decision time states this week's positioning as last month's. Capture it forward alongside the universe it will be joined to; for a replayable series use `open_interest` (~30d) instead."
   },
   {
     "node": "sector_flow",

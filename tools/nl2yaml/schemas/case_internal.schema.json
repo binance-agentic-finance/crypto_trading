@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "case_internal.schema.json",
+  "title": "case_internal",
+  "description": "INTERNAL ONLY — user text and quotes. Never written inside the repository; see write_case_internal().",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "case_id",
+    "user_text_raw",
+    "user_text_redacted",
+    "pseudonym_id",
+    "user_id",
+    "conditions_with_quotes"
+  ],
+  "properties": {
+    "case_id": {
+      "type": "string",
+      "pattern": "^(case_[0-9a-f]{16}|[0-9A-HJKMNP-TV-Z]{26}|[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$"
+    },
+    "user_text_raw": {
+      "type": "string"
+    },
+    "user_text_redacted": {
+      "type": "string"
+    },
+    "pseudonym_id": {
+      "type": "string",
+      "pattern": "^pid_[a-z2-7]{26}$"
+    },
+    "user_id": {
+      "type": "string"
+    },
+    "conditions_with_quotes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "cid",
+          "quote"
+        ],
+        "properties": {
+          "cid": {
+            "type": "string"
+          },
+          "quote": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

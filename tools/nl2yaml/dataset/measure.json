@@ -1,0 +1,1775 @@
+{
+  "by_shape": {
+    "both": {
+      "no_mappable_condition": {
+        "rows": 0,
+        "split_groups": 0,
+        "unique_canon": 0
+      },
+      "refusal_gold": {
+        "rows": 219,
+        "split_groups": 105,
+        "unique_canon": 122
+      },
+      "strict": {
+        "rows": 1314,
+        "split_groups": 916,
+        "unique_canon": 976
+      },
+      "total": {
+        "rows": 2427,
+        "split_groups": 1517,
+        "unique_canon": 1697
+      },
+      "upper_bound": {
+        "rows": 2208,
+        "split_groups": 1415,
+        "unique_canon": 1575
+      },
+      "upper_bound_convertible": {
+        "rows": 2208,
+        "split_groups": 1415,
+        "unique_canon": 1575
+      },
+      "upper_bound_minus_overstated": {
+        "rows": 1480,
+        "split_groups": 983,
+        "unique_canon": 1072
+      }
+    },
+    "selection": {
+      "no_mappable_condition": {
+        "rows": 644,
+        "split_groups": 544,
+        "unique_canon": 563
+      },
+      "refusal_gold": {
+        "rows": 128,
+        "split_groups": 110,
+        "unique_canon": 111
+      },
+      "strict": {
+        "rows": 820,
+        "split_groups": 606,
+        "unique_canon": 626
+      },
+      "total": {
+        "rows": 1784,
+        "split_groups": 1387,
+        "unique_canon": 1444
+      },
+      "upper_bound": {
+        "rows": 1012,
+        "split_groups": 740,
+        "unique_canon": 770
+      },
+      "upper_bound_convertible": {
+        "rows": 946,
+        "split_groups": 686,
+        "unique_canon": 714
+      },
+      "upper_bound_minus_overstated": {
+        "rows": 914,
+        "split_groups": 668,
+        "unique_canon": 692
+      }
+    },
+    "trade": {
+      "no_mappable_condition": {
+        "rows": 1252,
+        "split_groups": 1031,
+        "unique_canon": 1064
+      },
+      "refusal_gold": {
+        "rows": 853,
+        "split_groups": 606,
+        "unique_canon": 640
+      },
+      "strict": {
+        "rows": 8505,
+        "split_groups": 5726,
+        "unique_canon": 5994
+      },
+      "total": {
+        "rows": 12210,
+        "split_groups": 8525,
+        "unique_canon": 8919
+      },
+      "upper_bound": {
+        "rows": 10105,
+        "split_groups": 6899,
+        "unique_canon": 7215
+      },
+      "upper_bound_convertible": {
+        "rows": 9991,
+        "split_groups": 6800,
+        "unique_canon": 7114
+      },
+      "upper_bound_minus_overstated": {
+        "rows": 8780,
+        "split_groups": 5974,
+        "unique_canon": 6244
+      }
+    },
+    "unclear": {
+      "no_mappable_condition": {
+        "rows": 20786,
+        "split_groups": 11602,
+        "unique_canon": 12224
+      },
+      "refusal_gold": {
+        "rows": 213,
+        "split_groups": 177,
+        "unique_canon": 185
+      },
+      "strict": {
+        "rows": 8288,
+        "split_groups": 4832,
+        "unique_canon": 5100
+      },
+      "total": {
+        "rows": 31919,
+        "split_groups": 17819,
+        "unique_canon": 18822
+      },
+      "upper_bound": {
+        "rows": 10920,
+        "split_groups": 6062,
+        "unique_canon": 6413
+      },
+      "upper_bound_convertible": {
+        "rows": 9858,
+        "split_groups": 5481,
+        "unique_canon": 5797
+      },
+      "upper_bound_minus_overstated": {
+        "rows": 9318,
+        "split_groups": 5456,
+        "unique_canon": 5762
+      }
+    }
+  },
+  "by_shape_tier": {
+    "both": {
+      "A": {
+        "no_mappable_condition": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "refusal_gold": {
+          "rows": 217,
+          "split_groups": 103,
+          "unique_canon": 120
+        },
+        "strict": {
+          "rows": 826,
+          "split_groups": 528,
+          "unique_canon": 574
+        },
+        "total": {
+          "rows": 1868,
+          "split_groups": 1082,
+          "unique_canon": 1241
+        },
+        "upper_bound": {
+          "rows": 1651,
+          "split_groups": 982,
+          "unique_canon": 1121
+        },
+        "upper_bound_convertible": {
+          "rows": 1651,
+          "split_groups": 982,
+          "unique_canon": 1121
+        },
+        "upper_bound_minus_overstated": {
+          "rows": 973,
+          "split_groups": 589,
+          "unique_canon": 658
+        }
+      },
+      "B": {
+        "no_mappable_condition": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "refusal_gold": {
+          "rows": 1,
+          "split_groups": 1,
+          "unique_canon": 1
+        },
+        "strict": {
+          "rows": 225,
+          "split_groups": 179,
+          "unique_canon": 184
+        },
+        "total": {
+          "rows": 283,
+          "split_groups": 221,
+          "unique_canon": 232
+        },
+        "upper_bound": {
+          "rows": 282,
+          "split_groups": 220,
+          "unique_canon": 231
+        },
+        "upper_bound_convertible": {
+          "rows": 282,
+          "split_groups": 220,
+          "unique_canon": 231
+        },
+        "upper_bound_minus_overstated": {
+          "rows": 244,
+          "split_groups": 192,
+          "unique_canon": 202
+        }
+      },
+      "C": {
+        "no_mappable_condition": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "refusal_gold": {
+          "rows": 1,
+          "split_groups": 1,
+          "unique_canon": 1
+        },
+        "strict": {
+          "rows": 186,
+          "split_groups": 151,
+          "unique_canon": 151
+        },
+        "total": {
+          "rows": 199,
+          "split_groups": 156,
+          "unique_canon": 157
+        },
+        "upper_bound": {
+          "rows": 198,
+          "split_groups": 155,
+          "unique_canon": 156
+        },
+        "upper_bound_convertible": {
+          "rows": 198,
+          "split_groups": 155,
+          "unique_canon": 156
+        },
+        "upper_bound_minus_overstated": {
+          "rows": 186,
+          "split_groups": 144,
+          "unique_canon": 145
+        }
+      },
+      "D": {
+        "no_mappable_condition": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "refusal_gold": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "strict": {
+          "rows": 77,
+          "split_groups": 65,
+          "unique_canon": 67
+        },
+        "total": {
+          "rows": 77,
+          "split_groups": 65,
+          "unique_canon": 67
+        },
+        "upper_bound": {
+          "rows": 77,
+          "split_groups": 65,
+          "unique_canon": 67
+        },
+        "upper_bound_convertible": {
+          "rows": 77,
+          "split_groups": 65,
+          "unique_canon": 67
+        },
+        "upper_bound_minus_overstated": {
+          "rows": 77,
+          "split_groups": 65,
+          "unique_canon": 67
+        }
+      }
+    },
+    "selection": {
+      "A": {
+        "no_mappable_condition": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "refusal_gold": {
+          "rows": 50,
+          "split_groups": 34,
+          "unique_canon": 35
+        },
+        "strict": {
+          "rows": 161,
+          "split_groups": 120,
+          "unique_canon": 124
+        },
+        "total": {
+          "rows": 307,
+          "split_groups": 206,
+          "unique_canon": 218
+        },
+        "upper_bound": {
+          "rows": 257,
+          "split_groups": 172,
+          "unique_canon": 183
+        },
+        "upper_bound_convertible": {
+          "rows": 257,
+          "split_groups": 172,
+          "unique_canon": 183
+        },
+        "upper_bound_minus_overstated": {
+          "rows": 223,
+          "split_groups": 146,
+          "unique_canon": 154
+        }
+      },
+      "B": {
+        "no_mappable_condition": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "refusal_gold": {
+          "rows": 38,
+          "split_groups": 36,
+          "unique_canon": 36
+        },
+        "strict": {
+          "rows": 268,
+          "split_groups": 186,
+          "unique_canon": 188
+        },
+        "total": {
+          "rows": 349,
+          "split_groups": 262,
+          "unique_canon": 265
+        },
+        "upper_bound": {
+          "rows": 311,
+          "split_groups": 226,
+          "unique_canon": 229
+        },
+        "upper_bound_convertible": {
+          "rows": 296,
+          "split_groups": 213,
+          "unique_canon": 215
+        },
+        "upper_bound_minus_overstated": {
+          "rows": 277,
+          "split_groups": 200,
+          "unique_canon": 203
+        }
+      },
+      "C": {
+        "no_mappable_condition": {
+          "rows": 98,
+          "split_groups": 73,
+          "unique_canon": 74
+        },
+        "refusal_gold": {
+          "rows": 40,
+          "split_groups": 40,
+          "unique_canon": 40
+        },
+        "strict": {
+          "rows": 391,
+          "split_groups": 305,
+          "unique_canon": 314
+        },
+        "total": {
+          "rows": 582,
+          "split_groups": 461,
+          "unique_canon": 472
+        },
+        "upper_bound": {
+          "rows": 444,
+          "split_groups": 348,
+          "unique_canon": 358
+        },
+        "upper_bound_convertible": {
+          "rows": 393,
+          "split_groups": 307,
+          "unique_canon": 316
+        },
+        "upper_bound_minus_overstated": {
+          "rows": 414,
+          "split_groups": 327,
+          "unique_canon": 335
+        }
+      },
+      "D": {
+        "no_mappable_condition": {
+          "rows": 546,
+          "split_groups": 471,
+          "unique_canon": 489
+        },
+        "refusal_gold": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "strict": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "total": {
+          "rows": 546,
+          "split_groups": 471,
+          "unique_canon": 489
+        },
+        "upper_bound": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "upper_bound_convertible": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "upper_bound_minus_overstated": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        }
+      }
+    },
+    "trade": {
+      "A": {
+        "no_mappable_condition": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "refusal_gold": {
+          "rows": 698,
+          "split_groups": 485,
+          "unique_canon": 517
+        },
+        "strict": {
+          "rows": 1162,
+          "split_groups": 788,
+          "unique_canon": 822
+        },
+        "total": {
+          "rows": 2878,
+          "split_groups": 1995,
+          "unique_canon": 2097
+        },
+        "upper_bound": {
+          "rows": 2180,
+          "split_groups": 1515,
+          "unique_canon": 1580
+        },
+        "upper_bound_convertible": {
+          "rows": 2178,
+          "split_groups": 1513,
+          "unique_canon": 1578
+        },
+        "upper_bound_minus_overstated": {
+          "rows": 1458,
+          "split_groups": 1032,
+          "unique_canon": 1074
+        }
+      },
+      "B": {
+        "no_mappable_condition": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "refusal_gold": {
+          "rows": 126,
+          "split_groups": 98,
+          "unique_canon": 99
+        },
+        "strict": {
+          "rows": 2216,
+          "split_groups": 1560,
+          "unique_canon": 1628
+        },
+        "total": {
+          "rows": 2804,
+          "split_groups": 2005,
+          "unique_canon": 2088
+        },
+        "upper_bound": {
+          "rows": 2678,
+          "split_groups": 1907,
+          "unique_canon": 1989
+        },
+        "upper_bound_convertible": {
+          "rows": 2664,
+          "split_groups": 1894,
+          "unique_canon": 1976
+        },
+        "upper_bound_minus_overstated": {
+          "rows": 2208,
+          "split_groups": 1570,
+          "unique_canon": 1636
+        }
+      },
+      "C": {
+        "no_mappable_condition": {
+          "rows": 64,
+          "split_groups": 54,
+          "unique_canon": 55
+        },
+        "refusal_gold": {
+          "rows": 29,
+          "split_groups": 24,
+          "unique_canon": 24
+        },
+        "strict": {
+          "rows": 5127,
+          "split_groups": 3404,
+          "unique_canon": 3544
+        },
+        "total": {
+          "rows": 5340,
+          "split_groups": 3581,
+          "unique_canon": 3725
+        },
+        "upper_bound": {
+          "rows": 5247,
+          "split_groups": 3504,
+          "unique_canon": 3646
+        },
+        "upper_bound_convertible": {
+          "rows": 5149,
+          "split_groups": 3420,
+          "unique_canon": 3560
+        },
+        "upper_bound_minus_overstated": {
+          "rows": 5114,
+          "split_groups": 3396,
+          "unique_canon": 3534
+        }
+      },
+      "D": {
+        "no_mappable_condition": {
+          "rows": 1188,
+          "split_groups": 977,
+          "unique_canon": 1009
+        },
+        "refusal_gold": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "strict": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "total": {
+          "rows": 1188,
+          "split_groups": 977,
+          "unique_canon": 1009
+        },
+        "upper_bound": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "upper_bound_convertible": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "upper_bound_minus_overstated": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        }
+      }
+    },
+    "unclear": {
+      "A": {
+        "no_mappable_condition": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "refusal_gold": {
+          "rows": 43,
+          "split_groups": 21,
+          "unique_canon": 26
+        },
+        "strict": {
+          "rows": 239,
+          "split_groups": 160,
+          "unique_canon": 164
+        },
+        "total": {
+          "rows": 607,
+          "split_groups": 421,
+          "unique_canon": 452
+        },
+        "upper_bound": {
+          "rows": 564,
+          "split_groups": 401,
+          "unique_canon": 426
+        },
+        "upper_bound_convertible": {
+          "rows": 558,
+          "split_groups": 398,
+          "unique_canon": 421
+        },
+        "upper_bound_minus_overstated": {
+          "rows": 408,
+          "split_groups": 306,
+          "unique_canon": 323
+        }
+      },
+      "B": {
+        "no_mappable_condition": {
+          "rows": 1,
+          "split_groups": 1,
+          "unique_canon": 1
+        },
+        "refusal_gold": {
+          "rows": 78,
+          "split_groups": 76,
+          "unique_canon": 77
+        },
+        "strict": {
+          "rows": 2005,
+          "split_groups": 892,
+          "unique_canon": 937
+        },
+        "total": {
+          "rows": 3432,
+          "split_groups": 1467,
+          "unique_canon": 1541
+        },
+        "upper_bound": {
+          "rows": 3353,
+          "split_groups": 1391,
+          "unique_canon": 1463
+        },
+        "upper_bound_convertible": {
+          "rows": 3241,
+          "split_groups": 1298,
+          "unique_canon": 1367
+        },
+        "upper_bound_minus_overstated": {
+          "rows": 2184,
+          "split_groups": 1082,
+          "unique_canon": 1131
+        }
+      },
+      "C": {
+        "no_mappable_condition": {
+          "rows": 417,
+          "split_groups": 345,
+          "unique_canon": 352
+        },
+        "refusal_gold": {
+          "rows": 92,
+          "split_groups": 81,
+          "unique_canon": 82
+        },
+        "strict": {
+          "rows": 6044,
+          "split_groups": 3796,
+          "unique_canon": 3999
+        },
+        "total": {
+          "rows": 7512,
+          "split_groups": 4712,
+          "unique_canon": 4958
+        },
+        "upper_bound": {
+          "rows": 7003,
+          "split_groups": 4291,
+          "unique_canon": 4524
+        },
+        "upper_bound_convertible": {
+          "rows": 6059,
+          "split_groups": 3806,
+          "unique_canon": 4009
+        },
+        "upper_bound_minus_overstated": {
+          "rows": 6726,
+          "split_groups": 4085,
+          "unique_canon": 4308
+        }
+      },
+      "D": {
+        "no_mappable_condition": {
+          "rows": 20368,
+          "split_groups": 11260,
+          "unique_canon": 11871
+        },
+        "refusal_gold": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "strict": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "total": {
+          "rows": 20368,
+          "split_groups": 11260,
+          "unique_canon": 11871
+        },
+        "upper_bound": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "upper_bound_convertible": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        },
+        "upper_bound_minus_overstated": {
+          "rows": 0,
+          "split_groups": 0,
+          "unique_canon": 0
+        }
+      }
+    }
+  },
+  "by_tier": {
+    "A": {
+      "no_mappable_condition": {
+        "rows": 0,
+        "split_groups": 0,
+        "unique_canon": 0
+      },
+      "refusal_gold": {
+        "rows": 1008,
+        "split_groups": 641,
+        "unique_canon": 698
+      },
+      "strict": {
+        "rows": 2388,
+        "split_groups": 1586,
+        "unique_canon": 1684
+      },
+      "total": {
+        "rows": 5660,
+        "split_groups": 3687,
+        "unique_canon": 4008
+      },
+      "upper_bound": {
+        "rows": 4652,
+        "split_groups": 3053,
+        "unique_canon": 3310
+      },
+      "upper_bound_convertible": {
+        "rows": 4644,
+        "split_groups": 3048,
+        "unique_canon": 3303
+      },
+      "upper_bound_minus_overstated": {
+        "rows": 3062,
+        "split_groups": 2062,
+        "unique_canon": 2209
+      }
+    },
+    "B": {
+      "no_mappable_condition": {
+        "rows": 1,
+        "split_groups": 1,
+        "unique_canon": 1
+      },
+      "refusal_gold": {
+        "rows": 243,
+        "split_groups": 211,
+        "unique_canon": 213
+      },
+      "strict": {
+        "rows": 4714,
+        "split_groups": 2798,
+        "unique_canon": 2937
+      },
+      "total": {
+        "rows": 6868,
+        "split_groups": 3932,
+        "unique_canon": 4126
+      },
+      "upper_bound": {
+        "rows": 6624,
+        "split_groups": 3721,
+        "unique_canon": 3912
+      },
+      "upper_bound_convertible": {
+        "rows": 6483,
+        "split_groups": 3602,
+        "unique_canon": 3789
+      },
+      "upper_bound_minus_overstated": {
+        "rows": 4913,
+        "split_groups": 3026,
+        "unique_canon": 3172
+      }
+    },
+    "C": {
+      "no_mappable_condition": {
+        "rows": 579,
+        "split_groups": 472,
+        "unique_canon": 481
+      },
+      "refusal_gold": {
+        "rows": 162,
+        "split_groups": 146,
+        "unique_canon": 147
+      },
+      "strict": {
+        "rows": 11748,
+        "split_groups": 7634,
+        "unique_canon": 8008
+      },
+      "total": {
+        "rows": 13633,
+        "split_groups": 8888,
+        "unique_canon": 9312
+      },
+      "upper_bound": {
+        "rows": 12892,
+        "split_groups": 8276,
+        "unique_canon": 8684
+      },
+      "upper_bound_convertible": {
+        "rows": 11799,
+        "split_groups": 7666,
+        "unique_canon": 8041
+      },
+      "upper_bound_minus_overstated": {
+        "rows": 12440,
+        "split_groups": 7930,
+        "unique_canon": 8322
+      }
+    },
+    "D": {
+      "no_mappable_condition": {
+        "rows": 22102,
+        "split_groups": 12693,
+        "unique_canon": 13369
+      },
+      "refusal_gold": {
+        "rows": 0,
+        "split_groups": 0,
+        "unique_canon": 0
+      },
+      "strict": {
+        "rows": 77,
+        "split_groups": 65,
+        "unique_canon": 67
+      },
+      "total": {
+        "rows": 22179,
+        "split_groups": 12755,
+        "unique_canon": 13436
+      },
+      "upper_bound": {
+        "rows": 77,
+        "split_groups": 65,
+        "unique_canon": 67
+      },
+      "upper_bound_convertible": {
+        "rows": 77,
+        "split_groups": 65,
+        "unique_canon": 67
+      },
+      "upper_bound_minus_overstated": {
+        "rows": 77,
+        "split_groups": 65,
+        "unique_canon": 67
+      }
+    }
+  },
+  "capability_table_commit": "3e247b01e0f0c459602e373e0d8a4f9b96a12005",
+  "capability_table_probed_on": "2026-08-02",
+  "capability_table_staleness": "ok",
+  "condition_fidelity": {
+    "coarse": 27382,
+    "exact": 30400,
+    "overstates": 4260,
+    "unruled": 8044
+  },
+  "detectable_gap_ids": [
+    "GAP-MARKET-CAP",
+    "GAP-PER-SYMBOL-INDICATOR"
+  ],
+  "gaps": [
+    {
+      "blocking_sources": {
+        "timeframe/interval[multi]": 786
+      },
+      "co_occurring_gaps": {
+        "GAP-MARKET-CAP": 42
+      },
+      "detectable_by_this_pass": true,
+      "distinct_requests": 550,
+      "distinct_requests_unlocked_if_closed": 525,
+      "dup_weighted_count": 786,
+      "gap_id": "GAP-PER-SYMBOL-INDICATOR",
+      "largest_group_share": 0.0115,
+      "largest_split_group_kind": "duplicate_cluster",
+      "rows_unlocked_if_closed": 744,
+      "shape_rows": {
+        "both": 0,
+        "selection": 0,
+        "trade": 786,
+        "unclear": 0
+      },
+      "tier_rows": {
+        "A": 656,
+        "B": 105,
+        "C": 25,
+        "D": 0
+      },
+      "undetectable_reason_code": null,
+      "unique_canon": 582
+    },
+    {
+      "blocking_sources": {
+        "threshold/market_cap": 108,
+        "universe_filter/market_cap": 669
+      },
+      "co_occurring_gaps": {
+        "GAP-PER-SYMBOL-INDICATOR": 42
+      },
+      "detectable_by_this_pass": true,
+      "distinct_requests": 474,
+      "distinct_requests_unlocked_if_closed": 448,
+      "dup_weighted_count": 669,
+      "gap_id": "GAP-MARKET-CAP",
+      "largest_group_share": 0.0269,
+      "largest_split_group_kind": "duplicate_cluster",
+      "rows_unlocked_if_closed": 627,
+      "shape_rows": {
+        "both": 219,
+        "selection": 128,
+        "trade": 109,
+        "unclear": 213
+      },
+      "tier_rows": {
+        "A": 391,
+        "B": 141,
+        "C": 137,
+        "D": 0
+      },
+      "undetectable_reason_code": null,
+      "unique_canon": 505
+    },
+    {
+      "blocking_sources": {},
+      "co_occurring_gaps": {},
+      "detectable_by_this_pass": false,
+      "distinct_requests": 0,
+      "distinct_requests_unlocked_if_closed": 0,
+      "dup_weighted_count": 0,
+      "gap_id": "GAP-ACCOUNT-OPS",
+      "largest_group_share": 0.0,
+      "largest_split_group_kind": null,
+      "rows_unlocked_if_closed": 0,
+      "shape_rows": {
+        "both": 0,
+        "selection": 0,
+        "trade": 0,
+        "unclear": 0
+      },
+      "tier_rows": {
+        "A": 0,
+        "B": 0,
+        "C": 0,
+        "D": 0
+      },
+      "undetectable_reason_code": "no_detector",
+      "unique_canon": 0
+    },
+    {
+      "blocking_sources": {},
+      "co_occurring_gaps": {},
+      "detectable_by_this_pass": false,
+      "distinct_requests": 0,
+      "distinct_requests_unlocked_if_closed": 0,
+      "dup_weighted_count": 0,
+      "gap_id": "GAP-ALERT-NOTIFY",
+      "largest_group_share": 0.0,
+      "largest_split_group_kind": null,
+      "rows_unlocked_if_closed": 0,
+      "shape_rows": {
+        "both": 0,
+        "selection": 0,
+        "trade": 0,
+        "unclear": 0
+      },
+      "tier_rows": {
+        "A": 0,
+        "B": 0,
+        "C": 0,
+        "D": 0
+      },
+      "undetectable_reason_code": "no_detector",
+      "unique_canon": 0
+    },
+    {
+      "blocking_sources": {},
+      "co_occurring_gaps": {},
+      "detectable_by_this_pass": false,
+      "distinct_requests": 0,
+      "distinct_requests_unlocked_if_closed": 0,
+      "dup_weighted_count": 0,
+      "gap_id": "GAP-COMPOUND-SELECT-THEN-TRADE",
+      "largest_group_share": 0.0,
+      "largest_split_group_kind": null,
+      "rows_unlocked_if_closed": 0,
+      "shape_rows": {
+        "both": 0,
+        "selection": 0,
+        "trade": 0,
+        "unclear": 0
+      },
+      "tier_rows": {
+        "A": 0,
+        "B": 0,
+        "C": 0,
+        "D": 0
+      },
+      "undetectable_reason_code": "no_detector",
+      "unique_canon": 0
+    },
+    {
+      "blocking_sources": {},
+      "co_occurring_gaps": {},
+      "detectable_by_this_pass": false,
+      "distinct_requests": 0,
+      "distinct_requests_unlocked_if_closed": 0,
+      "dup_weighted_count": 0,
+      "gap_id": "GAP-CONTRACT-META",
+      "largest_group_share": 0.0,
+      "largest_split_group_kind": null,
+      "rows_unlocked_if_closed": 0,
+      "shape_rows": {
+        "both": 0,
+        "selection": 0,
+        "trade": 0,
+        "unclear": 0
+      },
+      "tier_rows": {
+        "A": 0,
+        "B": 0,
+        "C": 0,
+        "D": 0
+      },
+      "undetectable_reason_code": "no_detector",
+      "unique_canon": 0
+    },
+    {
+      "blocking_sources": {},
+      "co_occurring_gaps": {},
+      "detectable_by_this_pass": false,
+      "distinct_requests": 0,
+      "distinct_requests_unlocked_if_closed": 0,
+      "dup_weighted_count": 0,
+      "gap_id": "GAP-ENTRY-EXIT-PER-CANDIDATE",
+      "largest_group_share": 0.0,
+      "largest_split_group_kind": null,
+      "rows_unlocked_if_closed": 0,
+      "shape_rows": {
+        "both": 0,
+        "selection": 0,
+        "trade": 0,
+        "unclear": 0
+      },
+      "tier_rows": {
+        "A": 0,
+        "B": 0,
+        "C": 0,
+        "D": 0
+      },
+      "undetectable_reason_code": "no_detector",
+      "unique_canon": 0
+    },
+    {
+      "blocking_sources": {},
+      "co_occurring_gaps": {},
+      "detectable_by_this_pass": false,
+      "distinct_requests": 0,
+      "distinct_requests_unlocked_if_closed": 0,
+      "dup_weighted_count": 0,
+      "gap_id": "GAP-HISTORICAL-WINDOW",
+      "largest_group_share": 0.0,
+      "largest_split_group_kind": null,
+      "rows_unlocked_if_closed": 0,
+      "shape_rows": {
+        "both": 0,
+        "selection": 0,
+        "trade": 0,
+        "unclear": 0
+      },
+      "tier_rows": {
+        "A": 0,
+        "B": 0,
+        "C": 0,
+        "D": 0
+      },
+      "undetectable_reason_code": "no_detector",
+      "unique_canon": 0
+    },
+    {
+      "blocking_sources": {},
+      "co_occurring_gaps": {},
+      "detectable_by_this_pass": false,
+      "distinct_requests": 0,
+      "distinct_requests_unlocked_if_closed": 0,
+      "dup_weighted_count": 0,
+      "gap_id": "GAP-LIQUIDATION-CROSS-SECTION",
+      "largest_group_share": 0.0,
+      "largest_split_group_kind": null,
+      "rows_unlocked_if_closed": 0,
+      "shape_rows": {
+        "both": 0,
+        "selection": 0,
+        "trade": 0,
+        "unclear": 0
+      },
+      "tier_rows": {
+        "A": 0,
+        "B": 0,
+        "C": 0,
+        "D": 0
+      },
+      "undetectable_reason_code": "no_detector",
+      "unique_canon": 0
+    },
+    {
+      "blocking_sources": {},
+      "co_occurring_gaps": {},
+      "detectable_by_this_pass": false,
+      "distinct_requests": 0,
+      "distinct_requests_unlocked_if_closed": 0,
+      "dup_weighted_count": 0,
+      "gap_id": "GAP-LONG-SHORT-RATIO",
+      "largest_group_share": 0.0,
+      "largest_split_group_kind": null,
+      "rows_unlocked_if_closed": 0,
+      "shape_rows": {
+        "both": 0,
+        "selection": 0,
+        "trade": 0,
+        "unclear": 0
+      },
+      "tier_rows": {
+        "A": 0,
+        "B": 0,
+        "C": 0,
+        "D": 0
+      },
+      "undetectable_reason_code": "no_detector",
+      "unique_canon": 0
+    },
+    {
+      "blocking_sources": {},
+      "co_occurring_gaps": {},
+      "detectable_by_this_pass": false,
+      "distinct_requests": 0,
+      "distinct_requests_unlocked_if_closed": 0,
+      "dup_weighted_count": 0,
+      "gap_id": "GAP-NEWS-EVENT-TEXT",
+      "largest_group_share": 0.0,
+      "largest_split_group_kind": null,
+      "rows_unlocked_if_closed": 0,
+      "shape_rows": {
+        "both": 0,
+        "selection": 0,
+        "trade": 0,
+        "unclear": 0
+      },
+      "tier_rows": {
+        "A": 0,
+        "B": 0,
+        "C": 0,
+        "D": 0
+      },
+      "undetectable_reason_code": "no_detector",
+      "unique_canon": 0
+    },
+    {
+      "blocking_sources": {},
+      "co_occurring_gaps": {},
+      "detectable_by_this_pass": false,
+      "distinct_requests": 0,
+      "distinct_requests_unlocked_if_closed": 0,
+      "dup_weighted_count": 0,
+      "gap_id": "GAP-OI-CROSS-SECTION",
+      "largest_group_share": 0.0,
+      "largest_split_group_kind": null,
+      "rows_unlocked_if_closed": 0,
+      "shape_rows": {
+        "both": 0,
+        "selection": 0,
+        "trade": 0,
+        "unclear": 0
+      },
+      "tier_rows": {
+        "A": 0,
+        "B": 0,
+        "C": 0,
+        "D": 0
+      },
+      "undetectable_reason_code": "no_detector",
+      "unique_canon": 0
+    },
+    {
+      "blocking_sources": {},
+      "co_occurring_gaps": {},
+      "detectable_by_this_pass": false,
+      "distinct_requests": 0,
+      "distinct_requests_unlocked_if_closed": 0,
+      "dup_weighted_count": 0,
+      "gap_id": "GAP-ONCHAIN-CONCENTRATION",
+      "largest_group_share": 0.0,
+      "largest_split_group_kind": null,
+      "rows_unlocked_if_closed": 0,
+      "shape_rows": {
+        "both": 0,
+        "selection": 0,
+        "trade": 0,
+        "unclear": 0
+      },
+      "tier_rows": {
+        "A": 0,
+        "B": 0,
+        "C": 0,
+        "D": 0
+      },
+      "undetectable_reason_code": "no_detector",
+      "unique_canon": 0
+    },
+    {
+      "blocking_sources": {},
+      "co_occurring_gaps": {},
+      "detectable_by_this_pass": false,
+      "distinct_requests": 0,
+      "distinct_requests_unlocked_if_closed": 0,
+      "dup_weighted_count": 0,
+      "gap_id": "GAP-SECTOR-LABEL",
+      "largest_group_share": 0.0,
+      "largest_split_group_kind": null,
+      "rows_unlocked_if_closed": 0,
+      "shape_rows": {
+        "both": 0,
+        "selection": 0,
+        "trade": 0,
+        "unclear": 0
+      },
+      "tier_rows": {
+        "A": 0,
+        "B": 0,
+        "C": 0,
+        "D": 0
+      },
+      "undetectable_reason_code": "no_detector",
+      "unique_canon": 0
+    },
+    {
+      "blocking_sources": {},
+      "co_occurring_gaps": {},
+      "detectable_by_this_pass": false,
+      "distinct_requests": 0,
+      "distinct_requests_unlocked_if_closed": 0,
+      "dup_weighted_count": 0,
+      "gap_id": "GAP-SPREAD-DEPTH",
+      "largest_group_share": 0.0,
+      "largest_split_group_kind": null,
+      "rows_unlocked_if_closed": 0,
+      "shape_rows": {
+        "both": 0,
+        "selection": 0,
+        "trade": 0,
+        "unclear": 0
+      },
+      "tier_rows": {
+        "A": 0,
+        "B": 0,
+        "C": 0,
+        "D": 0
+      },
+      "undetectable_reason_code": "no_detector",
+      "unique_canon": 0
+    },
+    {
+      "blocking_sources": {},
+      "co_occurring_gaps": {},
+      "detectable_by_this_pass": false,
+      "distinct_requests": 0,
+      "distinct_requests_unlocked_if_closed": 0,
+      "dup_weighted_count": 0,
+      "gap_id": "GAP-VAGUE-CRITERION",
+      "largest_group_share": 0.0,
+      "largest_split_group_kind": null,
+      "rows_unlocked_if_closed": 0,
+      "shape_rows": {
+        "both": 0,
+        "selection": 0,
+        "trade": 0,
+        "unclear": 0
+      },
+      "tier_rows": {
+        "A": 0,
+        "B": 0,
+        "C": 0,
+        "D": 0
+      },
+      "undetectable_reason_code": "no_detector",
+      "unique_canon": 0
+    }
+  ],
+  "measure": "gate0-measure/1",
+  "miner": "gate0-mine/1",
+  "multi_timeframe_only_blocker": {
+    "both": {
+      "rows": 0,
+      "split_groups": 0,
+      "unique_canon": 0
+    },
+    "selection": {
+      "rows": 0,
+      "split_groups": 0,
+      "unique_canon": 0
+    },
+    "trade": {
+      "rows": 744,
+      "split_groups": 525,
+      "unique_canon": 553
+    },
+    "unclear": {
+      "rows": 0,
+      "split_groups": 0,
+      "unique_canon": 0
+    }
+  },
+  "overstated_sources": [
+    {
+      "conditions": 4059,
+      "source": "risk/leverage"
+    },
+    {
+      "conditions": 114,
+      "source": "indicator/fibonacci"
+    },
+    {
+      "conditions": 87,
+      "source": "threshold/leverage"
+    }
+  ],
+  "population": {
+    "continuation_fragments": 3255,
+    "scored_rows": 48340,
+    "total_rows": 51595
+  },
+  "quantified_families": [
+    "risk",
+    "rank_topn"
+  ],
+  "risk_conditions_without_value": 15466,
+  "rows_blocked_only_by_unknown": {
+    "rows": 5318,
+    "split_groups": 3046,
+    "unique_canon": 3277
+  },
+  "top_preset_case": [
+    {
+      "dup_count_rows": 504,
+      "gap_ids": [
+        "GAP-MARKET-CAP",
+        "GAP-PER-SYMBOL-INDICATOR"
+      ],
+      "preset_case": "volume-surge-daily-report",
+      "refusal_rows": 3,
+      "shape_rows": {
+        "both": 13,
+        "selection": 6,
+        "trade": 33,
+        "unclear": 452
+      },
+      "tier_rows": {
+        "A": 18,
+        "B": 21,
+        "C": 46,
+        "D": 419
+      },
+      "unique_canon": 156,
+      "upper_bound_rows": 77
+    },
+    {
+      "dup_count_rows": 455,
+      "gap_ids": [
+        "GAP-MARKET-CAP",
+        "GAP-PER-SYMBOL-INDICATOR"
+      ],
+      "preset_case": "square-buzz-screener",
+      "refusal_rows": 6,
+      "shape_rows": {
+        "both": 3,
+        "selection": 10,
+        "trade": 35,
+        "unclear": 407
+      },
+      "tier_rows": {
+        "A": 10,
+        "B": 23,
+        "C": 35,
+        "D": 387
+      },
+      "unique_canon": 136,
+      "upper_bound_rows": 60
+    },
+    {
+      "dup_count_rows": 443,
+      "gap_ids": [
+        "GAP-MARKET-CAP"
+      ],
+      "preset_case": "structured-trade-plan",
+      "refusal_rows": 2,
+      "shape_rows": {
+        "both": 2,
+        "selection": 2,
+        "trade": 42,
+        "unclear": 397
+      },
+      "tier_rows": {
+        "A": 5,
+        "B": 18,
+        "C": 52,
+        "D": 368
+      },
+      "unique_canon": 126,
+      "upper_bound_rows": 74
+    },
+    {
+      "dup_count_rows": 416,
+      "gap_ids": [
+        "GAP-PER-SYMBOL-INDICATOR"
+      ],
+      "preset_case": "prediction-market",
+      "refusal_rows": 1,
+      "shape_rows": {
+        "both": 3,
+        "selection": 5,
+        "trade": 35,
+        "unclear": 373
+      },
+      "tier_rows": {
+        "A": 16,
+        "B": 23,
+        "C": 36,
+        "D": 341
+      },
+      "unique_canon": 129,
+      "upper_bound_rows": 70
+    },
+    {
+      "dup_count_rows": 409,
+      "gap_ids": [
+        "GAP-MARKET-CAP",
+        "GAP-PER-SYMBOL-INDICATOR"
+      ],
+      "preset_case": "popular-trading-bot",
+      "refusal_rows": 5,
+      "shape_rows": {
+        "both": 19,
+        "selection": 4,
+        "trade": 55,
+        "unclear": 331
+      },
+      "tier_rows": {
+        "A": 29,
+        "B": 42,
+        "C": 48,
+        "D": 290
+      },
+      "unique_canon": 159,
+      "upper_bound_rows": 111
+    },
+    {
+      "dup_count_rows": 340,
+      "gap_ids": [
+        "GAP-PER-SYMBOL-INDICATOR"
+      ],
+      "preset_case": "kline-indicator-checkup",
+      "refusal_rows": 4,
+      "shape_rows": {
+        "both": 1,
+        "selection": 3,
+        "trade": 35,
+        "unclear": 301
+      },
+      "tier_rows": {
+        "A": 7,
+        "B": 11,
+        "C": 36,
+        "D": 286
+      },
+      "unique_canon": 94,
+      "upper_bound_rows": 50
+    },
+    {
+      "dup_count_rows": 266,
+      "gap_ids": [],
+      "preset_case": "earnings-tradfi-scanner",
+      "refusal_rows": 0,
+      "shape_rows": {
+        "both": 1,
+        "selection": 5,
+        "trade": 12,
+        "unclear": 248
+      },
+      "tier_rows": {
+        "A": 3,
+        "B": 7,
+        "C": 11,
+        "D": 245
+      },
+      "unique_canon": 60,
+      "upper_bound_rows": 21
+    },
+    {
+      "dup_count_rows": 246,
+      "gap_ids": [],
+      "preset_case": "three-tier-strategy",
+      "refusal_rows": 0,
+      "shape_rows": {
+        "trade": 7,
+        "unclear": 239
+      },
+      "tier_rows": {
+        "A": 3,
+        "B": 3,
+        "C": 15,
+        "D": 225
+      },
+      "unique_canon": 52,
+      "upper_bound_rows": 21
+    },
+    {
+      "dup_count_rows": 147,
+      "gap_ids": [],
+      "preset_case": "macro-event-driven-scanner",
+      "refusal_rows": 0,
+      "shape_rows": {
+        "selection": 2,
+        "trade": 5,
+        "unclear": 140
+      },
+      "tier_rows": {
+        "A": 4,
+        "B": 2,
+        "C": 6,
+        "D": 135
+      },
+      "unique_canon": 39,
+      "upper_bound_rows": 12
+    },
+    {
+      "dup_count_rows": 111,
+      "gap_ids": [],
+      "preset_case": "tradfi-daily",
+      "refusal_rows": 0,
+      "shape_rows": {
+        "both": 1,
+        "trade": 14,
+        "unclear": 96
+      },
+      "tier_rows": {
+        "A": 6,
+        "B": 3,
+        "C": 16,
+        "D": 86
+      },
+      "unique_canon": 45,
+      "upper_bound_rows": 25
+    },
+    {
+      "dup_count_rows": 25,
+      "gap_ids": [
+        "GAP-MARKET-CAP"
+      ],
+      "preset_case": "golden-ratio-fibonacci",
+      "refusal_rows": 3,
+      "shape_rows": {
+        "both": 4,
+        "trade": 6,
+        "unclear": 15
+      },
+      "tier_rows": {
+        "A": 8,
+        "B": 4,
+        "C": 2,
+        "D": 11
+      },
+      "unique_canon": 15,
+      "upper_bound_rows": 11
+    },
+    {
+      "dup_count_rows": 23,
+      "gap_ids": [],
+      "preset_case": "world-cup-predictor",
+      "refusal_rows": 0,
+      "shape_rows": {
+        "both": 1,
+        "selection": 1,
+        "trade": 3,
+        "unclear": 18
+      },
+      "tier_rows": {
+        "A": 1,
+        "B": 2,
+        "C": 5,
+        "D": 15
+      },
+      "unique_canon": 17,
+      "upper_bound_rows": 8
+    },
+    {
+      "dup_count_rows": 22,
+      "gap_ids": [],
+      "preset_case": "serenity-stock-research",
+      "refusal_rows": 0,
+      "shape_rows": {
+        "trade": 5,
+        "unclear": 17
+      },
+      "tier_rows": {
+        "A": 1,
+        "B": 3,
+        "C": 3,
+        "D": 15
+      },
+      "unique_canon": 16,
+      "upper_bound_rows": 7
+    },
+    {
+      "dup_count_rows": 16,
+      "gap_ids": [],
+      "preset_case": "funding-rate-scanner",
+      "refusal_rows": 0,
+      "shape_rows": {
+        "trade": 1,
+        "unclear": 15
+      },
+      "tier_rows": {
+        "B": 1,
+        "C": 1,
+        "D": 14
+      },
+      "unique_canon": 8,
+      "upper_bound_rows": 2
+    },
+    {
+      "dup_count_rows": 1,
+      "gap_ids": [],
+      "preset_case": "black-swan-insurance",
+      "refusal_rows": 0,
+      "shape_rows": {
+        "unclear": 1
+      },
+      "tier_rows": {
+        "B": 1
+      },
+      "unique_canon": 1,
+      "upper_bound_rows": 1
+    }
+  ],
+  "undetectable_gaps": {
+    "GAP-ACCOUNT-OPS": "no miner family looks for balance / close-my-position / set-leverage-now",
+    "GAP-ALERT-NOTIFY": "no miner family looks for 'notify me when' - and this one is a whole product shape, not a column",
+    "GAP-COMPOUND-SELECT-THEN-TRADE": "historical gap id retained for dataset compatibility. The capability is now expressible: selection.candidate_trade attaches one nested trade to each selected candidate, so no current not_expressible row emits this id",
+    "GAP-CONTRACT-META": "vacant in the capability table as of TABLE_DERIVED_FROM (the contract metadata blocks landed), so nothing should reach it",
+    "GAP-ENTRY-EXIT-PER-CANDIDATE": "historical gap id retained for dataset compatibility. Cross-sectional entry_exit_plan is now expressible through selection.candidate_trade plus risk.exit and sizing.size, so no current not_expressible row emits this id",
+    "GAP-HISTORICAL-WINDOW": "no miner family looks for 'N-day high' or '% off its yearly high'; the timeframe family catches intervals, not lookback windows",
+    "GAP-LIQUIDATION-CROSS-SECTION": "no miner family looks for liquidations (baocang)",
+    "GAP-LONG-SHORT-RATIO": "no miner family looks for the long/short account ratio",
+    "GAP-NEWS-EVENT-TEXT": "no miner family looks for news / listing announcements / headlines",
+    "GAP-OI-CROSS-SECTION": "no miner family looks for open interest",
+    "GAP-ONCHAIN-CONCENTRATION": "no miner family looks for holder distribution; chain data is not in the repo's sources either, so this one is doubly invisible",
+    "GAP-SECTOR-LABEL": "vacant, as above",
+    "GAP-SPREAD-DEPTH": "the CROSS-SECTIONAL half landed (universe.augment_with_spread joins bookTicker for all 727 symbols), so ('universe_filter','liquidity') now scores expressible and no longer reaches this gap. What still carries it is the per_symbol_series row: per-BAR microstructure, order imbalance on a kline series, which no miner family looks for. So the remaining half is invisible rather than absent",
+    "GAP-VAGUE-CRITERION": "'coins about to pump', 'good fundamentals'. A regex cannot recognise the absence of a criterion, and the table calls this the most dangerous class precisely because mentions or turnover LOOK like an answer"
+  },
+  "unruled_keys": [
+    {
+      "operator": "equals",
+      "rows": 3797,
+      "scope": "*",
+      "split_groups": 2136,
+      "subject": "bar_interval"
+    },
+    {
+      "operator": "compare",
+      "rows": 1987,
+      "scope": "*",
+      "split_groups": 1189,
+      "subject": "unattributed_threshold"
+    },
+    {
+      "operator": "plan",
+      "rows": 508,
+      "scope": "*",
+      "split_groups": 352,
+      "subject": "portfolio_drawdown_limit"
+    },
+    {
+      "operator": "compare",
+      "rows": 83,
+      "scope": "*",
+      "split_groups": 55,
+      "subject": "backtest_win_rate"
+    },
+    {
+      "operator": "compare",
+      "rows": 62,
+      "scope": "per_symbol_series",
+      "split_groups": 40,
+      "subject": "price_change_24h"
+    }
+  ],
+  "upper_bound_quantified": {
+    "both": {
+      "rows": 663,
+      "split_groups": 493,
+      "unique_canon": 527
+    },
+    "selection": {
+      "rows": 618,
+      "split_groups": 456,
+      "unique_canon": 473
+    },
+    "trade": {
+      "rows": 5597,
+      "split_groups": 3623,
+      "unique_canon": 3791
+    },
+    "unclear": {
+      "rows": 7565,
+      "split_groups": 4366,
+      "unique_canon": 4619
+    }
+  }
+}

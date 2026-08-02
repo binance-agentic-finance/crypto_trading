@@ -465,6 +465,26 @@ class SelectionCandidate:
     #: ready-to-execute instruction instead of just a watchlist
     trade: Optional["StandardSignal"] = None
 
+    def __post_init__(self) -> None:
+        if self.trade is None:
+            return
+        if self.trade.kind is not SignalKind.TRADE:
+            raise ValueError(
+                "SelectionCandidate.trade must be kind=trade, got %s"
+                % (self.trade.kind.value if self.trade.kind else None)
+            )
+        if str(self.trade.symbol or "").upper() != str(self.symbol).upper():
+            raise ValueError(
+                "SelectionCandidate.trade symbol %r does not match candidate %r"
+                % (self.trade.symbol, self.symbol)
+            )
+        if self.trade.auto_trade_eligible or not self.trade.requires_confirmation:
+            raise ValueError(
+                "SelectionCandidate.trade is a proposed per-candidate plan, not "
+                "order authority; it must set auto_trade_eligible=false and "
+                "requires_confirmation=true"
+            )
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "symbol": self.symbol, "rank": self.rank, "score": self.score,
@@ -627,7 +647,8 @@ class StandardSignal:
         # would otherwise publish a basket labelled "single", which is exactly
         # how a consumer ends up parsing a selection result as a trade.
         derived = (
-            SignalKind.SELECTION if self.candidates
+            SignalKind.SELECTION
+            if self.candidates or self.market_scope is MarketScope.CROSS_SECTION
             else SignalKind.ALERT if self.advisory_action is not None
             else SignalKind.TRADE
         )
@@ -635,9 +656,10 @@ class StandardSignal:
             object.__setattr__(self, "kind", derived)
         elif self.kind is not derived:
             raise ValueError(
-                "kind=%s contradicts the payload (candidates=%d, advisory_action=%s) "
+                "kind=%s contradicts the payload (market_scope=%s, candidates=%d, "
+                "advisory_action=%s) "
                 "which describes a %s signal. Leave kind unset and it is derived."
-                % (self.kind.value, len(self.candidates),
+                % (self.kind.value, self.market_scope.value, len(self.candidates),
                    self.advisory_action.value if self.advisory_action else None,
                    derived.value)
             )

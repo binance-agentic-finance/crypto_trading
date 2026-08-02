@@ -68,9 +68,75 @@ DENIED_FUNCTION_NAMES = {
 #: Blocks that fetch ONLY when their optional source argument is absent. They are
 #: allowed, but the spec has to supply the source with ``with: [...]`` — see
 #: :func:`_refuse_implicit_fetch`.
+#: The three derivative joins are here for a second reason on top of the network
+#: one: their live fallback FANS OUT over the frame they are handed, one request
+#: per instrument, so a spec that forgot ``with:`` would not just touch the
+#: network during validate — it would touch it 727 times.
 FETCHES_WITHOUT_SOURCE = {
     "universe.augment_with_news": "ticker_rank",
     "universe.augment_with_funding": "funding",
+    "universe.augment_with_contract_meta": "contract_meta",
+    "universe.augment_with_open_interest": "open_interest_snapshot",
+    "universe.augment_with_oi_change": "oi_change_snapshot",
+    "universe.augment_with_long_short_ratio": "long_short_ratio_snapshot",
+    "universe.augment_with_spread": "book_ticker",
+    "universe.augment_with_indicator": "universe_bars",
+}
+
+#: The one universe step that needs BARS, named once because three layers key off
+#: it: the dry-run has to fabricate the timeframes it asks for, the capture has to
+#: plan a roster from the steps BEFORE it, and the collection plan has to know the
+#: timeframe set is the union of every occurrence.
+BARS_BLOCK = "universe.augment_with_indicator"
+
+#: Universe augments whose source is captured by fanning out per symbol, because
+#: the public endpoint behind them has no whole-market form (omitting ``symbol``
+#: answers HTTP 400). Capture therefore fans out over the SURVIVORS of the steps
+#: that run before them, which makes their position in the pipeline load-bearing:
+#: placed before any narrowing step, a live capture tries the whole cross-section
+#: and trips the fan-out cost ceiling, while a replay meets a source frame built
+#: from a narrower roster and trips the join's coverage floor.
+#:
+#: Both of those are runtime failures. The ordering itself is a structural
+#: property of the spec, so :func:`spec.validate_spec` checks it statically —
+#: relying on the dry-run's coverage arithmetic caught only one of these four,
+#: and only because the synthetic roster happened to land at 87%: below the
+#: open-interest join's 95% floor, above the 50% floor the other two use.
+FAN_OUT_AUGMENTS = frozenset({
+    "universe.augment_with_open_interest",
+    "universe.augment_with_oi_change",
+    "universe.augment_with_long_short_ratio",
+    BARS_BLOCK,
+})
+
+
+def narrows_the_universe(block_ref: str) -> bool:
+    """Whether a universe step can reduce the row count.
+
+    An ``augment_*`` joins columns onto the frame it is given and returns the same
+    rows, so it cannot serve as the narrowing a fan-out needs; everything else in
+    the namespace is a filter or a top-N, both of which can.
+    """
+    name = str(block_ref or "").split(".")[-1]
+    return name.startswith(("filter_", "top_", "only_", "exclude_"))
+
+#: Columns that only exist once a SECOND source is supplied to the step that
+#: produces them: ``column -> (block, the ``with:`` name that produces it)``.
+#:
+#: ``universe.augment_with_funding`` emits ``fundingRatePct`` from ``funding``
+#: alone and ``fundingRateApr`` only when ``funding_info`` is there too — and
+#: when it is not, the block warns and leaves the column NaN (it must not assume
+#: an 8-hour settlement interval; see its docstring). NaN is the right value and
+#: the wrong end state for a spec: ``score: fundingRateApr`` over an all-NaN
+#: column drops every row, so the run emits an EMPTY basket and ``validate``
+#: returns the generic "produced no candidates" warning with errors=[]. That is
+#: the green-validate / wrong-run asymmetry, so it is refused statically instead.
+#:
+#: :data:`FETCHES_WITHOUT_SOURCE` cannot express this: it is one required name per
+#: block, checked whether or not the spec uses the column.
+COLUMN_REQUIRES_SOURCE = {
+    "fundingRateApr": ("universe.augment_with_funding", "funding_info"),
+    "fundingIntervalHours": ("universe.augment_with_funding", "funding_info"),
 }
 
 DENIED_PREFIXES = {
@@ -158,14 +224,14 @@ def resolve_block(ref: str) -> Callable[..., Any]:
 
 
 def _first_param_is_df(fn: Callable[..., Any]) -> bool:
-    """True if the block's first positional parameter is named ``df``."""
-    try:
-        params = list(inspect.signature(fn).parameters.values())
-    except (ValueError, TypeError):
-        return False
-    if not params:
-        return False
-    return params[0].name == "df"
+    """True if the block's first positional parameter is named ``df``.
+
+    Delegates to :func:`cyqnt_trd.blocks._utils.first_param_is_df`; see that
+    docstring for why the detection does not live here any more.
+    """
+    from cyqnt_trd.blocks._utils import first_param_is_df
+
+    return first_param_is_df(fn)
 
 
 # ---------------------------------------------------------------------------
@@ -247,49 +313,26 @@ def _signature_text(fn: Callable[..., Any]) -> str:
 def _select_component(out: Any, ispec: Dict[str, Any]):
     """Reduce a block's return value to the single Series an indicator must be.
 
-    Blocks return four shapes and only one of them is directly usable, so this
-    is where a spec finds out — with the fix in the message, rather than as a
-    ``NoneType has no attribute`` three frames deeper.
+    The reduction itself lives in :func:`blocks._utils.select_indicator_component`
+    so ``universe.augment_with_indicator`` resolves ``output:`` identically — see
+    that docstring. This wrapper only re-labels the failure as a
+    :class:`SpecError`, because a bad ``output:`` index is a fault in the SPEC and
+    every caller of ``validate`` catches that type.
     """
-    import pandas as pd
+    from cyqnt_trd.blocks._utils import (
+        IndicatorShapeError,
+        select_indicator_component,
+    )
 
-    ref = ispec.get("block", "?")
-
-    if isinstance(out, tuple):
-        if "output" not in ispec and len(out) > 1:
-            raise SpecError(
-                f"{ref!r} returns a {len(out)}-tuple; add 'output: <0..{len(out) - 1}>' "
-                f"to say which component you mean"
-            )
-        idx = int(ispec.get("output", 0))
-        if idx < 0 or idx >= len(out):
-            raise SpecError(
-                f"{ref!r} returns a {len(out)}-tuple; output index {idx} out of range"
-            )
-        out = out[idx]
-
-    if isinstance(out, pd.DataFrame):
-        column = ispec.get("column")
-        if column is None:
-            raise SpecError(
-                f"{ref!r} returns a DataFrame; add 'column: <name>' to pick one. "
-                f"Available: {list(out.columns)[:12]}"
-            )
-        if column not in out.columns:
-            raise SpecError(
-                f"{ref!r} returns a DataFrame without column {column!r}; "
-                f"available: {list(out.columns)[:12]}"
-            )
-        out = out[column]
-
-    if not isinstance(out, pd.Series):
-        raise SpecError(
-            f"{ref!r} returned {type(out).__name__}, which cannot be used as an "
-            f"indicator — an indicator must reduce to one pandas Series. Blocks "
-            f"that return a plan, a score or a scalar belong in the section that "
-            f"consumes them (risk.exit / sizing), not in signals.indicators"
+    try:
+        return select_indicator_component(
+            out,
+            ref=ispec.get("block", "?"),
+            output=(None if "output" not in ispec else ispec["output"]),
+            column=ispec.get("column"),
         )
-    return out
+    except IndicatorShapeError as exc:
+        raise SpecError(str(exc)) from exc
 
 
 def _series_from_token(df, env: Dict[str, Any], token: Any):
@@ -398,7 +441,15 @@ def eval_node(df, env: Dict[str, Any], node: Any):
 
 
 SELECTION_KEYS = frozenset({"universe", "features", "score", "top_k", "long_when",
-                            "short_when", "min_score", "dedupe_by"})
+                            "short_when", "min_score", "max_score", "dedupe_by",
+                            "order", "candidate_trade"})
+
+# ``candidate_trade`` is intentionally small.  The direction still comes from
+# ``long_when`` / ``short_when`` and the exit/size still use the same top-level
+# ``risk.exit`` / ``sizing.size`` grammar as a single-instrument trade.  Growing
+# a second trade DSL inside ``selection`` would give the LLM two spellings for
+# the same stop and let them drift apart again.
+CANDIDATE_TRADE_KEYS = frozenset({"entry_type"})
 
 #: how to collapse rows that are the same bet before taking the top K.
 #:
@@ -412,6 +463,20 @@ SELECTION_KEYS = frozenset({"universe", "features", "score", "top_k", "long_when
 #: ``none`` keeps every row, for a strategy that really does treat quote pairs as
 #: separate instruments (a USDC/USDT basis trade, say).
 DEDUPE_MODES = ("base_asset", "none")
+
+#: which end of the score column the basket is taken from.
+#:
+#: ``desc`` (the default) is the historical behaviour: biggest score first. It
+#: suits "most mentioned", "highest turnover", "biggest gainer".
+#:
+#: ``asc`` exists because a whole class of screens is naturally expressed at the
+#: *bottom* of a column — "the five most negative funding rates", "the biggest
+#: losers" — and without it the only way to say so was to narrow the universe
+#: with a step that happens to sort that way (``universe.top_losers``) and then
+#: rank on a different, incidentally-descending column. That detour ranks by
+#: something other than what the author asked for, and nothing in the output
+#: admits it.
+SORT_ORDERS = ("desc", "asc")
 UNIVERSE_STEP_KEYS = frozenset({"block", "params", "with"})
 
 
@@ -434,6 +499,96 @@ def _refuse_implicit_fetch(step: Dict[str, Any]) -> None:
             "Declare the source: `with: [%s]`." % (ref, needed, needed))
 
 
+def run_universe_steps(steps: List[Dict[str, Any]], frame: Any,
+                       extras: Dict[str, Any]) -> Any:
+    """Run a ``selection.universe`` pipeline (or a prefix of one) over *frame*.
+
+    Extracted so the two-pass capture's Pass 1 executes the SAME code the run
+    does. A capture that re-implemented "apply the narrowing steps" would derive
+    its bars roster from a slightly different funnel than the one the run walks,
+    and the difference shows up as a coverage refusal inside
+    ``augment_with_indicator`` — pointing at the join, which is the one place that
+    is not at fault.
+
+    Returns the narrowed frame, or an empty frame the moment a step empties it.
+    """
+    import pandas as pd
+
+    for step in steps:
+        _refuse_implicit_fetch(step)
+        fn = resolve_block(step["block"])
+        source_names = list(step.get("with") or [])
+        missing = [name for name in source_names
+                   if name not in extras or extras[name] is None]
+        if missing:
+            raise SpecError(
+                "universe step %r requires source(s) %s from the input bundle, "
+                "but they were not provided; `with:` never falls back to live "
+                "network data" % (step["block"], missing))
+        args = [frame] + [extras[name] for name in source_names]
+        try:
+            frame = fn(*args, **dict(step.get("params") or {}))
+        except TypeError as exc:
+            raise SpecError(
+                f"universe step {step['block']!r} rejected the call: {exc}. Its "
+                f"signature is {_signature_text(fn)} — the running frame is passed "
+                f"first, then each name in 'with'"
+            ) from exc
+        if not isinstance(frame, pd.DataFrame):
+            raise SpecError(
+                f"universe step {step['block']!r} returned "
+                f"{type(frame).__name__}; each step must return the narrowed "
+                f"or widened universe frame"
+            )
+        if not len(frame):
+            return frame
+    return frame
+
+
+def universe_steps_before_bars(spec: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """The universe steps that run BEFORE the first indicator step.
+
+    That prefix is Pass 1 of a bars capture, and it is necessarily
+    cross-sectional: every step in it reads a frame already in hand or a
+    whole-market source, so running it costs nothing and its survivors are the
+    roster the bars are fetched for.
+
+    Steps AFTER the first indicator step are excluded even if they are cheap
+    filters, because they may depend on the indicator column that does not exist
+    yet — and a prefix that raised while being planned would be a capture failure
+    for a spec that runs fine.
+    """
+    steps = (spec.get("selection") or {}).get("universe") or []
+    prefix: List[Dict[str, Any]] = []
+    for step in steps:
+        if isinstance(step, dict) and step.get("block") == BARS_BLOCK:
+            break
+        prefix.append(step)
+    return prefix
+
+
+def bar_timeframes_for_spec(spec: Dict[str, Any]) -> List[str]:
+    """Every timeframe this spec's indicator steps ask for, in first-seen order.
+
+    The UNION, and not the first one: a resonance screen names three, and
+    collecting one of them would leave two indicator columns NaN — which reads
+    downstream as "no coin met the condition" rather than as a short capture.
+    """
+    out: List[str] = []
+    for step in (spec.get("selection") or {}).get("universe") or []:
+        if not isinstance(step, dict) or step.get("block") != BARS_BLOCK:
+            continue
+        timeframe = (step.get("params") or {}).get("timeframe")
+        if timeframe is None:
+            raise SpecError(
+                "a %s step declares no `timeframe:`; the capture cannot know which "
+                "bars to collect, and the block cannot know which to read" % BARS_BLOCK)
+        name = str(timeframe).strip()
+        if name and name not in out:
+            out.append(name)
+    return out
+
+
 def build_selection_fn(spec: Dict[str, Any]) -> Callable[..., List[Dict[str, Any]]]:
     """Compile a ``selection:`` section into ``blocks.strategy``'s selection_fn.
 
@@ -452,9 +607,16 @@ def build_selection_fn(spec: Dict[str, Any]) -> Callable[..., List[Dict[str, Any
             - { block: universe.augment_with_news, with: [ticker_rank] }
           features:                       # per-symbol Series, same syntax as indicators
             skew: { block: ..., input: news_bull_ratio }
-          score: news_mention_count       # column or feature to rank by, descending
+          score: news_mention_count       # column or feature to rank by
+          order: desc                     # desc (default) | asc
           top_k: 5
+          min_score: 1.0                  # absolute floor  (>=), never flipped
+          max_score: -0.01                # absolute ceiling (<=), never flipped
           long_when: { cond: conditions.value_above, args: [news_bull_ratio, 0.55] }
+
+    ``order: asc`` plus ``max_score`` is how a bottom-of-the-column screen is
+    stated directly: ``score: fundingRatePct, order: asc, max_score: -0.01``
+    reads "the most negative funding rates, and only below -1bp".
     """
     section = spec.get("selection") or {}
     steps = list(section.get("universe") or [])
@@ -462,13 +624,33 @@ def build_selection_fn(spec: Dict[str, Any]) -> Callable[..., List[Dict[str, Any
     score_ref = section.get("score")
     top_k = int(section.get("top_k", 10))
     min_score = section.get("min_score")
+    max_score = section.get("max_score")
     long_node = section.get("long_when")
     short_node = section.get("short_when")
+    candidate_trade = section.get("candidate_trade")
+    candidate_trade_plan = None
+    if isinstance(candidate_trade, dict):
+        candidate_trade_plan = {
+            "entry_type": str(candidate_trade.get("entry_type") or "market").lower(),
+            "exit_cfg": dict(((spec.get("risk") or {}).get("exit") or {})),
+            "size": (spec.get("sizing") or {}).get("size"),
+            "market_type": str((spec.get("data") or {}).get("market_type") or "futures"),
+            "interval": str((((spec.get("data") or {}).get("primary") or {})
+                             .get("interval") or "1h")),
+        }
     dedupe_by = str(section.get("dedupe_by", "base_asset")).lower()
     if dedupe_by not in DEDUPE_MODES:
         raise SpecError(
             "selection.dedupe_by must be one of %s, got %r"
             % (", ".join(DEDUPE_MODES), dedupe_by))
+    order = str(section.get("order", "desc")).lower()
+    if order not in SORT_ORDERS:
+        raise SpecError(
+            "selection.order must be one of %s, got %r — %r is the default "
+            "(biggest score first); use %r to rank from the bottom of the "
+            "column (\"the most negative funding\")"
+            % (", ".join(SORT_ORDERS), order, "desc", "asc"))
+    score_ascending = order == "asc"
 
     def selection_fn(
         universe_df,
@@ -490,34 +672,9 @@ def build_selection_fn(spec: Dict[str, Any]) -> Callable[..., List[Dict[str, Any
         extras.update(runtime_extras)
         extras.update({"ticker_rank": ticker_rank_df, "universe": universe_df})
 
-        for step in steps:
-            _refuse_implicit_fetch(step)
-            fn = resolve_block(step["block"])
-            source_names = list(step.get("with") or [])
-            missing = [name for name in source_names
-                       if name not in extras or extras[name] is None]
-            if missing:
-                raise SpecError(
-                    "universe step %r requires source(s) %s from the input bundle, "
-                    "but they were not provided; `with:` never falls back to live "
-                    "network data" % (step["block"], missing))
-            args = [frame] + [extras[name] for name in source_names]
-            try:
-                frame = fn(*args, **dict(step.get("params") or {}))
-            except TypeError as exc:
-                raise SpecError(
-                    f"universe step {step['block']!r} rejected the call: {exc}. Its "
-                    f"signature is {_signature_text(fn)} — the running frame is passed "
-                    f"first, then each name in 'with'"
-                ) from exc
-            if not isinstance(frame, pd.DataFrame):
-                raise SpecError(
-                    f"universe step {step['block']!r} returned "
-                    f"{type(frame).__name__}; each step must return the narrowed "
-                    f"or widened universe frame"
-                )
-            if not len(frame):
-                return []
+        frame = run_universe_steps(steps, frame, extras)
+        if not len(frame):
+            return []
 
         env: Dict[str, Any] = {}
         for name, ispec in feature_specs.items():
@@ -528,6 +685,31 @@ def build_selection_fn(spec: Dict[str, Any]) -> Callable[..., List[Dict[str, Any
         scores = _series_from_token(frame, env, score_ref)
         long_mask = eval_node(frame, env, long_node) if long_node else None
         short_mask = eval_node(frame, env, short_node) if short_node else None
+
+        def _candidate_side(index: Any) -> str:
+            """Return the only direction this row may carry, or ``neutral``.
+
+            The direction clauses are a screen for a pure selection: a row that
+            satisfies neither cannot consume a ranked slot. Candidate-trade is
+            different — it deliberately retains those rows as explicit HOLD
+            plans — so its caller controls whether this helper filters or merely
+            labels the result below.
+            """
+            long_active = long_mask is not None and bool(long_mask.get(index, False))
+            short_active = short_mask is not None and bool(short_mask.get(index, False))
+            if long_active and short_active:
+                symbol = str(frame.at[index, symbol_col]) if symbol_col in frame.columns else str(index)
+                raise SpecError(
+                    "selection.long_when and selection.short_when are both true "
+                    "for %s. A candidate cannot be opened long and short by one "
+                    "signal; make the conditions mutually exclusive instead of "
+                    "depending on evaluation order." % symbol
+                )
+            if long_active:
+                return "long"
+            if short_active:
+                return "short"
+            return "neutral"
 
         symbol_col = next((c for c in ("symbol", "instrument_id") if c in frame.columns), None)
         if symbol_col is None:
@@ -543,8 +725,29 @@ def build_selection_fn(spec: Dict[str, Any]) -> Callable[..., List[Dict[str, Any
         # a NaN ranked against real numbers sorts arbitrarily and then reads as a
         # recommendation.
         ranked = ranked.dropna(subset=["score"])
+        # Absolute bounds, inclusive, and deliberately NOT relative to ``order``:
+        # ``min_score`` is always the floor and ``max_score`` always the ceiling,
+        # whichever end the ranking is taken from. The tempting alternative — let
+        # ``min_score`` mean "the cutoff on the winning side" so it flips to a
+        # ceiling under ``order: asc`` — would make ``min_score: 1.0`` mean two
+        # different things in two specs, and both example_selection.yaml and the
+        # demo template already ship ``min_score: 1.0``. Someone later adding
+        # ``order: asc`` to one of those would silently invert a filter they never
+        # touched. So: floor is a floor.
         if min_score is not None:
             ranked = ranked[ranked["score"] >= float(min_score)]
+        if max_score is not None:
+            ranked = ranked[ranked["score"] <= float(max_score)]
+        if candidate_trade_plan is None and (long_mask is not None or short_mask is not None):
+            # ``long_when`` / ``short_when`` are candidate eligibility for a
+            # plain selector, not a label applied after a pre-filled basket.
+            # Filter before dedupe and ``head(top_k)`` so a high-scoring row
+            # that fails the requested direction cannot displace a lower-ranked
+            # qualifying one (and a non-qualifying quote pair cannot eliminate
+            # a qualifying pair of the same base asset).
+            ranked = ranked.copy()
+            ranked["__side__"] = [_candidate_side(index) for index in ranked.index]
+            ranked = ranked[ranked["__side__"] != "neutral"]
         if dedupe_by == "base_asset":
             # Collapse BEFORE head(top_k), so the basket is top_k distinct bets
             # rather than top_k rows.
@@ -566,29 +769,39 @@ def build_selection_fn(spec: Dict[str, Any]) -> Callable[..., List[Dict[str, Any
                 (c for c in ("quoteVolume", "quote_volume", "volume_quote")
                  if c in frame.columns), None)
             if volume_column is not None:
+                # Only the score key follows ``order``. ``__turnover__`` stays
+                # descending in both directions because it is the liquidity
+                # tie-break, not a ranking criterion: under ``order: asc`` a
+                # turnover key that flipped with it would keep the *least*
+                # tradable quote pair of every asset — and since the surviving
+                # row carries the same score either way, nothing in the basket
+                # or the reason string would reveal the swap.
                 ranked = ranked.assign(
                     __turnover__=pd.to_numeric(
                         frame.loc[ranked.index, volume_column], errors="coerce"
                     ).fillna(0.0)
-                ).sort_values(["score", "__turnover__"], ascending=False)
+                ).sort_values(["score", "__turnover__"],
+                              ascending=[score_ascending, False])
             else:
-                ranked = ranked.sort_values("score", ascending=False)
+                ranked = ranked.sort_values("score", ascending=score_ascending)
             ranked = ranked[~ranked["symbol"].map(_base_token).duplicated(keep="first")]
             ranked = ranked.drop(columns=["__turnover__"], errors="ignore")
         else:
-            ranked = ranked.sort_values("score", ascending=False)
+            ranked = ranked.sort_values("score", ascending=score_ascending)
+        # The pool the basket is drawn from: rows that survived the universe
+        # steps, produced a usable score, and cleared the absolute bounds —
+        # counted BEFORE head(top_k), which is the cut, not the pool. Reported
+        # so the signal can say "top 5 of 41" instead of naming the whole
+        # market, which it did and which overstated the screen ninety-fold on
+        # the first demo.
+        scored_pool = int(len(ranked))
         ranked = ranked.head(top_k)
 
         feature_columns = [c for c in frame.columns if c not in (symbol_col,)]
         kept: List[Dict[str, Any]] = []
         for index, row in ranked.iterrows():
-            side = "neutral"
-            if long_mask is not None and bool(long_mask.get(index, False)):
-                side = "long"
-            elif short_mask is not None and bool(short_mask.get(index, False)):
-                side = "short"
-            elif long_mask is not None or short_mask is not None:
-                continue          # a direction was asked for and neither held
+            side = (_candidate_side(index) if candidate_trade_plan is not None
+                    else str(row.get("__side__") or "neutral"))
             features = {
                 name: (float(value) if isinstance(value, (int, float)) else str(value))
                 for name, value in frame.loc[index, feature_columns].items()
@@ -606,18 +819,37 @@ def build_selection_fn(spec: Dict[str, Any]) -> Callable[..., List[Dict[str, Any
                     continue
                 features[name] = (float(value) if isinstance(value, (int, float))
                                   and not isinstance(value, bool) else str(value))
-            kept.append({"symbol": row["symbol"], "score": round(float(row["score"]), 6),
-                         "side": side, "features": features})
+            kept.append({
+                "symbol": row["symbol"],
+                "score": round(float(row["score"]), 6),
+                "side": side,
+                "features": features,
+                # This is an internal, normalised plan.  SelectionStrategyPlugin
+                # turns it into a complete nested cyqnt.signal/v2 after snapshot
+                # provenance and the decision clock are available.
+                "_candidate_trade": (dict(candidate_trade_plan)
+                                     if candidate_trade_plan is not None else None),
+            })
 
         # Rank AFTER the direction filter, so the numbers are contiguous and
         # "rank N of M" counts the basket that was actually returned. Numbering
         # during the loop left gaps where a symbol was skipped, and reported a
         # total that did not match the list beside it.
+        #
+        # The direction is spelled out because "rank 1 of 5" reads identically
+        # for both orders: an operator holding a basket could not tell whether
+        # rank 1 was the highest funding or the lowest, which is the difference
+        # between a short screen and a long one. ``order=`` names the spec key
+        # so the log can be matched back to the YAML that produced it.
+        order_note = "order=%s (%s first)" % (
+            order, "lowest" if score_ascending else "highest")
         out: List[Dict[str, Any]] = []
         for position, candidate in enumerate(kept, start=1):
             out.append({**candidate, "rank": position,
-                        "reason": "%s=%.4g, rank %d of %d"
-                                  % (score_ref, candidate["score"], position, len(kept))})
+                        "scored_pool": scored_pool,
+                        "reason": "%s=%.4g, rank %d of %d, %s"
+                                  % (score_ref, candidate["score"], position,
+                                     len(kept), order_note)})
         return out
 
     return selection_fn

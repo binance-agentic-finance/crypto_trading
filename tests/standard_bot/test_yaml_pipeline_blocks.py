@@ -265,6 +265,23 @@ def test_a_derived_column_needs_its_source_declared():
     assert any("derivatives" in e and "does not declare" in e for e in errors), errors
 
 
+def test_selection_cannot_hide_an_empty_signals_mapping():
+    """Dialect mixing is invalid even when the redundant mapping is empty."""
+    spec = _spec()
+    spec["signals"] = {}
+    spec["selection"] = {
+        "universe": [{"block": "universe.filter_quote_volume",
+                      "params": {"min_quote_volume": 1}}],
+        "score": "quoteVolume",
+        "top_k": 5,
+        "dedupe_by": "base_asset",
+    }
+
+    errors, _ = validate_spec(spec)
+
+    assert any("either a trade strategy" in error for error in errors), errors
+
+
 def test_declaring_the_source_makes_the_column_available_to_the_dry_run():
     spec = _spec()
     spec["data"]["derivatives"] = {"dir": "data/derivatives_mvp_30d"}
@@ -293,10 +310,22 @@ def test_a_declared_section_without_a_dir_is_refused():
 
 
 @pytest.mark.parametrize("mutate,needle", [
+    (lambda s: s.__setitem__("kind", "selection"), "unknown top-level kind"),
     (lambda s: s["data"].__setitem__("derivative", {"dir": "x"}), "unknown data.derivative"),
+    (lambda s: s["data"].__setitem__("derivatives", {"dir": "x", "dirr": "y"}),
+     "unknown data.derivatives.dirr"),
+    (lambda s: s["data"]["primary"].__setitem__("poll_intervall", 60),
+     "unknown data.primary.poll_intervall"),
     (lambda s: s["sizing"].__setitem__("sizes", 0.5), "unknown sizing.sizes"),
+    (lambda s: s.__setitem__("risk", {"feees": {"commission_bps": 0.0}}),
+     "unknown risk.feees"),
     (lambda s: s.__setitem__("risk", {"exit": {"type": "pct_stop_tp", "stop_pctt": 0.02}}),
      "unknown risk.exit.stop_pctt"),
+    (lambda s: s.__setitem__("risk", {"exit": {
+        "type": "time_only", "max_bars": 3, "stop_pct": 0.02, "tp_pct": 0.04,
+    }}), "risk.exit.stop_pct is not used by type=time_only"),
+    (lambda s: s.__setitem__("backtest", {"execution_modell": "next_bar_open"}),
+     "unknown backtest.execution_modell"),
 ])
 def test_a_misspelt_key_is_an_error_not_a_no_op(mutate, needle):
     """Each of these previously validated clean and then did nothing —
@@ -305,6 +334,80 @@ def test_a_misspelt_key_is_an_error_not_a_no_op(mutate, needle):
     mutate(spec)
     errors, _ = validate_spec(spec)
     assert any(needle in e for e in errors), errors
+
+
+def test_the_runtime_primary_warm_up_bars_key_is_allowed():
+    spec = _spec()
+    spec["data"]["primary"]["warm_up_bars"] = 240
+
+    errors, _ = validate_spec(spec)
+
+    assert errors == []
+
+
+@pytest.mark.parametrize("source_type", ["historical_parquett", ["historical_parquet"]])
+def test_an_unknown_data_source_type_is_not_allowed_to_fall_through(source_type):
+    spec = _spec()
+    spec["data"]["source"] = {"type": source_type, "dir": "data/x"}
+
+    errors, _ = validate_spec(spec)
+
+    assert any("data.source.type must be one of" in error for error in errors), errors
+
+
+def test_a_condition_leaf_rejects_unknown_keys_instead_of_ignoring_them():
+    spec = _spec()
+    spec["signals"]["entry"]["long"]["argz"] = ["fast", "slow"]
+
+    errors, _ = validate_spec(spec)
+
+    assert any("unknown signals.entry.long.argz" in error for error in errors), errors
+
+
+def test_a_condition_node_cannot_mix_two_combinator_shapes():
+    spec = _spec()
+    original = spec["signals"]["entry"]["long"]
+    spec["signals"]["entry"]["long"] = {"not": original, "cond": original["cond"]}
+
+    errors, _ = validate_spec(spec)
+
+    assert any("must contain exactly one" in error for error in errors), errors
+
+
+@pytest.mark.parametrize("mutate,needle", [
+    (lambda s: s.__setitem__("strategy", "bad"), "strategy must be a mapping"),
+    (lambda s: s.__setitem__("run", "bad"), "run must be a mapping"),
+    (lambda s: s.__setitem__("data", "bad"), "data must be a mapping"),
+    (lambda s: s["data"].__setitem__("primary", "bad"),
+     "data.primary must be a mapping"),
+    (lambda s: s["data"].__setitem__("source", "bad"),
+     "data.source must be a mapping"),
+    (lambda s: s.__setitem__("signals", "bad"), "signals must be a mapping"),
+    (lambda s: s["signals"].__setitem__("indicators", "bad"),
+     "signals.indicators must be a mapping"),
+    (lambda s: s["signals"].__setitem__("entry", "bad"),
+     "signals.entry must be a mapping"),
+    (lambda s: s.__setitem__("risk", "bad"), "risk must be a mapping"),
+    (lambda s: s.__setitem__("risk", {"fees": "bad"}),
+     "risk.fees must be a mapping"),
+    (lambda s: s.__setitem__("risk", {"live_guards": "bad"}),
+     "risk.live_guards must be a mapping"),
+    (lambda s: s["data"].__setitem__("htf", "bad"),
+     "data.htf must be a list of mappings"),
+    (lambda s: s["data"].__setitem__("htf", ["bad"]),
+     "data.htf[0] must be a mapping"),
+    (lambda s: s["data"].__setitem__("derivatives", "bad"),
+     "data.derivatives must be a mapping"),
+    (lambda s: s.__setitem__("sizing", "bad"), "sizing must be a mapping"),
+    (lambda s: s.__setitem__("backtest", "bad"), "backtest must be a mapping"),
+])
+def test_a_mapping_section_cannot_be_a_scalar(mutate, needle):
+    spec = _spec()
+    mutate(spec)
+
+    errors, _ = validate_spec(spec)
+
+    assert any(needle in error for error in errors), errors
 
 
 def test_every_allowed_exit_key_is_one_an_engine_actually_reads():

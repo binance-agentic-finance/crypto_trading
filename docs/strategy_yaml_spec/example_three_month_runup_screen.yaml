@@ -1,0 +1,143 @@
+# =============================================================================
+# 範例 9 —— E5 條件 6:「開盤前 3 個月期間的低點至高點漲幅率高達 100%」
+# =============================================================================
+# 來源:內部選幣需求分析 E5,原始條件共四條加一條歷史區間。這份 spec 把
+#       **需要 K 線歷史**的那一條接上,並且把它疊在條件 1 / 2 / 4 之後,
+#       因為那三條是它付得起的前提(見下面的順序成本)。
+#
+# 用戶條件                     對映                                          結果
+# ---------------------------------------------------------------------------
+# 板塊 = Alpha / AI            augment_with_contract_meta + filter_sub_type   ✅
+# 合約持倉 ≥ 500 萬美元        augment_with_open_interest + filter_...        ✅
+# 近一週持倉異動 |Δ| ≥ 20%     augment_with_oi_change + filter_oi_change      ✅
+# 3 個月低點→高點漲幅 ≥ 100%   augment_with_indicator(range_gain_pct)         ✅ 新增
+#
+# ★ 為什麼這一條以前完全寫不出來
+# ---------------------------------------------------------------------------
+# 選幣層的 frame 一列是一個幣、只有一個時點,唯一的漲跌欄是 priceChangePercent
+# —— 那是 **24 小時**的數字。用它回答「3 個月」是把窗口縮短 90 倍後套上原來的用詞。
+# tools/nl2yaml/capability.py 把這一列記成 GAP-HISTORICAL-WINDOW。
+#
+# ★ 手算對帳(2026-08-02,decision_time = 1785608174524)
+# ---------------------------------------------------------------------------
+# 先用手寫 Python 對這 5 檔候選算一次,再要求 spec 走系統管線重現它:
+#   USUSDT   +1300.2%      ALLOUSDT  +594.3%      TAGUSDT  +589.3%
+#   UBUSDT    +329.5%      UAIUSDT   +125.8%
+# 全部 ≥ 100%,所以 min_score: 100 在這個截面上留下 5 檔 —— 這道門檻在這裡
+# **不會**篩掉任何列,而那是這個截面的性質不是門檻的性質:
+# tests/standard_bot/test_universe_indicator.py 另外釘了一個較高的門檻會篩掉列,
+# 否則「篩選有效」與「篩選沒跑」在測試裡長得一模一樣。
+#
+# ★ range_gain_pct 是區間,不是「先低後高」
+# ---------------------------------------------------------------------------
+# 它算的是 (窗口最高 − 窗口最低) / 窗口最低 × 100,**不要求低點在高點之前**。
+# 嚴格照字面讀的「低點至高點」是一個 run-up,會排除「第一個月見頂、第三個月見底」
+# 那種走勢,數字也更小。區間是「這 3 個月的低點到高點」的白話讀法,也是任何看盤
+# 軟體右上角那個 high/low 讀數給的數字,所以這裡算的是區間 —— 而指標名字前面加
+# range_ 就是為了讓兩者不會被搞混。
+#
+# ★ period 的單位是「根」,不是「天」
+# ---------------------------------------------------------------------------
+# timeframe: "1d" + period: 90 才是三個月;同一個 period: 90 放在 4h 上是 15 天。
+# 時框在 augment_with_indicator 的 timeframe:,週期在 period:,兩個要一起讀。
+#
+# ★ min_bars_multiple: 1 —— 這個值必須明寫,而且理由是可查的
+# ---------------------------------------------------------------------------
+# 預設是 3,給 RMA / EMA 遞迴起頭的那一族(supertrend / adx / rsi):它們窗口一滿
+# 就給數字,但那個數字還帶著種子,不夠長就是「有值但沒收斂」,不會出現 NaN,
+# 所以只有長度檢查抓得到。
+# range_gain_pct 是**純滾動窗口**,沒有種子也沒有收斂問題,period 根就是精確答案。
+# 這裡若沿用 3,就會要求 270 根日線(9 個月),於是「上市不到 9 個月」的幣全部被
+# raise 掉 —— 而那正好是漲 1300% 的那一檔。預設值保守、例外要明寫,
+# 這樣選擇會留在 spec 裡被看見。
+#
+# ★ 順序成本(實測):K 線一定最後抓
+# ---------------------------------------------------------------------------
+# klines 是逐 (幣, 時框) 一個 request。實測 X-MBX-USED-WEIGHT-1M:
+# limit≤100 → weight 1、101–500 → 2、501–1000 → 5。
+#   本 spec 的計畫:5 檔 × 1 時框 × weight 1 = 5 weight(一分鐘預算 2400 的 0.2%)
+#   若把這一步搬到最前面:727 檔 × 1 = 727 weight = 30%,而且加上共振 spec 的
+#   三個時框就是 182%,直接跑不起來。
+# 收窄是免費的(全部是對已在手的表做欄位比較),所以便宜的計畫永遠拿得到,
+# 貴的那個直接 raise。
+#
+# 執行:
+#   python -m cyqnt_trd.standard_bot.yaml_pipeline validate \
+#       docs/strategy_yaml_spec/example_three_month_runup_screen.yaml
+#   # 可重現(凍結截面 + 凍結 K 線,不觸網):
+#   python -m cyqnt_trd.standard_bot.yaml_pipeline run \
+#       docs/strategy_yaml_spec/example_three_month_runup_screen.yaml \
+#       --input-json tests/standard_bot/fixtures/universe_derivatives.json
+#
+# 實跑結果見 tests/standard_bot/test_universe_indicator.py::RUNUP_BASKET。
+# =============================================================================
+
+spec_version: "1.0"
+target: standard_bot
+
+strategy:
+  id: three_month_runup_screen
+  description: "E5:Alpha/AI 板塊、持倉 ≥ $5m、週持倉異動 |Δ| ≥ 20%、3 個月低→高漲幅 ≥ 100%"
+  # 上面「range_gain_pct 是區間,不是先低後高」那段講的就是這個選擇。但註解在 load
+  # 的時候就被丟掉,拿到籃子的人一個字都看不到 —— 所以同一件事必須在這裡再說一次,
+  # 這裡的內容會跟著訊號的 warnings 出去。實測這個籃子裡 5 檔有 2 檔的高點在低點
+  # 之前,也就是說這兩檔在另一種讀法下根本不該入選:這不是文件用語問題。
+  assumptions:
+    - cid: runup
+      reading: "「3 個月低點到高點漲幅」讀作窗口區間 (窗口最高 − 窗口最低) / 窗口最低"
+      alternatives: ["先低後高的順序型 run-up(要求低點在高點之前,數字更小)"]
+      basis: "區間是白話讀法,也是看盤軟體 high/low 讀數給的數字;順序型目前無對應指標"
+
+run:
+  mode: backtest        # 選幣是單一時點決策;run 會實跑一次選幣並明講「這不是回測」
+
+data:
+  symbol: BTCUSDT       # 選幣型仍需宣告代表標的(排程與計價用),不參與排名
+  market_type: futures
+  primary:
+    interval: "1h"
+
+selection:
+  universe:
+    # --- Pass 1:免費的截面收窄,727 → 127 → 41 → 5 ------------------------
+    - block: universe.augment_with_contract_meta
+      with: [contract_meta]
+    - block: universe.filter_crypto_only
+    - block: universe.filter_sub_type
+      params: { include: [Alpha, AI] }
+
+    - block: universe.augment_with_open_interest
+      with: [open_interest_snapshot]
+    - block: universe.filter_open_interest
+      params: { min_notional_usd: 5000000 }
+
+    - block: universe.augment_with_oi_change
+      with: [oi_change_snapshot]
+      params: { lookback_days: 7 }
+    - block: universe.filter_oi_change
+      params: { min_abs_pct: 20.0, basis: notional }
+
+    # --- Pass 2:K 線只為這 5 檔而抓 ---------------------------------------
+    - block: universe.augment_with_indicator
+      with: [universe_bars]
+      params:
+        indicator: range_gain_pct
+        timeframe: "1d"           # 日線 × 90 根 = 三個月
+        period: 90
+        as: gain_3m
+        agg: last                 # 「到今天為止的那個三個月窗口」
+        window_bars: 1
+        min_bars_multiple: 1      # 純滾動窗口,無種子可收斂 —— 見上面的說明
+
+  # 依漲幅排名並用 min_score 當門檻。刻意不新增一個 filter_ block:
+  # min_score 就是絕對下限(永遠是地板,不隨 order 翻轉),而漲幅本來也是
+  # 這份需求想看的排序 —— 兩件事一個鍵。
+  score: gain_3m
+  order: desc
+  min_score: 100.0        # 「漲幅率高達 100%」
+  top_k: 20               # 上限而非配額
+
+  dedupe_by: base_asset
+
+  # 刻意沒有 long_when / short_when:條件 6 是**篩選**,不是方向。
+  # 「這三個月漲了 13 倍」不等於「所以現在做多」,那是 spec 沒說的話。
