@@ -1,15 +1,25 @@
 """Demo server: 自然語言 → (LLM/LiteLLM) → YAML → 標準訊號 / 回測.
 
-這是一個把自然語言轉成交易或選幣 YAML，再交給確定性 runtime 執行的展示,不是 agent。
-瀏覽器 → 本後端 → LiteLLM(OpenAI 相容 /chat/completions)。API key 只在這次請求中轉送。
+這是一個把自然語言轉成交易或選幣 YAML 的展示,不是 agent。瀏覽器只會把
+自然語言交給本後端；後端才會使用其啟動環境中設定的 LiteLLM/OpenAI-compatible
+端點。瀏覽器不會提供、保存或轉送 API key / endpoint / model。
 
 啟動:
     PYTHONPATH=<repo_root> <venv>/bin/python docs/strategy_yaml_spec/demo/server.py
     # 然後開 http://127.0.0.1:8799
 
 自然語言預設不會送到外部 LLM。僅限已明確同意送出的非敏感測試內容，才以
-``CYQNT_DEMO_ALLOW_EXTERNAL_LLM=1`` 啟動；私有對話語料必須走本地 frozen
-evaluator，不可走這條 demo 路由。
+``CYQNT_DEMO_ALLOW_EXTERNAL_LLM=1`` 加上伺服器端的
+``CYQNT_DEMO_LLM_API_BASE``、``CYQNT_DEMO_LLM_MODEL``、精確的伺服器端
+``CYQNT_DEMO_LLM_TRUSTED_HOSTS``（和選用的 ``CYQNT_DEMO_LLM_API_KEY``）
+啟動；私有對話語料必須走本地 frozen evaluator，
+不可走這條 demo 路由。此路由只產生靜態 YAML 草稿，並不構成 runtime 或語義驗證
+收據，也不可作為私有資料晉升的依據。
+
+``CYQNT_DEMO_LLM_TRUSTED_HOSTS`` 是逗號分隔的精確 DNS host allowlist（例如
+``llm.example``），不是 URL、萬用字元或 IP；外部端點必須是 HTTPS。唯一 HTTP
+例外是測試時明確設定 ``CYQNT_DEMO_LLM_ALLOW_LOOPBACK_HTTP_FOR_TESTS=1``，並同時
+allowlist ``127.0.0.1`` 的本機 fixture。
 """
 
 from __future__ import annotations
@@ -17,7 +27,6 @@ from __future__ import annotations
 import json
 import os
 import sys
-import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -36,6 +45,7 @@ import yaml
 from cyqnt_trd.standard_bot.yaml_pipeline import build_make_signals, validate_spec
 from cyqnt_trd.standard_bot.yaml_pipeline.interpreter import resolve_block
 from cyqnt_trd.standard_bot.simulation.vectorized_backtest import run_vectorized_backtest
+from tools.nl2yaml.conversion import LLMClientError, OpenAICompatibleHTTPClient
 
 # Intent classification and post-generation reconciliation live in the package,
 # not in this file: the conversion pipeline (tools/nl2yaml) needs the same two
@@ -60,16 +70,91 @@ FIXTURE_DIR = REPO_ROOT / "tests" / "blocks" / "fixtures"
 # text to a user-supplied OpenAI-compatible endpoint.  Do not replace this guard
 # with redaction: arbitrary free text cannot be reliably made safe by a regex.
 EXTERNAL_LLM_OPT_IN_ENV = "CYQNT_DEMO_ALLOW_EXTERNAL_LLM"
+DEMO_LLM_API_BASE_ENV = "CYQNT_DEMO_LLM_API_BASE"
+DEMO_LLM_API_KEY_ENV = "CYQNT_DEMO_LLM_API_KEY"
+DEMO_LLM_MODEL_ENV = "CYQNT_DEMO_LLM_MODEL"
+# A comma-separated, exact DNS allowlist controlled by the process owner.  It
+# is deliberately independent of the browser request and of api_base so the
+# demo cannot become a generic SSRF proxy merely because external conversion
+# has been opted into.
+DEMO_LLM_TRUSTED_HOSTS_ENV = "CYQNT_DEMO_LLM_TRUSTED_HOSTS"
+# The HTTP ``127.0.0.1`` exception is only for deterministic local tests.  It
+# still requires the exact loopback host in the server-owned allowlist; generic
+# HTTP and ``localhost`` remain forbidden by OpenAICompatibleHTTPClient.
+DEMO_LLM_ALLOW_LOOPBACK_HTTP_FOR_TESTS_ENV = (
+    "CYQNT_DEMO_LLM_ALLOW_LOOPBACK_HTTP_FOR_TESTS"
+)
+MAX_JSON_BODY_BYTES = 64 * 1024
+MAX_NL_BYTES = 16 * 1024
 
 
 class ExternalLLMDisabled(RuntimeError):
     """Raised before a request body is built or sent to an external endpoint."""
 
 
+class DemoLLMNotConfigured(RuntimeError):
+    """Raised when the browser route has no server-owned LLM configuration."""
+
+
 def _external_llm_enabled() -> bool:
     return os.environ.get(EXTERNAL_LLM_OPT_IN_ENV, "").strip().lower() in {
         "1", "true", "yes",
     }
+
+
+def _server_llm_transport_settings() -> tuple[tuple[str, ...], bool]:
+    """Read only process-owned transport controls for the LLM adapter.
+
+    Host parsing is intentionally small here.  The shared adapter performs the
+    authoritative URL/DNS/IP validation immediately before it can construct a
+    request; this function establishes that an allowlist is mandatory and can
+    never arrive from a browser payload.
+    """
+    trusted_hosts = tuple(
+        item.strip()
+        for item in os.environ.get(DEMO_LLM_TRUSTED_HOSTS_ENV, "").split(",")
+        if item.strip()
+    )
+    if not trusted_hosts:
+        raise DemoLLMNotConfigured("server-owned LLM trusted hosts are not configured")
+    allow_loopback_http_for_tests = os.environ.get(
+        DEMO_LLM_ALLOW_LOOPBACK_HTTP_FOR_TESTS_ENV, "",
+    ).strip().lower() in {"1", "true", "yes"}
+    return trusted_hosts, allow_loopback_http_for_tests
+
+
+def _server_llm_settings() -> tuple[str, str, str]:
+    """Return only process-owned LLM settings for the browser route.
+
+    Values in a browser request are deliberately never considered here: allowing
+    them would turn the local demo into an SSRF/key-forwarding proxy.  An empty
+    key remains valid for a local provider that intentionally has no auth.
+    """
+    api_base = os.environ.get(DEMO_LLM_API_BASE_ENV, "").strip()
+    api_key = os.environ.get(DEMO_LLM_API_KEY_ENV, "")
+    model = os.environ.get(DEMO_LLM_MODEL_ENV, "").strip()
+    if not api_base or not model:
+        raise DemoLLMNotConfigured("server-owned LLM settings are not configured")
+    # Fail the HTTP route closed before it reaches conversion when its
+    # process-owned allowlist is absent.  URL-shape/host validation remains in
+    # the shared client because direct callers of call_llm need it too.
+    _server_llm_transport_settings()
+    return api_base, api_key, model
+
+
+def _as_draft_conversion_response(result: dict) -> dict:
+    """Make the HTTP boundary truthful about what this demo did *not* verify."""
+    response = dict(result)
+    response.update({
+        "runtime_verified": False,
+        "semantic_verified": False,
+        "promotion_eligible": False,
+        "verification_state": (
+            "draft_static_validated" if bool(response.get("valid"))
+            else "draft_static_rejected"
+        ),
+    })
+    return response
 
 
 # ---------------------------------------------------------------------------
@@ -971,25 +1056,32 @@ def call_llm(api_base: str, api_key: str, model: str, nl: str) -> str:
             "若這是你明確允許送出的非敏感測試內容，請在啟動 demo 前設定 "
             "%s=1；私有對話語料不可使用此路徑。" % EXTERNAL_LLM_OPT_IN_ENV
         )
-    base = api_base.rstrip("/")
-    url = base if base.endswith("/chat/completions") else base + "/chat/completions"
-    headers = {"Content-Type": "application/json"}
-    if api_key:
-        headers["Authorization"] = "Bearer " + api_key
     intent = classify_request(nl)
-    body = {
-        "model": model,
-        "temperature": 0,
-        "messages": [
-            {"role": "system", "content": build_system_prompt(intent.kind, intent)},
-            {"role": "user", "content": nl},
-        ],
-    }
-    resp = requests.post(url, headers=headers, json=body, timeout=120)
-    if resp.status_code >= 400:
-        raise RuntimeError(f"LLM HTTP {resp.status_code}: {resp.text[:500]}")
-    data = resp.json()
-    content = data["choices"][0]["message"]["content"]
+    try:
+        trusted_hosts, allow_loopback_http_for_tests = _server_llm_transport_settings()
+        client = OpenAICompatibleHTTPClient(
+            api_base=api_base,
+            api_key=api_key,
+            model=model,
+            allow_external=True,
+            trusted_hosts=trusted_hosts,
+            allow_loopback_http_for_tests=allow_loopback_http_for_tests,
+            timeout_seconds=120,
+        )
+    except (DemoLLMNotConfigured, ValueError) as exc:
+        # Do not echo a malformed endpoint or allowlist back to a browser; an
+        # operator can inspect only the server-owned launch configuration.
+        raise RuntimeError("LLM transport is not safely configured") from exc
+    try:
+        content = client.complete(
+            system_prompt=build_system_prompt(intent.kind, intent),
+            user_request=nl,
+        )
+    except LLMClientError as exc:
+        # The adapter's codes deliberately omit request/provider content.  The
+        # demo still returns a single stable public error rather than making
+        # endpoint details part of its UI contract.
+        raise RuntimeError("LLM request failed") from exc
     return _strip_fences(content)
 
 
@@ -1610,9 +1702,20 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _read_json(self):
-        length = int(self.headers.get("Content-Length", 0))
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("invalid JSON request") from exc
+        if length < 0 or length > MAX_JSON_BODY_BYTES:
+            raise ValueError("invalid JSON request")
         raw = self.rfile.read(length) if length else b"{}"
-        return json.loads(raw or b"{}")
+        try:
+            value = json.loads(raw or b"{}")
+        except (TypeError, ValueError) as exc:
+            raise ValueError("invalid JSON request") from exc
+        if not isinstance(value, dict):
+            raise ValueError("invalid JSON request")
+        return value
 
     def log_message(self, fmt, *args):
         sys.stderr.write("[demo] " + (fmt % args) + "\n")
@@ -1638,13 +1741,21 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if self.path == "/api/convert":
                 b = self._read_json()
-                if not b.get("nl", "").strip():
+                nl = b.get("nl", "")
+                if not isinstance(nl, str) or not nl.strip():
                     return self._send(400, {"ok": False, "error": "請輸入自然語言描述"})
-                if not b.get("api_base") or not b.get("model"):
-                    return self._send(400, {"ok": False, "error": "請填 LLM API Base URL 與 model"})
-                return self._send(200, convert_nl(
-                    b["api_base"], b.get("api_key", ""), b["model"], b["nl"]
-                ))
+                if len(nl.encode("utf-8")) > MAX_NL_BYTES:
+                    return self._send(400, {"ok": False, "error": "自然語言描述過長"})
+                try:
+                    api_base, api_key, model = _server_llm_settings()
+                except DemoLLMNotConfigured:
+                    return self._send(503, {
+                        "ok": False,
+                        "error": "demo_llm_not_configured",
+                    })
+                return self._send(200, _as_draft_conversion_response(convert_nl(
+                    api_base, api_key, model, nl
+                )))
             if self.path == "/api/backtest":
                 b = self._read_json()
                 return self._send(200, run_backtest(b.get("yaml", "")))
@@ -1660,9 +1771,8 @@ class Handler(BaseHTTPRequestHandler):
                 b = self._read_json()
                 return self._send(200, run_selection(b.get("yaml", "")))
             return self._send(404, {"ok": False, "error": "not found"})
-        except Exception as exc:
-            sys.stderr.write(traceback.format_exc())
-            return self._send(200, {"ok": False, "error": f"{type(exc).__name__}: {exc}"})
+        except Exception:  # Do not echo provider/YAML/request details to the browser or log.
+            return self._send(500, {"ok": False, "error": "request_failed"})
 
 
 def main():

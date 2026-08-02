@@ -29,6 +29,7 @@
         "crosses_below",
         "rising",
         "falling",
+        "exact_n",
         "top_n",
         "bottom_n",
         "exists",
@@ -471,7 +472,40 @@
           },
           "default": []
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "operator": {
+                "enum": [
+                  "exact_n",
+                  "top_n",
+                  "bottom_n"
+                ]
+              }
+            },
+            "required": [
+              "operator"
+            ]
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "unit": {
+                "const": "count"
+              }
+            },
+            "required": [
+              "value",
+              "unit"
+            ]
+          }
+        }
+      ]
     },
     "CapabilityEntry": {
       "type": "object",

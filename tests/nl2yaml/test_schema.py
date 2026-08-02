@@ -651,6 +651,33 @@ def test_quantified_condition_cannot_be_unspecified():
         cond(operator=S.Operator.UNSPECIFIED)
 
 
+def test_exact_n_is_a_distinct_public_operator_from_legacy_top_n():
+    exact = cond(subject="basket_size", operator=S.Operator.EXACT_N,
+                 value=5, unit=S.Unit.COUNT)
+    ceiling = cond(subject="basket_size", operator=S.Operator.TOP_N,
+                   value=5, unit=S.Unit.COUNT)
+
+    assert exact.operator is S.Operator.EXACT_N
+    assert ceiling.operator is S.Operator.TOP_N
+
+
+@pytest.mark.parametrize("operator", [S.Operator.EXACT_N, S.Operator.TOP_N,
+                                        S.Operator.BOTTOM_N])
+@pytest.mark.parametrize("value", [0, -1, True, 5.5, "5"])
+def test_public_cardinality_condition_needs_a_positive_integer(operator, value):
+    """Public records cannot serialize a coercible cardinality as an integer."""
+    with pytest.raises(S.RecordError, match="positive integer count"):
+        cond(subject="basket_size", operator=operator, value=value,
+             unit=S.Unit.COUNT)
+
+
+@pytest.mark.parametrize("operator", [S.Operator.EXACT_N, S.Operator.TOP_N,
+                                        S.Operator.BOTTOM_N])
+def test_public_cardinality_condition_requires_count_unit(operator):
+    with pytest.raises(S.RecordError, match="needs unit=count"):
+        cond(subject="basket_size", operator=operator, value=5, unit=S.Unit.USD)
+
+
 def test_rank_direction_pairs_with_is_ranking():
     with pytest.raises(S.RecordError, match="rank_direction"):
         cond(is_ranking=True)
@@ -868,6 +895,27 @@ def test_schema_rejects_an_unknown_key():
 def test_schema_rejects_a_bad_hash_shape():
     payload = S.validate_record(make_case())
     payload["text_sha256"] = "not-a-hash"
+    with pytest.raises(jsonschema.ValidationError):
+        S.validate_record(payload, "case")
+
+
+@pytest.mark.parametrize("operator", ["exact_n", "top_n", "bottom_n"])
+@pytest.mark.parametrize("value", [True, 5.5, "5"])
+def test_json_schema_rejects_non_integral_cardinality_even_without_dataclass_validation(
+    operator, value,
+):
+    """The on-disk schema is an independent fail-closed boundary."""
+    record = make_case(
+        conditions=[cond("c1", subject="basket_size", operator=S.Operator.EXACT_N,
+                         value=5, unit=S.Unit.COUNT)],
+        capability_map=[S.CapabilityEntry(
+            cid="c1", verdict=S.CapabilityVerdict.SUPPORTED)],
+        tier=S.CaseTier.T1_EXPRESSIBLE,
+    )
+    payload = S.validate_record(record)
+    payload["conditions"][0]["operator"] = operator
+    payload["conditions"][0]["value"] = value
+
     with pytest.raises(jsonschema.ValidationError):
         S.validate_record(payload, "case")
 

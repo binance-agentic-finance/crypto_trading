@@ -583,14 +583,13 @@ def test_unlocked_if_closed_counts_only_sole_blockers():
 # Whole-pass integration on a slice of the real corpus
 # ---------------------------------------------------------------------------
 
-CSV = ("docs/user_demand_analysis/2026-05_07_trading_intent/"
-       "trading_intent_chats_2026-05_07_zh_en.csv")
-
-
 @pytest.fixture(scope="module")
 def real_slice(request):
-    from pathlib import Path
-    path = Path(request.config.rootpath) / CSV
+    from tools.nl2yaml import schema
+
+    path = (schema.internal_root() / "user_demand_analysis"
+            / "2026-05_07_trading_intent"
+            / "trading_intent_chats_2026-05_07_zh_en.csv")
     if not path.exists():
         pytest.skip("corpus CSV not present: %s" % path)
     return measure.remine(path, limit=400)

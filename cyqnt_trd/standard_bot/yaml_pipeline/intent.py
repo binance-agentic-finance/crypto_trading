@@ -51,6 +51,7 @@ class IntentDecision:
         "kind", "evidence", "requested_count", "sources", "excluded_sources",
         "bullish_preference", "unsupported_preferences", "candidate_trade_requested",
         "long_short_min_account_pct", "long_short_min_account_operator",
+        "sentiment_side_mapping",
         "supertrend_parameters",
         "named_symbols",
         "included_symbols", "excluded_symbols", "intervals", "market_type",
@@ -75,6 +76,7 @@ class IntentDecision:
         candidate_trade_requested=False,
         long_short_min_account_pct=None,
         long_short_min_account_operator=None,
+        sentiment_side_mapping=(),
         supertrend_parameters=(),
         named_symbols=(),
         included_symbols=(),
@@ -112,6 +114,14 @@ class IntentDecision:
         self.candidate_trade_requested = bool(candidate_trade_requested)
         self.long_short_min_account_pct = long_short_min_account_pct
         self.long_short_min_account_operator = long_short_min_account_operator
+        # This is deliberately narrower than ``directions``.  It records an
+        # explicit statement such as "positive social sentiment long; negative
+        # social sentiment short", rather than guessing that an unrelated
+        # occurrence of "long" should be driven by sentiment.
+        self.sentiment_side_mapping = tuple(
+            (str(polarity), str(side))
+            for polarity, side in sentiment_side_mapping
+        )
         self.supertrend_parameters = tuple(supertrend_parameters)
         self.named_symbols = tuple(named_symbols)
         self.included_symbols = tuple(included_symbols)
@@ -154,6 +164,10 @@ class IntentDecision:
             "candidate_trade_requested": self.candidate_trade_requested,
             "long_short_min_account_pct": self.long_short_min_account_pct,
             "long_short_min_account_operator": self.long_short_min_account_operator,
+            "sentiment_side_mapping": [
+                {"polarity": polarity, "side": side}
+                for polarity, side in self.sentiment_side_mapping
+            ],
             "supertrend_parameters": [
                 {"period": period, "multiplier": multiplier}
                 for period, multiplier in self.supertrend_parameters
@@ -602,6 +616,40 @@ _NEWS_SENTIMENT_METRIC = re.compile(
     r"(?:新聞情緒|社群情緒|情緒排行|sentiment|bullish|bearish)",
     re.IGNORECASE,
 )
+# A side mapping is a stronger claim than merely asking for a sentiment-ranked
+# basket.  Keep the lexical surface deliberately small: it must name sentiment
+# and one of its polarities, so "bullish MACD" / "negative funding" can never
+# become a request to wire ``news_bull_ratio`` into a trade side.
+_POSITIVE_SENTIMENT = re.compile(
+    r"(?:"
+    r"(?:正(?:向|面)|positive|bullish)\s*"
+    r"(?:(?:新聞|社群|news|social)\s*)?(?:情緒|sentiment)"
+    r"|(?:(?:新聞|社群|news|social)\s*)?(?:情緒|sentiment)\s*"
+    r"(?:is\s+|為\s*|是\s*)?"
+    r"(?:正(?:向|面)|positive|bullish)"
+    r")",
+    re.IGNORECASE,
+)
+_NEGATIVE_SENTIMENT = re.compile(
+    r"(?:"
+    r"(?:負(?:向|面)|negative|bearish)\s*"
+    r"(?:(?:新聞|社群|news|social)\s*)?(?:情緒|sentiment)"
+    r"|(?:(?:新聞|社群|news|social)\s*)?(?:情緒|sentiment)\s*"
+    r"(?:is\s+|為\s*|是\s*)?"
+    r"(?:負(?:向|面)|negative|bearish)"
+    r")",
+    re.IGNORECASE,
+)
+# The bridge must be an overt relation, not a coordinating phrase.  In
+# ``long on positive sentiment and short on negative sentiment`` the first
+# sentiment must bind to ``long``; accepting ``and short`` as a bridge would
+# create the opposite relation from the same sentence.  A comma is allowed for
+# compact forms such as ``positive sentiment, long``.
+_SENTIMENT_SIDE_BRIDGE = re.compile(
+    r"^\s*(?:(?:on|when|if|for|with|at|then|as|is|go|"
+    r"=|:|->|→|,|，|/|的|時|時候|下|就|則|便|要|做)\s*)*$",
+    re.IGNORECASE,
+)
 _EXPLICIT_NEWS_SOURCE = re.compile(
     r"(?:新聞|社群|提到|提及|Square|news|social|mentions?|mentioned|sentiment|buzz)",
     re.IGNORECASE,
@@ -1023,6 +1071,68 @@ def _generic_bullish_preference(text: str) -> bool:
             continue
         return True
     return False
+
+
+def _explicit_sentiment_side_pair(
+    text: str, *, sentiment: re.Pattern, direction: re.Pattern,
+) -> bool:
+    """Whether one clause explicitly connects a sentiment polarity to a side.
+
+    This is not a general natural-language parser.  The terms must be joined by
+    an overt local bridge (``on``, ``when``, ``做`` …), and neither may be
+    locally negated.  In particular, a coordinating word such as ``and`` is
+    not a bridge: it separates two mappings rather than connecting the prior
+    polarity to the next side.
+    """
+
+    sentiment_matches = [
+        match for match in sentiment.finditer(text)
+        if not _is_excluded_match(text, match)
+    ]
+    direction_matches = [
+        match for match in direction.finditer(text)
+        if not _is_excluded_match(text, match)
+    ]
+    for sentiment_match in sentiment_matches:
+        for direction_match in direction_matches:
+            if sentiment_match.end() <= direction_match.start():
+                bridge = text[sentiment_match.end():direction_match.start()]
+            elif direction_match.end() <= sentiment_match.start():
+                bridge = text[direction_match.end():sentiment_match.start()]
+            else:
+                continue
+            if _SENTIMENT_SIDE_BRIDGE.fullmatch(bridge):
+                return True
+    return False
+
+
+def _explicit_sentiment_side_mapping(
+    text: str, *, sources: frozenset[str],
+) -> tuple[tuple[str, str], ...]:
+    """Return only a fully explicit news/social sentiment-to-side mapping.
+
+    ``news_bull_ratio`` is a news/social input.  A bare "positive sentiment"
+    does not establish that source, so do not manufacture a mapping unless the
+    independently extracted request already names the news/social source.  A
+    pair is recorded only when its own relation is explicit.  Therefore a
+    contrarian request (positive -> short, negative -> long) is not silently
+    normalised to the usual mapping, and a one-sided request never authorises
+    us to infer the omitted side.
+    """
+
+    if "news" not in sources:
+        return ()
+    mappings = []
+    for polarity, sentiment in (
+        ("positive", _POSITIVE_SENTIMENT),
+        ("negative", _NEGATIVE_SENTIMENT),
+    ):
+        for side, direction in (("long", _LONG_DIRECTION), ("short", _SHORT_DIRECTION)):
+            if _explicit_sentiment_side_pair(
+                text, sentiment=sentiment, direction=direction,
+            ):
+                mappings.append((polarity, side))
+    return tuple(mappings)
 
 
 def _long_short_min_account_requirement(text: str) -> tuple[float, str] | None:
@@ -1534,6 +1644,9 @@ def classify_request(nl: str) -> IntentDecision:
                                     if long_short_requirement is not None else None),
         long_short_min_account_operator=(long_short_requirement[1]
                                          if long_short_requirement is not None else None),
+        sentiment_side_mapping=_explicit_sentiment_side_mapping(
+            text, sources=sources,
+        ),
         supertrend_parameters=supertrend_parameters,
         named_symbols=tuple(dict.fromkeys(symbol for symbol, _ in symbol_mentions)),
         included_symbols=included_symbols,
@@ -1889,6 +2002,39 @@ def _leaf_threshold(leaf: dict):
         return params.get("threshold")
     args = leaf.get("args") or []
     return args[1] if isinstance(args, (list, tuple)) and len(args) > 1 else None
+
+
+def _news_bull_ratio_polarity_leaf(
+    selection: dict, leaf: dict, *, polarity: str,
+) -> bool:
+    """Whether a condition leaf proves the requested news-sentiment polarity.
+
+    A name alone is not proof: a generated feature may be named
+    ``news_bull_ratio`` while actually reading quote volume.  Resolve the
+    feature dependency and require the monotonic comparator around the neutral
+    0.5 split.  This remains intentionally limited to the one runtime feature
+    whose polarity we can verify today.
+    """
+
+    expected_relation = {"positive": "above", "negative": "below"}.get(polarity)
+    if expected_relation is None:
+        return False
+    if str(leaf.get("cond") or "") != "conditions.value_%s" % expected_relation:
+        return False
+    args = leaf.get("args") or []
+    if not isinstance(args, (list, tuple)) or not args:
+        return False
+    if "news_bull_ratio" not in _feature_dependencies(selection, args[0]):
+        return False
+    try:
+        threshold = float(_leaf_threshold(leaf))
+    except (TypeError, ValueError):
+        return False
+    if threshold != threshold or threshold in {float("inf"), float("-inf")}:
+        return False
+    if not 0.0 <= threshold <= 1.0:
+        return False
+    return threshold >= 0.5 if polarity == "positive" else threshold <= 0.5
 
 
 def _reconcile_trade(intent: IntentDecision, spec: dict) -> list[str]:
@@ -2351,6 +2497,31 @@ def reconcile_intent(intent: IntentDecision, spec: dict) -> tuple[list[str], lis
     selection = spec["selection"]
     steps, blocks, score_dependencies, direction_dependencies = _selection_usage(selection)
     functional_dependencies = score_dependencies | direction_dependencies
+
+    # ``directions=(long, short)`` only says that both sides were mentioned.
+    # When the request explicitly binds positive/negative news sentiment to a
+    # side, prove the mapping itself.  A reversed pair of otherwise valid
+    # comparators produces a healthy-looking basket, so checking that the
+    # feature merely appears somewhere is not enough.  Each accepted truth path
+    # must require the matching polarity; an ``any_of`` branch that bypasses it
+    # is rejected as unverifiable.
+    for polarity, side in intent.sentiment_side_mapping:
+        node = selection.get("%s_when" % side)
+        if not _condition_required_on_every_path(
+            node,
+            lambda leaf, polarity=polarity: _news_bull_ratio_polarity_leaf(
+                selection, leaf, polarity=polarity,
+            ),
+        ):
+            relation = "above" if polarity == "positive" else "below"
+            boundary = ">= 0.5" if polarity == "positive" else "<= 0.5"
+            label = "正向" if polarity == "positive" else "負向"
+            errors.append(
+                "需求明確指定%s新聞/社群情緒做%s,但 selection.%s_when 沒有在每條"
+                "可行路徑以 conditions.value_%s(news_bull_ratio, %s) 強制該方向;"
+                "拒絕反向或可繞過的多空映射"
+                % (label, "多" if side == "long" else "空", side, relation, boundary)
+            )
 
     # Positive-source checks below prove a requested source reaches ranking or
     # direction. The inverse is equally important: a model must not sneak a

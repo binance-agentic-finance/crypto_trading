@@ -23,7 +23,7 @@ NEWS_CONDITIONS = [
     {"id": "buzz", "subject": "social_mentions", "scope": "cross_section",
      "operator": "rank", "value": None},
     {"id": "five", "subject": "basket_size", "scope": "cross_section",
-     "operator": "top_k", "value": 5, "quantified": True},
+     "operator": "exact_top_k", "value": 5, "quantified": True},
     {"id": "order", "subject": "score_order", "scope": "cross_section",
      "operator": "rank", "value": "desc", "quantified": True},
 ]
@@ -33,16 +33,25 @@ def _bundle() -> dict:
     return json.loads(FIXTURE.read_text(encoding="utf-8"))
 
 
+def _three_eligible_bundle() -> dict:
+    bundle = _bundle()
+    keep = {"BNBUSDT", "BTCUSDT", "GIGGLEUSDT"}
+    for row in bundle["frames"]["universe"]["rows"]:
+        if row.get("instrument_id") not in keep:
+            row["quoteVolume"] = 0
+    return bundle
+
+
 def _yaml() -> str:
     return SPEC_NEWS.read_text(encoding="utf-8")
 
 
-def _evaluate(*, conditions=NEWS_CONDITIONS, nl=NL_NEWS):
+def _evaluate(*, conditions=NEWS_CONDITIONS, nl=NL_NEWS, bundle=None):
     return evaluate.evaluate_frozen(
         nl=nl,
         yaml_answer=_yaml(),
         conditions=copy.deepcopy(conditions),
-        bundle=_bundle(),
+        bundle=_bundle() if bundle is None else bundle,
     )
 
 
@@ -87,6 +96,18 @@ def test_frozen_happy_path_is_gold_clean_with_safe_batch_receipt():
     assert len(receipt.signal_batch_sha256) == 64
     assert receipt.signal_count == 1
     assert receipt.selection_candidate_count and receipt.selection_candidate_count > 0
+
+
+def test_exact_count_shortage_is_runtime_evidence_but_never_gold_clean():
+    """A real G1d run with only three eligible rows is data-limited, not green."""
+    receipt = _evaluate(bundle=_three_eligible_bundle())
+
+    assert receipt.gate_status == "bundle_insufficient"
+    assert receipt.failed_gate == "G1e"
+    assert receipt.runtime_valid is True, "G1d did execute the frozen bundle"
+    assert receipt.gold_clean is False
+    assert receipt.selection_candidate_count == 3
+    assert dict(receipt.conditions.verdict_counts)[gates.UNVERIFIABLE] == 1
 
 
 def test_empty_conditions_are_only_a_smoke_test_not_runtime_or_gold_valid():

@@ -33,9 +33,17 @@ It only accepts clear `t1_expressible` requests where every capability is
 `supported`; proxy, gap, ambiguity, source drift, or a failed frozen replay are
 refused before either ledger is written. `promote_to_gold=true` additionally
 requires every reviewed condition to pass G1e and a real human reviewer alias
-plus timestamp. A GPT/other-model review may be kept in the private curation
-receipt, but it is never accepted as `human_reviewed_by` and cannot make a row
-SFT-eligible on its own.
+plus timestamp.
+
+**Current strict-gold boundary:** this checkout deliberately fails closed for
+every `promote_to_gold=true` request. `--sol-review` can verify a mode-600
+local HMAC audit receipt and bind it to the frozen artifacts, but the worker can
+read the same signing key. It is therefore not evidence that `gpt-5.6-sol` (or
+any external provider) ran, and it cannot make a row SFT-eligible. A future
+promotion path must use an independently controlled provider-attesting adapter
+whose signing key is unavailable to this worker, in addition to the human
+signoff. Until then, use this bridge only for privacy-safe, non-gold replay
+records.
 
 The review must carry a canonical `bundle_sha256`; the worker rejects a replay
 against any other frozen bundle and verifies that `--repo-git-sha` is the actual
@@ -63,4 +71,5 @@ possibly leaked.
 
 The human alias is an operational sign-off record, not cryptographic proof of a
 person's identity. If that assurance is required, put a signed/allowlisted
-reviewer registry in front of the private review JSON before using this bridge.
+reviewer registry in front of the private review JSON before enabling any
+future externally attested promotion path.

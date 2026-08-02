@@ -1,21 +1,22 @@
 """Curate one private strategy-test queue row into an auditable ledger case.
 
 This is intentionally the bridge *after* conversion, not another LLM client.
-An operator supplies a private reviewed YAML artifact and a private review JSON;
-the worker binds both to exactly one private queue row, replays the YAML against
-one frozen ``cyqnt.input/v1`` bundle, and writes only privacy-safe ledger
-records.  It never sends a chat excerpt, prompt, YAML, or bundle to a network
-endpoint.
+An operator supplies a private reviewed YAML artifact, a private review JSON,
+and (for gold promotion) a private, content-bound Sol review receipt.  The
+worker binds them to exactly one private queue row, replays the YAML against one
+frozen ``cyqnt.input/v1`` bundle, and writes only privacy-safe ledger records.
+It never sends a chat excerpt, prompt, YAML, or bundle to a network endpoint.
 
 The review JSON is private and has this compact contract::
 
     {
-      "schema": "cyqnt.nl2yaml.queue-review/v1",
+      "schema": "cyqnt.nl2yaml.queue-review/v2",
       "queue_row_id": "r_...",
       "user_text_sha256": "...",
       "yaml_sha256": "...",
       "bundle_sha256": "...",
       "prompt_sha256": "...",
+      "sol_review_prompt_sha256": "...",
       "gate_conditions": [{"id": "...", ...}],
       "case_conditions": [{"cid": "...", ...}],
       "capability_map": [{"cid": "...", "verdict": "supported"}],
@@ -27,16 +28,19 @@ The review JSON is private and has this compact contract::
       "conditions_with_quotes": [{"cid": "...", "quote": "..."}],
       "promote_to_gold": true,
       "human_reviewed_by": "reviewer_alias",
-      "human_reviewed_at": "2026-08-02T12:00:00Z",
-      "model_reviewed_by": "gpt-5.6-sol",
-      "model_reviewed_at": "2026-08-02T12:00:00Z"
+      "human_reviewed_at": "2026-08-02T12:00:00Z"
     }
 
 All condition IDs must agree across the three structured condition views, and
 each quote must be an exact substring of the private request.  Only a clear,
 fully ``supported`` T1 case may pass this conversion bridge.  A model review is
-stored separately in the private receipt; it never counts as the human signoff
-needed to promote an SFT gold.
+not a free-text claim in this JSON: ``--sol-review`` may point to a private,
+HMAC-bound audit receipt for the exact frozen artifacts.  Since this worker can
+read the local signing key, that receipt is *not* proof that ``gpt-5.6-sol`` (or
+any external provider) was called and it cannot unlock strict SFT/gold
+promotion.  It never replaces an independent human signoff; a separately
+controlled provider-attesting adapter is also required before this bridge can
+promote a gold.
 """
 
 from __future__ import annotations
@@ -61,17 +65,31 @@ from . import evaluate
 from . import gates
 from . import mine
 from . import schema
+from . import sol_review
 
 
 REPO = Path(__file__).resolve().parents[2]
 PUBLIC_DATASET_ROOT = REPO / "tools" / "nl2yaml" / "dataset"
-REVIEW_SCHEMA = "cyqnt.nl2yaml.queue-review/v1"
-CURATION_RECEIPT_SCHEMA = "cyqnt.nl2yaml.queue-curation/v1"
+REVIEW_SCHEMA = "cyqnt.nl2yaml.queue-review/v2"
+CURATION_RECEIPT_SCHEMA = "cyqnt.nl2yaml.queue-curation/v2"
 DEFAULT_INTERNAL_CASES = "cases_queue_internal.jsonl"
 DEFAULT_PRIVATE_RECEIPT = "queue_curation.jsonl"
 DEFAULT_PRIVATE_DIAGNOSTICS = "queue_evaluation_diagnostics.jsonl"
+DEFAULT_PRIVATE_OUTCOMES = "queue_curation_outcomes.jsonl"
 _CLAIM_DIRECTORY = "queue_claims"
 MAX_INPUT_BYTES = evaluate.MAX_LOCAL_INPUT_BYTES
+
+# ``sol_review`` deliberately stores its HMAC key beneath the same configured
+# private root that this worker can access.  It is therefore useful for local
+# tamper detection and artifact binding, but cannot attest that an external
+# model actually performed a review.  Keep strict promotion closed until a
+# separate provider-attesting adapter/signing boundary is introduced.
+_LOCAL_HMAC_GOLD_BLOCK = (
+    "strict SFT/gold promotion is unavailable: a local HMAC review receipt is "
+    "private integrity evidence, not independent external gpt-5.6-sol "
+    "attestation; require a provider-attesting adapter with a signing key "
+    "unavailable to this worker"
+)
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _ROW_ID = re.compile(r"^r_[0-9a-f]{16}$")
@@ -93,13 +111,13 @@ _QUEUE_COLUMNS = frozenset({
 })
 _REVIEW_REQUIRED = frozenset({
     "schema", "queue_row_id", "user_text_sha256", "yaml_sha256", "bundle_sha256", "prompt_sha256",
+    "sol_review_prompt_sha256",
     "gate_conditions", "case_conditions", "capability_map", "intent_slots", "tier",
     "source_snapshot_id", "converter_model", "temperature", "resolution_path",
     "conditions_with_quotes", "promote_to_gold",
 })
 _REVIEW_OPTIONAL = frozenset({
     "seed", "zh_variant", "human_reviewed_by", "human_reviewed_at",
-    "model_reviewed_by", "model_reviewed_at",
 })
 
 
@@ -338,24 +356,22 @@ def _require_timestamp(value: Any, *, label: str) -> str:
     return value
 
 
-def _reviewer_pair(review: Mapping[str, Any], *, prefix: str,
-                   require_human: bool = False) -> tuple[Optional[str], Optional[str]]:
-    reviewer = review.get("%s_reviewed_by" % prefix)
-    reviewed_at = review.get("%s_reviewed_at" % prefix)
+def _human_reviewer_pair(review: Mapping[str, Any], *,
+                         required: bool = False) -> tuple[Optional[str], Optional[str]]:
+    """Validate the independent human signoff; model claims use a typed receipt."""
+    reviewer = review.get("human_reviewed_by")
+    reviewed_at = review.get("human_reviewed_at")
     if bool(reviewer) != bool(reviewed_at):
-        raise ValueError("%s reviewer identity and timestamp must appear together" % prefix)
-    if require_human and not reviewer:
+        raise ValueError("human reviewer identity and timestamp must appear together")
+    if required and not reviewer:
         raise ValueError("gold promotion requires an actual human reviewer")
     if not reviewer:
         return None, None
-    if prefix == "human":
-        if not isinstance(reviewer, str) or not _SAFE_REVIEWER.fullmatch(reviewer):
-            raise ValueError("human reviewer must be a compact reviewer alias")
-        if _MODEL_MARKER.search(reviewer):
-            raise ValueError("a model reviewer cannot be recorded as a human signer")
-    else:
-        _require_safe_metadata(reviewer, label="model reviewer")
-    return str(reviewer), _require_timestamp(reviewed_at, label="%s reviewed_at" % prefix)
+    if not isinstance(reviewer, str) or not _SAFE_REVIEWER.fullmatch(reviewer):
+        raise ValueError("human reviewer must be a compact reviewer alias")
+    if _MODEL_MARKER.search(reviewer):
+        raise ValueError("a model reviewer cannot be recorded as a human signer")
+    return str(reviewer), _require_timestamp(reviewed_at, label="human reviewed_at")
 
 
 _COMPARE_OPERATORS = {
@@ -374,6 +390,15 @@ _DESC_WORDS = ("desc", "descending", "highest", "most", "由高到低", "從高�
 _ASC_WORDS = ("asc", "ascending", "lowest", "least", "由低到高", "從低到高", "最低", "最少")
 _NUMERIC_LITERAL = re.compile(
     r"(?<![A-Za-z0-9_.])(?:\d{1,3}(?:[,_]\d{3})+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)(?![A-Za-z0-9_.])"
+)
+_AT_MOST_COUNT_TERMS = re.compile(
+    r"(?:\bat\s+most\b|\bup\s+to\b|\bno\s+more\s+than\b|\bmaximum\b|\bmax\b|"
+    r"最多|至多|不超過|不超过)",
+    re.IGNORECASE,
+)
+_EXACT_SELECTION_COUNT_TERMS = re.compile(
+    r"(?:\bselect\b|\bpick\b|\bchoose\b|\btop\b|選(?:出|擇)?|挑(?:選)?|取(?:出)?)",
+    re.IGNORECASE,
 )
 _MAX_EXACT_FLOAT_INTEGER = 2 ** 53
 _NUMERIC_SUBJECT_UNITS = {
@@ -484,14 +509,18 @@ def _assert_condition_semantics(gate_conditions: Sequence[Mapping[str, Any]],
                 raise ValueError("review ranking direction is invalid")
             if direction in ("asc", "desc") and condition.rank_direction.value != direction:
                 raise ValueError("public condition ranking direction does not match G1e")
-        elif operator == "top_k":
+        elif operator in ("top_k", "exact_top_k"):
+            expected_operator = (
+                schema.Operator.EXACT_N if operator == "exact_top_k"
+                else schema.Operator.TOP_N
+            )
             if (condition.polarity is not schema.Polarity.INCLUDE
-                    or condition.operator is not schema.Operator.TOP_N
+                    or condition.operator is not expected_operator
                     or not _is_finite_number(gate_condition.get("value"))
                     or not _is_finite_number(condition.value)
                     or not _same_number(condition.value, gate_condition.get("value"))
                     or condition.unit is not schema.Unit.COUNT):
-                raise ValueError("public condition does not match its executed top-k")
+                raise ValueError("public condition does not match its executed basket count")
         elif operator in ("exclude", "require", "equals"):
             # These gate forms can carry arbitrary reviewer strings (sector
             # labels, aliases, or opaque IDs).  Until each has a closed typed
@@ -566,6 +595,14 @@ def _assert_explicit_value_provenance(conditions: Sequence[schema.Condition],
             values = condition.value if isinstance(condition.value, list) else [condition.value]
             if any(str(value).casefold() not in quote.casefold() for value in values):
                 raise ValueError("membership condition needs direct source provenance")
+        if condition.operator is schema.Operator.EXACT_N:
+            if _AT_MOST_COUNT_TERMS.search(quote):
+                raise ValueError("exact basket count conflicts with at-most source wording")
+            if not _EXACT_SELECTION_COUNT_TERMS.search(quote):
+                raise ValueError("exact basket count needs direct selection source provenance")
+        if condition.operator is schema.Operator.TOP_N:
+            if not _AT_MOST_COUNT_TERMS.search(quote):
+                raise ValueError("at-most basket count needs direct ceiling source provenance")
 
 
 def _assert_safe_intent_slots(intent_slots: schema.IntentSlots) -> None:
@@ -592,6 +629,9 @@ def _review_contract(review: Mapping[str, Any], *, row_id: str, request: str,
             != _canonical_json_sha256(bundle)):
         raise ValueError("private review is bound to a different frozen bundle")
     _require_sha256(review.get("prompt_sha256"), label="review prompt_sha256")
+    _require_sha256(
+        review.get("sol_review_prompt_sha256"), label="review sol_review_prompt_sha256"
+    )
     _private_metadata(review.get("source_snapshot_id"), label="source_snapshot_id")
     _private_metadata(review.get("converter_model"), label="converter_model")
     if not isinstance(review.get("temperature"), (int, float)) or isinstance(review.get("temperature"), bool):
@@ -672,12 +712,11 @@ def _review_contract(review: Mapping[str, Any], *, row_id: str, request: str,
             zh_variant = schema.ZhVariant(zh_variant)
         except ValueError as exc:
             raise ValueError("review zh_variant is invalid") from exc
-    human_by, human_at = _reviewer_pair(
-        review, prefix="human", require_human=bool(review["promote_to_gold"])
+    human_by, human_at = _human_reviewer_pair(
+        review, required=bool(review["promote_to_gold"])
     )
-    model_by, model_at = _reviewer_pair(review, prefix="model")
     return (gate_conditions, conditions, capabilities, intent_slots, zh_variant,
-            human_by, human_at, model_by, model_at, resolution_path,
+            human_by, human_at, resolution_path,
             validated_quotes)
 
 
@@ -815,6 +854,71 @@ def _assert_promotable(evaluation: evaluate.LedgerEvaluation, *, cids: set[str],
         raise ValueError("gold promotion requires every reviewed condition to be satisfied")
 
 
+def _sol_artifact_hashes(
+    *,
+    review: Mapping[str, Any],
+    evaluation: evaluate.LedgerEvaluation,
+    verified_repo_git_sha: str,
+) -> sol_review.ArtifactHashes:
+    """Return the exact, non-verbatim replay manifest a Sol receipt must bind.
+
+    This is intentionally built only after ``materialize_ledger_evaluation``:
+    a review of an equivalent-looking YAML or a pre-materialization draft is not
+    a review of the record that promotion would append.  The capability map and
+    repository provenance are canonical manifests, not mutable paths or branch
+    names.
+    """
+    if (evaluation.run is None or evaluation.run_record_sha256 is None
+            or evaluation.receipt.signal_batch_sha256 is None):
+        raise ValueError("gold promotion requires replay artifacts for Sol review")
+    return sol_review.ArtifactHashes(
+        review_prompt_sha256=_require_sha256(
+            review.get("sol_review_prompt_sha256"), label="Sol review prompt_sha256"
+        ),
+        request_sha256=evaluation.receipt.nl_sha256,
+        yaml_sha256=evaluation.receipt.yaml_sha256,
+        conditions_sha256=evaluation.receipt.conditions_sha256,
+        bundle_sha256=evaluation.receipt.bundle_sha256,
+        attempt_sha256=evaluation.attempt_record_sha256,
+        run_sha256=evaluation.run_record_sha256,
+        signal_sha256=evaluation.receipt.signal_batch_sha256,
+        capability_sha256=_canonical_json_sha256({
+            "capability_map": review["capability_map"],
+        }),
+        repo_sha256=_canonical_json_sha256({"repo_git_sha": verified_repo_git_sha}),
+    )
+
+
+def _require_content_bound_sol_review(
+    *,
+    sol_review_path: Path | str | None,
+    expected_artifacts: sol_review.ArtifactHashes,
+    cids: set[str],
+) -> sol_review.SolReviewReceipt:
+    """Verify local audit evidence, then keep strict promotion fail-closed.
+
+    ``sol_review`` HMAC records still protect the private audit trail and bind
+    one claimed review to the frozen artifacts.  They cannot establish external
+    provider provenance because this worker reads the same local key that signs
+    them.  Do the structural verification first so malformed/tampered evidence
+    is still detected, then refuse promotion until an independent adapter is
+    available.
+    """
+    if sol_review_path is None:
+        raise ValueError(
+            "gold promotion requires a local content-bound audit receipt and "
+            "independent external provider attestation"
+        )
+    receipt = sol_review.read_receipt(
+        sol_review_path,
+        expected_artifact_hashes=expected_artifacts,
+        require_approved=True,
+    )
+    if {item.cid for item in receipt.cid_verdicts} != cids:
+        raise ValueError("Sol review receipt must cover exactly every reviewed condition")
+    raise ValueError(_LOCAL_HMAC_GOLD_BLOCK)
+
+
 def _assert_no_verbatim_public_strings(value: Any, *, request: str, user_id: str) -> None:
     """Preflight every string that is about to cross into a public record.
 
@@ -831,6 +935,15 @@ def _assert_no_verbatim_public_strings(value: Any, *, request: str, user_id: str
         for nested in value:
             _assert_no_verbatim_public_strings(nested, request=request, user_id=user_id)
     elif isinstance(value, str):
+        # Eight-gram overlap intentionally ignores short ordinary vocabulary,
+        # but a short *entire* request is still private verbatim text.  Scan a
+        # canonical whole-source containment first so a copied ``buy BTC now``
+        # cannot slip into a public YAML description, condition, or metadata
+        # field just because it contains fewer than eight English tokens/CJK
+        # characters.  The exception contains no source/value text.
+        canonical_request = schema.canonicalize_text(request)
+        if canonical_request and canonical_request in schema.canonicalize_text(value):
+            raise schema.PrivacyError("public ledger value reproduces entire user wording")
         if schema.verbatim_overlap(value, request):
             raise schema.PrivacyError("public ledger value reproduces user wording")
         # A queue user id is private even when the user did not type it in the
@@ -891,6 +1004,119 @@ def _write_or_verify_private_jsonl(
     _append_private_receipt(path, expected)
 
 
+_OUTCOME_CID = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+
+
+def _outcome_code(exc: Exception) -> str:
+    """Classify a refusal without retaining the exception text.
+
+    Exceptions below may include an untrusted YAML key, source value, or a
+    provider error.  This private audit stream must preserve the fact and broad
+    class of a failure without becoming a second copy of those inputs.
+    """
+    message = str(exc).casefold()
+    if "clarification" in message or "ambiguous" in message:
+        return "needs_clarification"
+    if any(token in message for token in (
+            "unsupported", "proxy", "capability", "not expressible", "gap")):
+        return "unsupported"
+    if any(token in message for token in ("yaml", "parse", "schema", "spec")):
+        return "yaml_rejected"
+    if any(token in message for token in (
+            "bundle", "runtime", "frozen replay", "condition", "gate")):
+        return "replay_rejected"
+    if "review" in message or "promotion" in message:
+        return "review_rejected"
+    return "curation_refused"
+
+
+def _review_outcome_fields(review_path: Path | str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Extract only closed/safe IDs from an optional private review artifact."""
+    try:
+        _, review = _read_private_json(review_path, label="review")
+    except Exception:  # noqa: BLE001 - audit must never mask the original refusal
+        return (), ()
+    cids: set[str] = set()
+    gaps: set[str] = set()
+    for item in review.get("case_conditions") or []:
+        if isinstance(item, Mapping) and _OUTCOME_CID.fullmatch(str(item.get("cid") or "")):
+            cids.add(str(item["cid"]))
+    for item in review.get("capability_map") or []:
+        if not isinstance(item, Mapping):
+            continue
+        try:
+            gap = schema.GapId(item.get("gap_id")) if item.get("gap_id") else None
+        except ValueError:
+            gap = None
+        if gap is not None:
+            gaps.add(gap.value)
+    return tuple(sorted(cids)), tuple(sorted(gaps))
+
+
+def _outcome_code_from_review(review_path: Path | str, *, fallback: str) -> str:
+    """Recover a closed outcome type when the raised error is deliberately terse."""
+    try:
+        _, review = _read_private_json(review_path, label="review")
+    except Exception:  # noqa: BLE001 - no review means no safe refinement
+        return fallback
+    if review.get("tier") != schema.CaseTier.T1_EXPRESSIBLE.value:
+        return "unsupported"
+    for item in review.get("capability_map") or []:
+        if isinstance(item, Mapping) and item.get("verdict") != schema.CapabilityVerdict.SUPPORTED.value:
+            return "unsupported"
+    for item in review.get("case_conditions") or []:
+        if isinstance(item, Mapping) and item.get("ambiguity_type"):
+            return "needs_clarification"
+    return fallback
+
+
+def _record_private_refusal(
+    *,
+    queue_path: Path | str,
+    row_id: str,
+    review_path: Path | str,
+    exc: Exception,
+    private_outcome_path: Path | str | None,
+) -> None:
+    """Best-effort, non-verbatim failure history for a queue-row curation.
+
+    This runs only after a refusal and never changes the error visible to the
+    caller.  If the queue itself cannot be safely opened there is no reliable
+    private case identity to record, so it intentionally does nothing.
+    """
+    try:
+        queue = _private_path(queue_path, label="queue", must_exist=True)
+        row = _queue_row(queue, row_id)
+        request = _request_from_row(row)
+        request_sha256 = schema.sha256_hex(request)
+        case_id = schema.case_id_for(request_sha256)
+        cids, gaps = _review_outcome_fields(review_path)
+        code = _outcome_code_from_review(
+            review_path, fallback=_outcome_code(exc),
+        )
+        target = _private_path(
+            private_outcome_path or (_private_root() / DEFAULT_PRIVATE_OUTCOMES),
+            label="curation outcome", must_exist=False,
+        )
+        payload = {
+            "schema": "cyqnt.nl2yaml.queue-curation-outcome/v1",
+            "case_id": case_id,
+            "queue_row_id": row_id,
+            "request_sha256": request_sha256,
+            "outcome": code,
+            "condition_ids": list(cids),
+            "gap_ids": list(gaps),
+        }
+        _write_or_verify_private_jsonl(
+            target, payload, label="curation outcome",
+            identity={"case_id": case_id, "outcome": code},
+        )
+    except Exception:
+        # Failure evidence is valuable, but failure to write it must not turn a
+        # correct fail-closed refusal into a different, potentially noisy error.
+        return
+
+
 class _CaseClaim:
     """One non-blocking private file lock and tiny durable recovery journal."""
 
@@ -943,7 +1169,7 @@ class _CaseClaim:
                 self._descriptor = None
 
 
-def process_queue_case(
+def _process_queue_case(
     *,
     queue_path: Path | str,
     row_id: str,
@@ -954,6 +1180,7 @@ def process_queue_case(
     public_root: Path | str = PUBLIC_DATASET_ROOT,
     internal_cases_path: Path | str | None = None,
     private_receipt_path: Path | str | None = None,
+    sol_review_path: Path | str | None = None,
 ) -> QueueCurationResult:
     """Process exactly one manually reviewed private queue row.
 
@@ -986,7 +1213,7 @@ def process_queue_case(
     row = _queue_row(queue, row_id)
     request = _request_from_row(row)
     (gate_conditions, case_conditions, capabilities, intent_slots, zh_variant,
-     human_by, human_at, model_by, model_at, resolution_path,
+     human_by, human_at, resolution_path,
      validated_quotes) = _review_contract(
          review, row_id=row_id, request=request, yaml_text=yaml_text, bundle=bundle)
 
@@ -1016,6 +1243,12 @@ def process_queue_case(
         # identity contract instead of pretending the pseudonym alone protects
         # their source identifier.
         raise ValueError("queue user identity is too short for this privacy-preserving bridge")
+
+    # Refuse a copied request or private identity before replay or any external
+    # review receipt is considered.  The later structured-record scan remains
+    # necessary for review metadata, but it must not be the first time a raw
+    # YAML artifact is checked.
+    _assert_no_verbatim_public_strings(yaml_text, request=request, user_id=user_id)
 
     request_sha256 = schema.sha256_hex(request)
     case_id = schema.case_id_for(request_sha256)
@@ -1064,11 +1297,22 @@ def process_queue_case(
             # A failed promotion still leaves the private diagnostic record
             # above, but never a public case/attempt/run half.
             _assert_promotable(prepared, cids=cids, human_reviewer=human_by)
+            expected_sol_artifacts = _sol_artifact_hashes(
+                review=review,
+                evaluation=prepared,
+                verified_repo_git_sha=verified_repo_git_sha,
+            )
+            approved_sol_review = _require_content_bound_sol_review(
+                sol_review_path=sol_review_path,
+                expected_artifacts=expected_sol_artifacts,
+                cids=cids,
+            )
             gold_specs = [schema.GoldSpec(role=schema.GoldRole.PRIMARY, yaml_text=yaml_text)]
             gold_source = schema.GoldSource.ATTEMPT_K
             gold_level = schema.GoldVerificationLevel.ALL_CHECKABLE_CONDITIONS_SATISFIED
             gold_verdicts = attempt.condition_verdicts
         else:
+            approved_sol_review = None
             gold_specs = []
             gold_source = schema.GoldSource.NONE
             gold_level = schema.GoldVerificationLevel.UNPARSED
@@ -1149,8 +1393,19 @@ def process_queue_case(
             "gold_promoted": promoted,
             "human_reviewed_by": human_by,
             "human_reviewed_at": human_at,
-            "model_reviewed_by": model_by,
-            "model_reviewed_at": model_at,
+            "sol_review_receipt_sha256": (
+                _canonical_json_sha256(approved_sol_review.to_dict())
+                if approved_sol_review is not None else None
+            ),
+            "sol_reviewer_model": (
+                approved_sol_review.reviewer_model if approved_sol_review is not None else None
+            ),
+            "sol_reasoning_effort": (
+                approved_sol_review.reasoning_effort if approved_sol_review is not None else None
+            ),
+            "sol_reviewed_at": (
+                approved_sol_review.issued_at if approved_sol_review is not None else None
+            ),
             "review_path_sha256": _sha256_bytes(str(review_file).encode("utf-8")),
             "diagnostics": prepared.diagnostics.to_dict(),
         }
@@ -1167,6 +1422,51 @@ def process_queue_case(
         gold_promoted=promoted,
         run_written=run is not None,
     )
+
+
+def process_queue_case(
+    *,
+    queue_path: Path | str,
+    row_id: str,
+    review_path: Path | str,
+    yaml_path: Path | str,
+    bundle_path: Path | str,
+    repo_git_sha: str,
+    public_root: Path | str = PUBLIC_DATASET_ROOT,
+    internal_cases_path: Path | str | None = None,
+    private_receipt_path: Path | str | None = None,
+    sol_review_path: Path | str | None = None,
+    private_outcome_path: Path | str | None = None,
+) -> QueueCurationResult:
+    """Curate one row and retain a private, non-verbatim refusal outcome.
+
+    The inner worker still raises every refusal and still writes no public
+    record unless all gates pass.  The wrapper merely makes ambiguity,
+    capability gaps and bad replays visible to the private audit trail, rather
+    than losing their history behind the CLI's generic ``refused`` response.
+    """
+    try:
+        return _process_queue_case(
+            queue_path=queue_path,
+            row_id=row_id,
+            review_path=review_path,
+            yaml_path=yaml_path,
+            bundle_path=bundle_path,
+            repo_git_sha=repo_git_sha,
+            public_root=public_root,
+            internal_cases_path=internal_cases_path,
+            private_receipt_path=private_receipt_path,
+            sol_review_path=sol_review_path,
+        )
+    except Exception as exc:
+        _record_private_refusal(
+            queue_path=queue_path,
+            row_id=row_id,
+            review_path=review_path,
+            exc=exc,
+            private_outcome_path=private_outcome_path,
+        )
+        raise
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
@@ -1186,6 +1486,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--public-dir", default=str(PUBLIC_DATASET_ROOT))
     parser.add_argument("--internal-cases")
     parser.add_argument("--private-receipt")
+    parser.add_argument(
+        "--sol-review",
+        help=(
+            "mode-600 local HMAC audit receipt beneath $NL2YAML_INTERNAL_ROOT; "
+            "it verifies private artifact binding only and cannot unlock strict "
+            "SFT/gold promotion"
+        ),
+    )
     args = parser.parse_args(argv)
     try:
         result = process_queue_case(
@@ -1198,6 +1506,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             public_root=args.public_dir,
             internal_cases_path=args.internal_cases,
             private_receipt_path=args.private_receipt,
+            sol_review_path=args.sol_review,
         )
     except Exception:  # noqa: BLE001 - CLI must never echo private input diagnostics
         print(json.dumps({"schema": CURATION_RECEIPT_SCHEMA, "status": "refused"},

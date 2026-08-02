@@ -58,17 +58,13 @@
 <body>
 <div class="wrap">
   <h1>自然語言 → YAML 策略 → 訊號</h1>
-  <div class="sub">用你的語言模型(LiteLLM / OpenAI 相容)把一句話轉成交易或選幣 YAML；交易可回測或產生訊號，選幣會直接輸出候選籃子。非 agent。</div>
+  <div class="sub">用伺服器受控的語言模型把一句話轉成交易或選幣 YAML 草稿；交易可回測或產生訊號，選幣可手動輸出候選籃子。非 agent。</div>
 
-  <!-- 1. LLM 設定 -->
+  <!-- 1. LLM boundary -->
   <div class="card">
-    <h2><span class="num">1</span> LLM 設定(LiteLLM / OpenAI 相容)</h2>
-    <div class="row">
-      <div><label>API Base URL</label><input id="apiBase" placeholder="http://localhost:4000/v1" class="mono"></div>
-      <div><label>API Key</label><input id="apiKey" type="password" placeholder="sk-..." class="mono"></div>
-      <div><label>Model</label><input id="model" placeholder="gpt-4o / claude-sonnet-4 ..." class="mono"></div>
-    </div>
-    <div class="hint">會組成 <span class="mono">{Base}/chat/completions</span>；本機後端會把 key 轉送到你指定的 LLM 端點。Base URL 與 model 會保存在瀏覽器，API key 不保存。</div>
+    <h2><span class="num">1</span> 受控 LLM 轉換</h2>
+    <div class="hint">LLM endpoint、model 與選用的 API key 僅能由啟動 demo 的伺服器環境設定；瀏覽器不會傳送或保存它們。自然語言預設不會離開本機，外送仍必須由伺服器在啟動時明確 opt-in。</div>
+    <div class="hint">此步驟只產生 YAML 草稿與靜態結構/意圖檢查；它不是 frozen bundle runtime、語義驗證或可晉升的私有資料收據。</div>
   </div>
 
   <!-- 2. 馬上抓資料 -->
@@ -138,7 +134,7 @@
       <span class="mono">selection:</span> 一次評估整個宇宙 → <span class="mono">kind=selection</span>。
       兩者<b>頂層欄位完全相同</b>,消費端只認 <span class="mono">kind</span> 一個欄位。
     </div>
-    <textarea id="selYaml" rows="14" class="mono" placeholder="自然語言被識別為選幣時會自動放到這裡並執行；也可載入範例或手動貼入 selection: spec。"></textarea>
+    <textarea id="selYaml" rows="14" class="mono" placeholder="自然語言被識別為選幣時會放入這裡，但不會自動執行；也可載入範例或手動貼入 selection: spec。"></textarea>
     <button id="btnLoadSel" class="sec" onclick="loadExample('selection')">載入選幣範例</button>
     <button id="btnSel" onclick="selection()">執行選幣(抓即時宇宙)▶</button>
     <span id="selBadge"></span>
@@ -167,18 +163,15 @@
 <script>
 const $ = id => document.getElementById(id);
 
-// --- persist non-secret LLM settings; remove legacy persisted API keys ---
-localStorage.removeItem("demo_apiKey");
-["apiBase","model"].forEach(k=>{
-  $(k).value = localStorage.getItem("demo_"+k) || "";
-  $(k).addEventListener("input", ()=>localStorage.setItem("demo_"+k, $(k).value));
-});
+// --- erase legacy browser-owned LLM settings; the server owns them now ---
+["demo_apiKey","demo_apiBase","demo_model"].forEach(k=>localStorage.removeItem(k));
 
 // --- schema ---
 fetch("/api/schema").then(r=>r.json()).then(d=>{$("schemaBox").textContent = d.schema||"(無)";})
   .catch(()=>{$("schemaBox").textContent="(載入 schema 失敗)";});
 
 function setBadge(el, ok, text){el.innerHTML = ` <span class="badge ${ok?'b-ok':'b-bad'}">${text}</span>`;}
+function setWarningBadge(el, text){el.innerHTML = ` <span class="badge b-warn">${text}</span>`;}
 function setFlow(el, text, isError=false){
   el.textContent = String(text||"");
   el.classList.toggle("err", isError);
@@ -187,10 +180,10 @@ function setFlow(el, text, isError=false){
 async function convert(){
   const nl = $("nl").value.trim();
   if(!nl){ setFlow($("convMsg"),"請先輸入描述",true); return; }
-  $("btnConvert").disabled=true; $("convBadge").innerHTML=""; setFlow($("convMsg"),"呼叫 LLM 轉換中…");
+  $("btnConvert").disabled=true; $("convBadge").innerHTML=""; setFlow($("convMsg"),"由伺服器受控 LLM 轉換中…");
   try{
     const r = await fetch("/api/convert",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({nl, api_base:$("apiBase").value.trim(), api_key:$("apiKey").value.trim(), model:$("model").value.trim()})});
+      body:JSON.stringify({nl})});
     const d = await r.json();
     if(!d.ok){ setFlow($("convMsg"),d.error||"轉換失敗",true); return; }
     if(d.status === "needs_clarification" || d.status === "unsupported" ||
@@ -203,21 +196,15 @@ async function convert(){
     const isSelection = d.strategy_kind === "selection";
     (isSelection ? $("selYaml") : $("yaml")).value = d.yaml;
     if(d.valid){
-      setBadge($("convBadge"),true,isSelection?"選幣 YAML 驗證通過":"交易 YAML 驗證通過");
+      setWarningBadge($("convBadge"),"YAML 草稿（僅靜態檢查）");
       const warning = d.warnings&&d.warnings.length ? ("warning: "+d.warnings.join("; ")) : "";
       if(isSelection){
-        setFlow($("convMsg"),warning||"已識別選幣需求，正在抓 Square 資料並產生候選訊號…");
+        setFlow($("convMsg"),(warning ? warning+"\n" : "")+
+          "已識別選幣需求並放入 YAML 草稿；尚未在 frozen/live bundle 執行，也未完成 semantic 驗證或 promotion。請人工檢查後，手動按「執行選幣」取得當前資料快照的探索結果。");
         $("selectionCard").scrollIntoView({behavior:"smooth",block:"start"});
-        const selectionSucceeded = await selection();
-        if(selectionSucceeded){
-          setFlow($("convMsg"),warning||"選幣 YAML 已產生，且已在目前資料快照執行；結果顯示於下方。");
-        }else{
-          setBadge($("convBadge"),false,"選幣執行失敗");
-          setFlow($("convMsg"),(warning ? warning+"\n" : "")+
-            "YAML 靜態驗證雖已通過，但目前資料快照執行失敗；未將它標示為可用結果。請查看下方錯誤。",true);
-        }
       }else{
-        setFlow($("convMsg"),warning||"已產生交易 YAML；請人工確認後選擇回測或產生訊號。");
+        setFlow($("convMsg"),(warning ? warning+"\n" : "")+
+          "已產生交易 YAML 草稿；尚未在 frozen bundle 執行，也未完成 semantic 驗證或 promotion。請人工確認後選擇回測或產生訊號。");
       }
     }else{
       setBadge($("convBadge"),false,"YAML 有問題");

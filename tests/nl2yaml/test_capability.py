@@ -106,6 +106,52 @@ def test_lookup_prefers_the_specific_row_and_falls_back_to_the_wildcard():
         assert row.gap_id == "GAP-LONG-SHORT-RATIO", scope
 
 
+def test_exact_basket_size_reuses_the_runner_capability_but_not_the_semantics():
+    """The YAML block is shared; G1e owns exact-vs-at-most interpretation."""
+    exact = cap.lookup("basket_size", "cross_section", "exact_top_k")
+    ceiling = cap.lookup("basket_size", "cross_section", "top_k")
+
+    assert exact is ceiling
+    assert exact.verdict == cap.EXPRESSIBLE
+    plan = cap.plan_conversion([
+        {"id": "five", "subject": "basket_size", "scope": "cross_section",
+         "operator": "exact_top_k", "value": 5, "quantified": True},
+    ])
+    assert [item.id for item in plan.converter_conditions] == ["five"]
+
+
+@pytest.mark.parametrize("operator", ["top_k", "exact_top_k"])
+@pytest.mark.parametrize("value", [0, -1, True, 5.5, "5"])
+def test_internal_cardinality_condition_needs_a_positive_integer(operator, value):
+    """Do not silently turn 5.5/true/'5' into a different request count."""
+    with pytest.raises(ValueError, match="positive integer count"):
+        cap.normalize_condition({
+            "id": "five", "subject": "basket_size", "scope": "cross_section",
+            "operator": operator, "value": value, "quantified": True,
+        })
+
+
+def test_internal_unquantified_cardinality_keeps_its_explicit_none_placeholder():
+    """Analysis-only 'top coins' is not silently fabricated into a count."""
+    condition = cap.normalize_condition({
+        "id": "rank-unspecified", "subject": "basket_size",
+        "scope": "cross_section", "operator": "top_k", "value": None,
+        "quantified": False,
+    })
+
+    assert condition.value is None
+    assert condition.quantified is False
+
+
+def test_exact_cardinality_cannot_use_the_unquantified_rank_placeholder():
+    with pytest.raises(ValueError, match="positive integer count"):
+        cap.normalize_condition({
+            "id": "exact-missing", "subject": "basket_size",
+            "scope": "cross_section", "operator": "exact_top_k",
+            "value": None, "quantified": False,
+        })
+
+
 def test_an_unlisted_key_is_unknown_and_not_a_guess_in_either_direction():
     row = cap.lookup("gamma_exposure", "cross_section", "rank")
     assert row.verdict == cap.UNKNOWN
@@ -189,7 +235,7 @@ USER_CHAT_CONDITIONS = (
     {"id": "c8", "subject": "direction", "scope": "cross_section",
      "operator": "require", "value": "short", "quantified": True},
     {"id": "c9", "subject": "basket_size", "scope": "cross_section",
-     "operator": "top_k", "value": 5, "quantified": True},
+     "operator": "exact_top_k", "value": 5, "quantified": True},
 )
 
 

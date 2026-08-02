@@ -16,6 +16,7 @@ from __future__ import annotations
 import copy
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -43,6 +44,16 @@ NL_USER_CHAT = ("選幣:掃合約市場,幫我挑做空的候選幣,排除 BTC /
 def _bundle() -> dict:
     """A fresh parse per call: one test must not inherit another's mutations."""
     return json.loads(FIXTURE.read_text(encoding="utf-8"))
+
+
+def _three_eligible_bundle() -> dict:
+    """Keep source coverage but leave only three rows above the stated floor."""
+    bundle = _bundle()
+    keep = {"BNBUSDT", "BTCUSDT", "GIGGLEUSDT"}
+    for row in bundle["frames"]["universe"]["rows"]:
+        if row.get("instrument_id") not in keep:
+            row["quoteVolume"] = 0
+    return bundle
 
 
 def _spec(path: Path) -> dict:
@@ -112,7 +123,7 @@ USER_CHAT_CONDITIONS = [
     {"id": "short", "subject": "direction", "scope": "cross_section",
      "operator": "require", "value": "short", "quantified": True},
     {"id": "five", "subject": "basket_size", "scope": "cross_section",
-     "operator": "top_k", "value": 5, "quantified": True},
+     "operator": "exact_top_k", "value": 5, "quantified": True},
     {"id": "supertrend", "subject": "technical_indicator", "scope": "cross_section",
      "operator": "compare", "value": {"op": "<", "threshold": 0},
      "quantified": True},
@@ -131,7 +142,7 @@ NEWS_CONDITIONS = [
     {"id": "buzz", "subject": "social_mentions", "scope": "cross_section",
      "operator": "rank", "value": None},
     {"id": "five", "subject": "basket_size", "scope": "cross_section",
-     "operator": "top_k", "value": 5, "quantified": True},
+     "operator": "exact_top_k", "value": 5, "quantified": True},
     {"id": "order", "subject": "score_order", "scope": "cross_section",
      "operator": "rank", "value": "desc", "quantified": True},
 ]
@@ -238,13 +249,151 @@ def test_g1e_catches_a_threshold_violation_that_every_other_gate_waves_through()
     # Every earlier gate passed, which is the point: four gates' worth of green.
     assert all(result.ok for result in report.results[:4])
 
-    violated = [item for item in report.condition_verdicts
-                if item.verdict == gates.VIOLATED]
-    assert [item.condition.id for item in violated] == ["vol"]
-    assert violated[0].offenders, "a violation with no offender names is unauditable"
-    for offender in violated[0].offenders:
+    violated = {item.condition.id: item for item in report.condition_verdicts
+                if item.verdict == gates.VIOLATED}
+    # The score cap itself is an unreviewed narrowing filter, so it must not
+    # simultaneously disguise the now-short exact basket as a data outage.
+    assert set(violated) == {"vol", "five"}
+    assert violated["vol"].offenders, "a violation with no offender names is unauditable"
+    for offender in violated["vol"].offenders:
         assert float(offender.split("=")[1]) < 2_000_000, offender
-    assert "quoteVolume" in violated[0].detail
+    assert "quoteVolume" in violated["vol"].detail
+    assert "selection.max_score" in violated["five"].detail
+
+
+def test_exact_basket_count_is_data_limited_when_the_frozen_bundle_only_has_three():
+    """A request to select five is not silently downgraded to at-most five.
+
+    The strategy still executes, and all three candidates do honour the actual
+    filters.  The missing two are evidence about this frozen cross-section, not
+    a model error, so G1e must make the replay non-clean/non-trainable rather
+    than report a green five-gate result.
+    """
+    spec = _spec(SPEC_NEWS)
+    # This isolates the genuine data-plane witness: no unreviewed score bound
+    # or universe filter is allowed to explain why the frozen universe is short.
+    spec["selection"].pop("min_score", None)
+    report = gates.run_gates(
+        spec, nl=NL_NEWS, bundle=_three_eligible_bundle(),
+        conditions=NEWS_CONDITIONS,
+    )
+
+    assert len(gates.selection_candidates(report.batch)) == 3
+    assert report.failed_gate == "G1e"
+    assert report.status == "bundle_insufficient"
+    assert report.counts_toward_accuracy is False
+    assert report.clean is False
+    count = {item.condition.id: item for item in report.condition_verdicts}["five"]
+    assert count.verdict == gates.UNVERIFIABLE
+    assert count.data_limited is True
+    assert "exactly 5 candidates requested" in count.detail
+    assert "only 3" in count.detail
+
+
+def test_unreviewed_narrowing_filter_cannot_relabel_exact_shortage_as_data_loss():
+    """A model-added sentiment filter is an accuracy-bearing semantic error."""
+    spec = _spec(SPEC_NEWS)
+    spec["selection"]["universe"].append({
+        "block": "universe.filter_sentiment",
+        "params": {"min_bull_ratio": 0.70},
+    })
+
+    report = gates.run_gates(
+        spec, nl=NL_NEWS, bundle=_bundle(), conditions=NEWS_CONDITIONS,
+    )
+
+    assert len(gates.selection_candidates(report.batch)) < 5
+    assert report.failed_gate == "G1e"
+    assert report.status == "condition_violated"
+    assert report.counts_toward_accuracy is True
+    count = {item.condition.id: item for item in report.condition_verdicts}["five"]
+    assert count.verdict == gates.VIOLATED
+    assert count.data_limited is False
+    assert "universe.filter_sentiment" in count.detail
+
+
+def test_unreviewed_score_bound_cannot_relabel_exact_shortage_as_data_loss():
+    """``min_score`` is a real filter, not harmless ranking decoration."""
+    spec = _spec(SPEC_NEWS)
+    # The frozen bundle can supply five candidates before the model-added floor
+    # removes three.  This is deliberately higher than the shipped sample's
+    # non-binding floor, so the test proves causality rather than structure.
+    spec["selection"]["min_score"] = 10_000
+    report = gates.run_gates(
+        spec, nl=NL_NEWS, bundle=_bundle(),
+        conditions=NEWS_CONDITIONS,
+    )
+
+    assert len(gates.selection_candidates(report.batch)) < 5
+    assert report.status == "condition_violated"
+    assert report.counts_toward_accuracy is True
+    count = {item.condition.id: item for item in report.condition_verdicts}["five"]
+    assert count.verdict == gates.VIOLATED
+    assert "selection.min_score" in count.detail
+
+
+def test_legacy_top_k_remains_an_at_most_ceiling_on_the_same_short_basket():
+    """Existing ``top_k`` rows keep their documented at-most behavior."""
+    conditions = copy.deepcopy(NEWS_CONDITIONS)
+    for condition in conditions:
+        if condition["id"] == "five":
+            condition["operator"] = "top_k"
+
+    report = gates.run_gates(
+        _spec(SPEC_NEWS), nl=NL_NEWS, bundle=_three_eligible_bundle(),
+        conditions=conditions,
+    )
+
+    assert len(gates.selection_candidates(report.batch)) == 3
+    assert report.status == gates.STATUS_PASSED, report.summary()
+    assert report.counts_toward_accuracy is True
+    assert report.clean is True
+    count = {item.condition.id: item for item in report.condition_verdicts}["five"]
+    assert count.verdict == gates.SATISFIED
+    assert count.data_limited is False
+
+
+def test_exact_basket_count_cannot_relabel_a_model_written_smaller_top_k_as_data_loss():
+    """A generated ``top_k: 3`` is a semantic error, not a thin bundle."""
+    from cyqnt_trd.standard_bot.yaml_pipeline.bundle_runner import run_bundle
+
+    spec = _spec(SPEC_NEWS)
+    spec["selection"]["top_k"] = 3
+    batch = run_bundle(spec, _bundle())
+    count = gates.evaluate_conditions(batch, spec, [
+        {"id": "five", "subject": "basket_size", "scope": "cross_section",
+         "operator": "exact_top_k", "value": 5, "quantified": True},
+    ])[0]
+
+    assert count.verdict == gates.VIOLATED
+    assert count.data_limited is False
+    assert "selection.top_k=3" in count.detail
+
+
+@pytest.mark.parametrize("value", [0, -1, True, 5.5, "5"])
+def test_count_helpers_never_coerce_an_invalid_exact_count(value):
+    """Even a bypassed structured boundary cannot make invalid counts pass G1e."""
+    condition = SimpleNamespace(
+        subject="basket_size", operator="exact_top_k", value=value,
+    )
+
+    verdict, detail, _offenders = gates._basket_size((), condition)
+    assert verdict == gates.UNVERIFIABLE
+    assert "positive integer count" in detail
+    assert "positive integer count" in gates._exact_basket_size_expression_error(
+        {"selection": {"top_k": 5}}, condition)
+    assert gates._is_exact_basket_data_limited((), condition, verdict) is False
+
+
+def test_fractional_exact_count_is_refused_before_it_can_reach_a_green_g1e():
+    """The normal mapping boundary fails closed; no audit is emitted as passed."""
+    conditions = copy.deepcopy(NEWS_CONDITIONS)
+    next(item for item in conditions if item["id"] == "five")["value"] = 5.5
+
+    with pytest.raises(ValueError, match="positive integer count"):
+        gates.run_gates(
+            _spec(SPEC_NEWS), nl=NL_NEWS, bundle=_bundle(), conditions=conditions,
+        )
 
 
 def _plan_condition(scope, value):
@@ -545,9 +694,15 @@ def test_an_empty_basket_is_unverifiable_and_never_vacuously_satisfied():
     spec = _spec(SPEC_USER_CHAT)
     spec["selection"]["short_when"] = {"cond": "conditions.value_below",
                                        "args": ["priceChangePercent", -99.0]}
+    conditions = copy.deepcopy(USER_CHAT_CONDITIONS)
+    for condition in conditions:
+        if condition["id"] == "five":
+            # This test asserts the retained legacy ceiling behavior.  Exact
+            # requests are covered separately above and must be data-limited.
+            condition["operator"] = "top_k"
 
     report = gates.run_gates(spec, nl=NL_USER_CHAT, bundle=_bundle(),
-                             conditions=USER_CHAT_CONDITIONS)
+                             conditions=conditions)
     verdicts = {item.condition.id: item for item in report.condition_verdicts}
 
     assert gates.selection_candidates(report.batch) == ()

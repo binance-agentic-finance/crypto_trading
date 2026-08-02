@@ -107,6 +107,13 @@ def test_default_output_path_uses_the_schema_internal_root(tmp_path, monkeypatch
     assert queue.default_out_path() == root / queue.DEFAULT_OUT_NAME
 
 
+def test_default_source_path_uses_the_schema_internal_root(tmp_path, monkeypatch):
+    root = tmp_path / "private-source-root"
+    _set_private_root(monkeypatch, root)
+
+    assert queue.default_csv_path() == root / queue.PRIVATE_SOURCE_RELATIVE
+
+
 def test_build_writes_private_queue_with_restrictive_modes(
         tmp_path, monkeypatch, synthetic_inputs):
     csv_path, candidates_path, _ = synthetic_inputs

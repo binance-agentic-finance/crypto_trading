@@ -185,6 +185,11 @@ class Operator(str, Enum):
     CROSSES_BELOW = "crosses_below"
     RISING = "rising"
     FALLING = "falling"
+    #: exactly N returned items.  This is distinct from ``TOP_N``: a frozen
+    #: bundle that only contains three eligible rows cannot satisfy "select 5",
+    #: while it can satisfy "at most 5".
+    EXACT_N = "exact_n"
+    #: at most N returned items; retained for legacy/requested-ceiling cases.
     TOP_N = "top_n"
     BOTTOM_N = "bottom_n"
     EXISTS = "exists"
@@ -914,6 +919,14 @@ class Condition:
                  % self.cid)
 
         numeric = isinstance(self.value, (int, float)) and not isinstance(self.value, bool)
+        if self.operator in (Operator.EXACT_N, Operator.TOP_N, Operator.BOTTOM_N):
+            _require(isinstance(self.value, int) and not isinstance(self.value, bool)
+                     and self.value > 0,
+                     "condition %s: %s needs a positive integer count"
+                     % (self.cid, self.operator.value))
+            _require(self.unit is Unit.COUNT,
+                     "condition %s: %s needs unit=count"
+                     % (self.cid, self.operator.value))
         if self.measurability is Measurability.QUANTIFIED:
             _require(self.operator is not Operator.UNSPECIFIED,
                      "condition %s: quantified condition cannot use operator=unspecified — "
@@ -1920,7 +1933,20 @@ def _assert_no_verbatim_quote(texts: Sequence[Tuple[str, str]],
     """
     if isinstance(source_text, _Sentinel):
         return
+    # The n-gram detector intentionally needs eight CJK characters / English
+    # tokens to avoid flagging ordinary strategy vocabulary.  That leaves a
+    # separate dangerous case: a *short entire private request* copied into a
+    # YAML comment or description (for example, ``buy BTC now``).  Canonical
+    # whole-source containment has no statistical false-positive rationale, so
+    # reject it regardless of length.  Do not include either string in the
+    # error: it may be emitted to CI logs.
+    canonical_source = canonicalize_text(source_text)
     for label, text in texts:
+        if canonical_source and canonical_source in canonicalize_text(text):
+            raise PrivacyError(
+                "%s reproduces the entire user's source text; rewrite it as a "
+                "structured description instead of quoting the request"
+                % label)
         shared = verbatim_overlap(text, source_text, n)
         if shared:
             # The gram itself is user text: it must not go into the message, which

@@ -8,7 +8,8 @@ The gates, in order, with the status each one fails as::
     G1c  yaml_pipeline.intent.reconcile_intent           intent_mismatch
     G1d  yaml_pipeline.bundle_runner.run_bundle          run_error | bundle_insufficient
     G1e  one Python predicate per stated condition       condition_violated |
-                                                          condition_unresolved
+                                                          condition_unresolved |
+                                                          bundle_insufficient
 
 Strictly sequential, and which gate stopped it is recorded, because the retry
 cost is per GATE and not per error: ``validate_spec`` batches its static errors
@@ -41,10 +42,11 @@ Two traps this module refuses on purpose:
   vocabulary the capability table grants that condition; if it names none of it,
   the verdict is ``not_expressed``.
 
-``bundle_insufficient`` is its own status because it is not the model's fault: a
-required input source was unavailable, so the strategy never ran. It must be
-excluded from conversion accuracy and must never become a DPO negative — see
-:attr:`GateReport.counts_toward_accuracy`.
+``bundle_insufficient`` is its own status because it is not the model's fault:
+either a required input source was unavailable (G1d, so the strategy never ran),
+or an exact requested basket cannot be filled by the frozen snapshot (G1e). It
+must be excluded from conversion accuracy and must never become a DPO negative
+— see :attr:`GateReport.counts_toward_accuracy`.
 """
 
 from __future__ import annotations
@@ -98,7 +100,7 @@ STATUSES = (
     "dryrun_failed",       # G1b, one at a time
     "intent_mismatch",     # G1c
     "run_error",           # G1d, the model's fault
-    "bundle_insufficient",  # G1d, NOT the model's fault
+    "bundle_insufficient",  # G1d/G1e data-plane gap, NOT the model's fault
     "condition_violated",  # G1e
     STATUS_CONDITION_UNRESOLVED,  # G1e: omitted, unprovable, or silent proxy
     # G1e, and a separate stop from condition_violated on purpose: the spec may
@@ -201,6 +203,11 @@ class ConditionVerdict:
     #: reading leaves a spec that looks exactly like the one a reader would have
     #: written for the OTHER reading.
     undisclosed_assumption: bool = False
+    #: The predicate could not be satisfied because the frozen input does not
+    #: contain enough eligible evidence, not because the generated YAML made a
+    #: false claim.  This is deliberately typed so a future status change cannot
+    #: turn a data shortage into a DPO negative by accident.
+    data_limited: bool = False
     detail: str = ""
     #: candidate symbols that break the condition, for a violated verdict.
     offenders: Tuple[str, ...] = ()
@@ -211,6 +218,8 @@ class ConditionVerdict:
                              % (list(CONDITION_VERDICTS), self.verdict))
         if self.verdict == VIOLATED and not self.detail:
             raise ValueError("a violated condition must say how it was violated")
+        if self.data_limited and self.verdict != UNVERIFIABLE:
+            raise ValueError("a data-limited condition must be unverifiable")
 
     @property
     def subject(self) -> str:
@@ -257,12 +266,16 @@ class GateReport:
     def counts_toward_accuracy(self) -> bool:
         """False for ``bundle_insufficient``.
 
-        The strategy was never run, so the output says nothing about the
-        conversion. Counting it as a failure understates accuracy and — worse —
-        makes the spec a DPO negative, teaching the model to avoid a correct
-        answer because the data pipeline was down that day.
+        A G1d source outage means the strategy was never run; a G1e exact-count
+        shortage means it ran but the frozen snapshot cannot establish whether
+        a correct spec would find the requested number.  Neither says enough
+        about conversion quality to train against. Counting either as a failure
+        understates accuracy and — worse — makes the spec a DPO negative,
+        teaching the model to avoid a correct answer because the data plane was
+        down or too thin that day.
         """
-        return self.status != "bundle_insufficient"
+        return (self.status != "bundle_insufficient"
+                and not any(item.data_limited for item in self.condition_verdicts))
 
     @property
     def silently_proxied(self) -> Tuple[ConditionVerdict, ...]:
@@ -283,6 +296,7 @@ class GateReport:
             item.verdict == SATISFIED
             and not item.silently_proxied
             and not item.undisclosed_assumption
+            and not item.data_limited
             for item in self.condition_verdicts))
 
     def summary(self) -> str:
@@ -291,10 +305,11 @@ class GateReport:
                               "" if result.ok else " <- stopped here")
                  for result in self.results]
         for item in self.condition_verdicts:
-            lines.append("    %-32s %s%s%s" % (
+            lines.append("    %-32s %s%s%s%s" % (
                 item.condition.id or item.subject,
                 item.verdict,
                 " SILENTLY-PROXIED" if item.silently_proxied else "",
+                " DATA-LIMITED" if item.data_limited else "",
                 (" (%s)" % item.detail) if item.detail else ""))
         return "\n".join(lines)
 
@@ -444,6 +459,18 @@ def register_predicate(subject: str) -> Callable[[Predicate], Predicate]:
 
 def _unverifiable(detail: str) -> Tuple[str, str, Tuple[str, ...]]:
     return (UNVERIFIABLE, detail, ())
+
+
+def _positive_integer_count(value: Any) -> Optional[int]:
+    """Return a protocol count without ever truncating/coercing an input.
+
+    ``int(5.5)`` and ``int(True)`` both succeed in Python.  That is appropriate
+    for a display conversion, but not for a user-requested output cardinality:
+    accepting either changes the condition G1e is supposed to audit.
+    """
+    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+        return value
+    return None
 
 
 def _compare(value: float, cond: Condition) -> Optional[bool]:
@@ -632,16 +659,26 @@ def _quote_currency(candidates, cond):
 
 @register_predicate("basket_size")
 def _basket_size(candidates, cond):
-    """A ceiling, never a quota.
+    """Rule at-most and exact cardinality as different request semantics.
 
-    Evaluated on an empty basket too, unlike the universal predicates: "at most
-    5" really is satisfied by 0, and a filter nothing clears is a legitimate
-    outcome the spec's own comments call out.
+    ``top_k`` is a ceiling: evaluated on an empty basket too, because "at most
+    5" really is satisfied by 0 and a filter nothing clears is a legitimate
+    outcome the spec's own comments call out.  ``exact_top_k`` is a quota:
+    returning fewer candidates is *unverifiable*, rather than a model failure,
+    because the frozen cross-section may simply not contain enough rows that
+    satisfy the request.  G1e promotes that typed answer to
+    ``bundle_insufficient`` so it cannot become gold or a DPO negative.
     """
-    try:
-        limit = int(cond.value)
-    except (TypeError, ValueError):
-        return _unverifiable("condition value %r is not a count" % (cond.value,))
+    limit = _positive_integer_count(cond.value)
+    if limit is None:
+        return _unverifiable(
+            "condition value %r is not a positive integer count" % (cond.value,))
+    if cond.operator == "exact_top_k" and len(candidates) < limit:
+        return (UNVERIFIABLE,
+                "exactly %d candidates requested but the frozen bundle emitted only %d; "
+                "the snapshot has insufficient eligible coverage"
+                % (limit, len(candidates)),
+                ())
     if len(candidates) > limit:
         return (VIOLATED, "%d candidates returned for a requested %d"
                 % (len(candidates), limit),
@@ -655,8 +692,167 @@ def _basket_size(candidates, cond):
                 "assets — a slot is held twice by one bet"
                 % (len(candidates), limit, len(set(bases))),
                 tuple(sorted({base for base in bases if bases.count(base) > 1})))
+    if cond.operator == "exact_top_k":
+        return (SATISFIED, "exactly %d candidates, all distinct assets" % limit, ())
     return (SATISFIED, "%d candidates, limit %d, all distinct assets"
             % (len(candidates), limit), ())
+
+
+def _exact_basket_size_expression_error(spec: Mapping[str, Any],
+                                        cond: Condition) -> Optional[str]:
+    """Return a model-semantic error for an exact quota absent from YAML.
+
+    A smaller emitted basket is data-limited only when the YAML actually asked
+    the runner for the reviewed exact count.  Without this check, a converter
+    could write ``top_k: 3`` for "select 5" and disguise its own omission as a
+    thin frozen bundle.
+    """
+    if cond.subject != "basket_size" or cond.operator != "exact_top_k":
+        return None
+    requested = _positive_integer_count(cond.value)
+    if requested is None:
+        return ("exact basket-size condition value %r must be a positive integer "
+                "count" % (cond.value,))
+    selection = spec.get("selection")
+    if not isinstance(selection, Mapping) or "top_k" not in selection:
+        return "exact basket-size request needs selection.top_k: %d explicitly" % requested
+    actual = selection.get("top_k")
+    if isinstance(actual, bool) or not isinstance(actual, int) or actual != requested:
+        return ("selection.top_k=%r does not express the requested exact count %d"
+                % (actual, requested))
+    return None
+
+
+def _is_exact_basket_data_limited(candidates: Sequence[Mapping[str, Any]],
+                                  cond: Condition, verdict: str) -> bool:
+    """Whether this exact-count ``unverifiable`` is a thin-bundle outcome."""
+    if (cond.subject != "basket_size" or cond.operator != "exact_top_k"
+            or verdict != UNVERIFIABLE):
+        return False
+    requested = _positive_integer_count(cond.value)
+    return requested is not None and len(candidates) < requested
+
+
+def _unreviewed_exact_shortage_constraints(
+    spec: Mapping[str, Any], conditions: Sequence[Condition], *, opened: set[str],
+) -> Tuple[str, ...]:
+    """Name selection constraints that prevent a short basket being blamed on data.
+
+    A request for exactly five candidates may be data-limited, but only if the
+    generated spec did not quietly add a constraint that the reviewed condition
+    set never authorized.  In particular, an added ``filter_sentiment`` or
+    ``min_score`` can reduce an otherwise adequate frozen universe to three.
+    Calling that a bundle problem would erase a model error from accuracy/DPO
+    evidence.  This is deliberately conservative, but it is not merely
+    structural: a harmless, unused feature or a non-binding score floor does
+    not explain a short basket.  The caller replays a counterfactual without
+    these constraints on the same frozen bundle before calling it a model error.
+    """
+    selection = spec.get("selection")
+    if not isinstance(selection, Mapping):
+        return ("selection",)
+
+    allowed_blocks: set[str] = set()
+    for condition in conditions:
+        row = condition.capability
+        if row.verdict == EXPRESSIBLE:
+            allowed_blocks.update(str(item) for item in row.block_refs)
+        elif row.verdict == PROXY_ONLY and condition.id in opened:
+            allowed_blocks.update(str(item) for item in row.proxy_block_refs)
+        # Direction is expressed by selection branches in the DSL, but an
+        # explicitly short/long request may also use the matching documented
+        # universe ordering.
+        if condition.subject == "direction" and condition.operator == "require":
+            side = str(condition.value or "").lower()
+            if side == "short":
+                allowed_blocks.add("universe.top_losers")
+            elif side == "long":
+                allowed_blocks.add("universe.top_gainers")
+
+    extras: set[str] = set()
+    universe = selection.get("universe") or ()
+    if not isinstance(universe, (list, tuple)):
+        extras.add("selection.universe")
+    else:
+        for step in universe:
+            block = step.get("block") if isinstance(step, Mapping) else None
+            if not isinstance(block, str) or block not in allowed_blocks:
+                extras.add(block if isinstance(block, str) else "selection.universe")
+
+    # Bounds are actual row filters.  No condition row in the reviewed set means
+    # their numerical cutoff has not been independently audited, so it cannot be
+    # used to prove that the frozen data lacked candidates.
+    for key in ("min_score", "max_score"):
+        if selection.get(key) is not None:
+            extras.add("selection.%s" % key)
+    has_long = selection.get("long_when") is not None
+    has_short = selection.get("short_when") is not None
+    direction_requested = any(
+        condition.subject == "direction" and condition.operator == "require"
+        and str(condition.value or "").lower() in ("long", "short")
+        for condition in conditions
+    )
+    if has_long != has_short and not direction_requested:
+        # In this DSL a single direction branch is also a row filter.
+        extras.add("selection.one_sided_direction")
+    return tuple(sorted(extras))
+
+
+def _counterfactual_exact_shortage_constraints(
+    spec: Mapping[str, Any], bundle: Optional[Mapping[str, Any]],
+    constraints: Sequence[str], *, observed_count: int,
+) -> Tuple[str, ...]:
+    """Keep only unreviewed constraints that demonstrably narrow this bundle.
+
+    A structural difference in YAML is insufficient to relabel an exact-count
+    shortage as a converter failure.  Replay the *same frozen bundle* after
+    dropping every candidate-narrowing addition that the reviewed conditions do
+    not authorise.  If the basket grows, that addition was material.  If this
+    counterfactual cannot be run, retain the conservative failure rather than
+    inventing a data-limited receipt.
+    """
+    if not constraints:
+        return ()
+    if not isinstance(bundle, Mapping):
+        return tuple(constraints)
+
+    altered = copy.deepcopy(dict(spec))
+    selection = altered.get("selection")
+    if not isinstance(selection, dict):
+        return tuple(constraints)
+
+    # A single-sided selection condition cannot be safely removed without
+    # changing the strategy's output dialect.  It stays conservative unless the
+    # reviewed direction condition already authorised it above.
+    non_replayable = {item for item in constraints
+                      if item in ("selection", "selection.universe",
+                                  "selection.one_sided_direction")}
+    universe_constraints = {
+        item for item in constraints if item.startswith("universe.")
+    }
+    universe = selection.get("universe")
+    if universe_constraints and isinstance(universe, list):
+        selection["universe"] = [
+            step for step in universe
+            if not (isinstance(step, Mapping)
+                    and str(step.get("block") or "") in universe_constraints)
+        ]
+    elif universe_constraints:
+        return tuple(constraints)
+    for key in ("min_score", "max_score"):
+        if "selection.%s" % key in constraints:
+            selection.pop(key, None)
+
+    try:
+        from cyqnt_trd.standard_bot.yaml_pipeline.bundle_runner import run_bundle
+
+        counterfactual = run_bundle(copy.deepcopy(altered), copy.deepcopy(dict(bundle)))
+        counterfactual_count = len(selection_candidates(counterfactual))
+    except Exception:  # noqa: BLE001 - frozen bundle values must not leave G1e
+        return tuple(constraints)
+    if counterfactual_count > observed_count:
+        return tuple(constraints)
+    return tuple(sorted(non_replayable))
 
 
 @register_predicate("direction")
@@ -1053,6 +1249,7 @@ def evaluate_conditions(
     conditions: Sequence[Any],
     *,
     allow_proxy_for: Sequence[str] = (),
+    frozen_bundle: Optional[Mapping[str, Any]] = None,
 ) -> Tuple[ConditionVerdict, ...]:
     """Rule on every condition against the execution output. This is G1e."""
     opened = set(allow_proxy_for)
@@ -1060,9 +1257,16 @@ def evaluate_conditions(
     spec_tokens = _spec_tokens(spec)
     declared = _declared_assumption_cids(spec)
     verdicts: List[ConditionVerdict] = []
+    normalized_conditions = tuple(normalize_condition(raw) for raw in conditions)
+    structural_exact_shortage_constraints = _unreviewed_exact_shortage_constraints(
+        spec, normalized_conditions, opened=opened,
+    )
+    exact_shortage_constraints = _counterfactual_exact_shortage_constraints(
+        spec, frozen_bundle, structural_exact_shortage_constraints,
+        observed_count=len(candidates),
+    )
 
-    for raw in conditions:
-        cond = normalize_condition(raw)
+    for cond in normalized_conditions:
         # Only meaningful once the spec has EXPRESSED the condition: a reading
         # can only be silently chosen if a reading was chosen. A condition the
         # spec left out is already reported ``not_expressed``, which says the
@@ -1129,6 +1333,34 @@ def evaluate_conditions(
                        "entry/exit plan"))
             continue
 
+        # The capability table intentionally grants the same YAML surface for
+        # ``top_k`` and ``exact_top_k``.  Exactness adds one model obligation:
+        # the generated spec must request the reviewed number explicitly before
+        # a short emitted basket can be attributed to the frozen data.
+        expression_error = _exact_basket_size_expression_error(spec, cond)
+        if expression_error is not None:
+            verdicts.append(ConditionVerdict(
+                condition=cond, verdict=VIOLATED, detail=expression_error,
+                undisclosed_assumption=undisclosed))
+            continue
+
+        # Do this only for a short exact basket.  The count predicate below can
+        # otherwise identify a genuine frozen-data shortage, but an unreviewed
+        # narrowing constraint means the same short output is model-controlled
+        # evidence and must remain an accuracy-bearing semantic failure.
+        exact_requested = _positive_integer_count(cond.value)
+        if (cond.subject == "basket_size" and cond.operator == "exact_top_k"
+                and exact_requested is not None and len(candidates) < exact_requested
+                and exact_shortage_constraints):
+            verdicts.append(ConditionVerdict(
+                condition=cond,
+                verdict=VIOLATED,
+                detail=("short exact basket has unreviewed narrowing constraint(s): %s"
+                        % ", ".join(exact_shortage_constraints)),
+                undisclosed_assumption=undisclosed,
+            ))
+            continue
+
         predicate = PREDICATES.get(cond.subject)
         if predicate is None:
             verdicts.append(ConditionVerdict(
@@ -1144,6 +1376,7 @@ def evaluate_conditions(
         verdicts.append(ConditionVerdict(
             condition=cond, verdict=verdict, detail=detail, offenders=offenders,
             undisclosed_assumption=undisclosed,
+            data_limited=_is_exact_basket_data_limited(items, cond, verdict),
             silently_proxied=(row.verdict == PROXY_ONLY
                               and not _output_admits(batch, proxy_tokens))))
     return tuple(verdicts)
@@ -1251,7 +1484,9 @@ def _declared_assumption_cids(spec: Mapping[str, Any]) -> set:
 
 def _gate_e(batch: Mapping[str, Any], spec: Mapping[str, Any],
             conditions: Sequence[Any],
-            allow_proxy_for: Sequence[str]) -> Tuple[GateResult, Tuple[ConditionVerdict, ...]]:
+            allow_proxy_for: Sequence[str],
+            frozen_bundle: Optional[Mapping[str, Any]] = None,
+            ) -> Tuple[GateResult, Tuple[ConditionVerdict, ...]]:
     # An execution with no structured request conditions may still be useful for
     # a developer smoke test, but it cannot establish that the generated YAML
     # answered the request.  ``all([])`` would otherwise make both ``clean`` and
@@ -1268,12 +1503,14 @@ def _gate_e(batch: Mapping[str, Any], spec: Mapping[str, Any],
             detail="zero structured conditions: request semantics were not evaluated",
         ), ()
     verdicts = evaluate_conditions(batch, spec, conditions,
-                                   allow_proxy_for=allow_proxy_for)
+                                   allow_proxy_for=allow_proxy_for,
+                                   frozen_bundle=frozen_bundle)
     violated = [item for item in verdicts if item.verdict == VIOLATED]
     undisclosed = [item for item in verdicts if item.undisclosed_assumption]
     unresolved = [item for item in verdicts
                   if item.verdict in (NOT_EXPRESSED, UNVERIFIABLE)
                   or item.silently_proxied]
+    data_limited = [item for item in unresolved if item.data_limited]
     notes = ["%s: %s / %s" % (item.condition.id or item.subject, item.verdict,
                               item.detail)
              for item in verdicts if item.verdict != SATISFIED]
@@ -1299,6 +1536,22 @@ def _gate_e(batch: Mapping[str, Any], spec: Mapping[str, Any],
                                           item.subject, item.detail)
                          for item in violated),
             warnings=tuple(notes)), verdicts
+    # A short exact basket has all the output evidence the runner can offer: it
+    # proves the requested constraints leave fewer rows in this frozen snapshot.
+    # Do not label it a conversion error or use it as DPO feedback.  If any
+    # other condition is unresolved, preserve that more actionable semantic
+    # gap instead of hiding it behind the thin bundle.
+    if data_limited and len(data_limited) == len(unresolved):
+        return GateResult(
+            "G1e", "bundle_insufficient",
+            errors=tuple(
+                "%s (%s): %s. Recapture or widen the frozen input before "
+                "scoring this conversion; do not promote it to gold or DPO."
+                % (item.condition.id or item.subject, item.subject, item.detail)
+                for item in data_limited),
+            warnings=tuple(notes),
+            detail="%d exact-count condition(s) were limited by frozen-bundle coverage"
+                   % len(data_limited)), verdicts
     if unresolved:
         errors = []
         for item in unresolved:
@@ -1400,7 +1653,7 @@ def run_gates(
         return GateReport(tuple(results), spec=spec)
     assert batch is not None
 
-    result, verdicts = _gate_e(batch, spec, conditions, allow_proxy_for)
+    result, verdicts = _gate_e(batch, spec, conditions, allow_proxy_for, bundle)
     results.append(result)
     return GateReport(tuple(results), spec=spec, batch=batch,
                       condition_verdicts=verdicts)

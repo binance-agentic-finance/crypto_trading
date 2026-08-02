@@ -41,7 +41,7 @@ record is an error, not a warning.
 
 Usage::
 
-    CSV=docs/user_demand_analysis/2026-05_07_trading_intent
+    CSV="$NL2YAML_INTERNAL_ROOT/user_demand_analysis/2026-05_07_trading_intent"
     ./.venv-standard-bot/bin/python -m tools.nl2yaml.mine \
         --csv "$CSV/trading_intent_chats_2026-05_07_zh_en.csv" \
         --out tools/nl2yaml/dataset

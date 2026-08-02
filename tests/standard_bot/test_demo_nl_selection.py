@@ -1418,27 +1418,65 @@ def test_exact_requests_really_send_the_selection_prompt(
 ):
     captured = {}
 
-    class Response:
-        status_code = 200
+    class FakeClient:
+        def __init__(self, **kwargs):
+            captured["transport"] = kwargs
 
-        @staticmethod
-        def json():
-            return {
-                "choices": [{"message": {"content": demo_server.SELECTION_EXAMPLE_YAML}}]
-            }
-
-    def fake_post(url, headers, json, timeout):
-        captured.update(url=url, headers=headers, body=json, timeout=timeout)
-        return Response()
+        def complete(self, *, system_prompt, user_request):
+            captured.update(system_prompt=system_prompt, user_request=user_request)
+            return demo_server.SELECTION_EXAMPLE_YAML
 
     monkeypatch.setenv(demo_server.EXTERNAL_LLM_OPT_IN_ENV, "1")
-    monkeypatch.setattr(demo_server.requests, "post", fake_post)
-    demo_server.call_llm("http://llm/v1", "", "model", phrase)
+    monkeypatch.setenv(demo_server.DEMO_LLM_TRUSTED_HOSTS_ENV, "llm.example")
+    monkeypatch.setattr(demo_server, "OpenAICompatibleHTTPClient", FakeClient)
+    monkeypatch.setattr(
+        demo_server.requests,
+        "post",
+        lambda *_, **__: (_ for _ in ()).throw(
+            AssertionError("demo LLM must use the shared bounded HTTP client")
+        ),
+    )
+    demo_server.call_llm("https://llm.example/v1", "", "model", phrase)
 
-    system = captured["body"]["messages"][0]["content"]
+    system = captured["system_prompt"]
     assert "selection:" in system
     assert "universe.augment_with_news" in system
-    assert captured["body"]["messages"][1]["content"] == phrase
+    assert captured["user_request"] == phrase
+    assert captured["transport"] == {
+        "api_base": "https://llm.example/v1",
+        "api_key": "",
+        "model": "model",
+        "allow_external": True,
+        "trusted_hosts": ("llm.example",),
+        "allow_loopback_http_for_tests": False,
+        "timeout_seconds": 120,
+    }
+
+
+def test_demo_llm_keeps_the_explicit_loopback_test_seam(demo_server, monkeypatch):
+    """The only HTTP exception remains a server-owned 127.0.0.1 test seam."""
+    captured = {}
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def complete(self, *, system_prompt, user_request):
+            return demo_server.SELECTION_EXAMPLE_YAML
+
+    monkeypatch.setenv(demo_server.EXTERNAL_LLM_OPT_IN_ENV, "1")
+    monkeypatch.setenv(demo_server.DEMO_LLM_TRUSTED_HOSTS_ENV, "127.0.0.1")
+    monkeypatch.setenv(
+        demo_server.DEMO_LLM_ALLOW_LOOPBACK_HTTP_FOR_TESTS_ENV, "true",
+    )
+    monkeypatch.setattr(demo_server, "OpenAICompatibleHTTPClient", FakeClient)
+
+    demo_server.call_llm(
+        "http://127.0.0.1:9876/v1", "", "local-test-model", "挑新聞熱門幣",
+    )
+
+    assert captured["trusted_hosts"] == ("127.0.0.1",)
+    assert captured["allow_loopback_http_for_tests"] is True
 
 
 def test_external_llm_route_is_safe_default_deny(demo_server, monkeypatch):
@@ -1450,6 +1488,13 @@ def test_external_llm_route_is_safe_default_deny(demo_server, monkeypatch):
         "post",
         lambda *_, **__: (_ for _ in ()).throw(
             AssertionError("disabled route must not make an HTTP request")
+        ),
+    )
+    monkeypatch.setattr(
+        demo_server,
+        "OpenAICompatibleHTTPClient",
+        lambda **_: (_ for _ in ()).throw(
+            AssertionError("disabled route must not even construct an HTTP client")
         ),
     )
 
@@ -2361,6 +2406,106 @@ def test_sentiment_ranking_cannot_be_replaced_with_mention_ranking(
     assert "selection.score 必須使用 news_bull_ratio" in prompt
 
 
+def test_explicit_sentiment_side_mapping_rejects_reversed_news_conditions(
+    demo_server, monkeypatch,
+):
+    """A structurally valid selector must not invert sentiment-side meaning."""
+
+    request = (
+        "Select 5 coins: go long on positive social sentiment and short on "
+        "negative social sentiment"
+    )
+    intent = demo_server.classify_request(request)
+    assert intent.kind == "selection"
+    assert intent.sentiment_side_mapping == (
+        ("positive", "long"), ("negative", "short"),
+    )
+
+    correct = yaml.safe_load(demo_server.SELECTION_EXAMPLE_YAML)
+    correct["selection"]["score"] = "news_bull_ratio"
+    correct["selection"]["long_when"] = {
+        "cond": "conditions.value_above", "args": ["news_bull_ratio", 0.55],
+    }
+    correct["selection"]["short_when"] = {
+        "cond": "conditions.value_below", "args": ["news_bull_ratio", 0.45],
+    }
+    monkeypatch.setattr(
+        demo_server, "call_llm", lambda *_, **__: yaml.safe_dump(correct, sort_keys=False),
+    )
+    accepted = demo_server.convert_nl("http://llm/v1", "", "model", request)
+    assert accepted["valid"] is True, accepted
+
+    reversed_sides = copy.deepcopy(correct)
+    reversed_sides["selection"]["long_when"] = {
+        "cond": "conditions.value_below", "args": ["news_bull_ratio", 0.45],
+    }
+    reversed_sides["selection"]["short_when"] = {
+        "cond": "conditions.value_above", "args": ["news_bull_ratio", 0.55],
+    }
+    monkeypatch.setattr(
+        demo_server,
+        "call_llm",
+        lambda *_, **__: yaml.safe_dump(reversed_sides, sort_keys=False),
+    )
+    rejected = demo_server.convert_nl("http://llm/v1", "", "model", request)
+    assert rejected["valid"] is False
+    assert any("反向或可繞過" in str(error) for error in rejected["errors"])
+
+    # Merely mentioning both sides does not manufacture a polarity mapping.
+    unbound = demo_server.classify_request(
+        "Select 5 coins by social sentiment with long and short candidates"
+    )
+    assert unbound.sentiment_side_mapping == ()
+
+
+def test_explicit_contrarian_sentiment_mapping_preserves_each_requested_side(
+    demo_server, monkeypatch,
+):
+    """Do not silently normalise an explicit contrarian selector."""
+
+    request = (
+        "Select 5 coins: go short on positive social sentiment and long on "
+        "negative social sentiment"
+    )
+    intent = demo_server.classify_request(request)
+    assert intent.kind == "selection"
+    assert intent.sentiment_side_mapping == (
+        ("positive", "short"), ("negative", "long"),
+    )
+
+    contrarian = yaml.safe_load(demo_server.SELECTION_EXAMPLE_YAML)
+    contrarian["selection"]["score"] = "news_bull_ratio"
+    contrarian["selection"]["long_when"] = {
+        "cond": "conditions.value_below", "args": ["news_bull_ratio", 0.45],
+    }
+    contrarian["selection"]["short_when"] = {
+        "cond": "conditions.value_above", "args": ["news_bull_ratio", 0.55],
+    }
+    monkeypatch.setattr(
+        demo_server,
+        "call_llm",
+        lambda *_, **__: yaml.safe_dump(contrarian, sort_keys=False),
+    )
+    accepted = demo_server.convert_nl("http://llm/v1", "", "model", request)
+    assert accepted["valid"] is True, accepted
+
+    conventional = copy.deepcopy(contrarian)
+    conventional["selection"]["long_when"] = {
+        "cond": "conditions.value_above", "args": ["news_bull_ratio", 0.55],
+    }
+    conventional["selection"]["short_when"] = {
+        "cond": "conditions.value_below", "args": ["news_bull_ratio", 0.45],
+    }
+    monkeypatch.setattr(
+        demo_server,
+        "call_llm",
+        lambda *_, **__: yaml.safe_dump(conventional, sort_keys=False),
+    )
+    rejected = demo_server.convert_nl("http://llm/v1", "", "model", request)
+    assert rejected["valid"] is False
+    assert any("反向或可繞過" in str(error) for error in rejected["errors"])
+
+
 def test_bullish_preference_requires_a_supported_proxy(demo_server, monkeypatch):
     monkeypatch.setattr(
         demo_server, "call_llm", lambda *_, **__: demo_server.SELECTION_EXAMPLE_YAML
@@ -2575,12 +2720,19 @@ def test_convert_http_route_delegates_to_the_validating_converter(
         return expected
 
     monkeypatch.setattr(demo_server, "convert_nl", fake_convert)
+    monkeypatch.setenv(demo_server.DEMO_LLM_API_BASE_ENV, "https://server-owned/v1")
+    monkeypatch.setenv(demo_server.DEMO_LLM_API_KEY_ENV, "server-owned-key")
+    monkeypatch.setenv(demo_server.DEMO_LLM_MODEL_ENV, "server-owned-model")
+    monkeypatch.setenv(demo_server.DEMO_LLM_TRUSTED_HOSTS_ENV, "server-owned")
     handler = object.__new__(demo_server.Handler)
     handler.path = "/api/convert"
     handler._read_json = lambda: {
-        "api_base": "http://llm/v1",
-        "api_key": "key",
-        "model": "model",
+        # These browser values are deliberately hostile.  The handler must not
+        # turn the demo into an endpoint/key forwarding proxy.
+        "api_base": "http://169.254.169.254/latest/meta-data",
+        "api_key": "browser-controlled-key",
+        "model": "browser-controlled-model",
+        "trusted_hosts": "browser-controlled",
         "nl": "挑新聞熱門幣",
     }
     sent = {}
@@ -2591,9 +2743,85 @@ def test_convert_http_route_delegates_to_the_validating_converter(
     handler.do_POST()
 
     assert seen["args"] == (
-        "http://llm/v1", "key", "model", "挑新聞熱門幣"
+        "https://server-owned/v1", "server-owned-key", "server-owned-model",
+        "挑新聞熱門幣",
     )
-    assert sent == {"code": 200, "payload": expected, "ctype": "application/json"}
+    assert sent["code"] == 200
+    assert sent["ctype"] == "application/json"
+    assert sent["payload"]["yaml"] == "selection: {}"
+    assert sent["payload"]["runtime_verified"] is False
+    assert sent["payload"]["semantic_verified"] is False
+    assert sent["payload"]["promotion_eligible"] is False
+    assert sent["payload"]["verification_state"] == "draft_static_rejected"
+
+
+def test_convert_http_route_requires_server_owned_llm_settings(
+    demo_server, monkeypatch,
+):
+    monkeypatch.delenv(demo_server.DEMO_LLM_API_BASE_ENV, raising=False)
+    monkeypatch.delenv(demo_server.DEMO_LLM_API_KEY_ENV, raising=False)
+    monkeypatch.delenv(demo_server.DEMO_LLM_MODEL_ENV, raising=False)
+    monkeypatch.delenv(demo_server.DEMO_LLM_TRUSTED_HOSTS_ENV, raising=False)
+    monkeypatch.setattr(
+        demo_server,
+        "convert_nl",
+        lambda *_, **__: (_ for _ in ()).throw(
+            AssertionError("must not use browser fallback configuration")
+        ),
+    )
+    handler = object.__new__(demo_server.Handler)
+    handler.path = "/api/convert"
+    handler._read_json = lambda: {
+        "api_base": "http://browser-controlled/v1",
+        "api_key": "browser-controlled-key",
+        "model": "browser-controlled-model",
+        "nl": "挑新聞熱門幣",
+    }
+    sent = {}
+    handler._send = lambda code, payload, ctype="application/json": sent.update(
+        code=code, payload=payload, ctype=ctype
+    )
+
+    handler.do_POST()
+
+    assert sent == {
+        "code": 503,
+        "payload": {"ok": False, "error": "demo_llm_not_configured"},
+        "ctype": "application/json",
+    }
+
+
+def test_convert_http_route_requires_server_owned_trusted_hosts(
+    demo_server, monkeypatch,
+):
+    monkeypatch.setenv(demo_server.DEMO_LLM_API_BASE_ENV, "https://server-owned/v1")
+    monkeypatch.setenv(demo_server.DEMO_LLM_MODEL_ENV, "server-owned-model")
+    monkeypatch.delenv(demo_server.DEMO_LLM_TRUSTED_HOSTS_ENV, raising=False)
+    monkeypatch.setattr(
+        demo_server,
+        "convert_nl",
+        lambda *_, **__: (_ for _ in ()).throw(
+            AssertionError("missing trusted hosts must stop before conversion")
+        ),
+    )
+    handler = object.__new__(demo_server.Handler)
+    handler.path = "/api/convert"
+    handler._read_json = lambda: {
+        "trusted_hosts": "browser-controlled",
+        "nl": "挑新聞熱門幣",
+    }
+    sent = {}
+    handler._send = lambda code, payload, ctype="application/json": sent.update(
+        code=code, payload=payload, ctype=ctype
+    )
+
+    handler.do_POST()
+
+    assert sent == {
+        "code": 503,
+        "payload": {"ok": False, "error": "demo_llm_not_configured"},
+        "ctype": "application/json",
+    }
 
 
 def test_mocked_llm_and_square_bundle_reach_v2_selection(
@@ -2677,7 +2905,7 @@ def test_news_mentions_counterfactually_control_candidate_order(demo_server):
     assert all(item["direction"] == "neutral" for item in before + after)
 
 
-def test_browser_routes_only_valid_selection_and_never_persists_the_api_key():
+def test_browser_conversion_is_server_owned_draft_only_and_never_persists_keys():
     """Pin the last browser-side hop that Python E2E tests cannot observe."""
     html = INDEX_PATH.read_text(encoding="utf-8")
     convert_js = html.split("async function convert(){", 1)[1].split(
@@ -2690,27 +2918,27 @@ def test_browser_routes_only_valid_selection_and_never_persists_the_api_key():
     assert convert_js.index('d.strategy_kind === "ambiguous"') < convert_js.index(
         '(isSelection ? $("selYaml") : $("yaml")).value = d.yaml'
     )
-    assert convert_js.count("await selection()") == 1
-    selection_call = convert_js.index("const selectionSucceeded = await selection();")
-    assert "if(selectionSucceeded)" in convert_js
-    assert "選幣執行失敗" in convert_js
-    assert "YAML 靜態驗證雖已通過，但目前資料快照執行失敗" in convert_js
-    assert selection_call < convert_js.index("if(selectionSucceeded)")
-    # Regression for the old unconditional success message after the await:
-    # a static YAML pass is not a live/captured-data execution receipt.
-    post_selection = convert_js[selection_call:]
-    assert 'await selection();\n        setFlow($("convMsg"),warning||"選幣 YAML 已產生；' not in post_selection
+    assert "await selection()" not in convert_js
+    assert "selectionSucceeded" not in convert_js
+    assert "YAML 草稿" in convert_js
+    assert "尚未在 frozen/live bundle 執行" in convert_js
+    assert "semantic 驗證或 promotion" in convert_js
+    assert 'body:JSON.stringify({nl})' in convert_js
+    assert "api_base" not in convert_js
+    assert "api_key" not in convert_js
+    assert 'id="apiBase"' not in html
+    assert 'id="apiKey"' not in html
+    assert '$("apiBase")' not in html
+    assert '$("apiKey")' not in html
     valid_branch = convert_js.index("if(d.valid){")
     invalid_yaml_badge = convert_js.index(
         'setBadge($("convBadge"),false', valid_branch
     )
-    assert (
-        valid_branch
-        < selection_call
-        < invalid_yaml_badge
-    ), "selection execution must remain inside the valid-YAML branch"
+    assert valid_branch < invalid_yaml_badge
 
-    persistence_js = html.split("// --- persist", 1)[1].split("// --- schema ---", 1)[0]
-    assert 'localStorage.removeItem("demo_apiKey")' in persistence_js
+    persistence_js = html.split("// --- erase legacy", 1)[1].split("// --- schema ---", 1)[0]
+    assert '"demo_apiKey"' in persistence_js
+    assert '"demo_apiBase"' in persistence_js
+    assert '"demo_model"' in persistence_js
     assert 'localStorage.setItem("demo_apiKey"' not in html
     assert 'localStorage.getItem("demo_apiKey"' not in html

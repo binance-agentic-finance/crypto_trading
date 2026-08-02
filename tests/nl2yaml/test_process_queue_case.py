@@ -16,7 +16,9 @@ from pathlib import Path
 import pytest
 
 from tools.nl2yaml import process_queue_case as worker
+from tools.nl2yaml import evaluate
 from tools.nl2yaml import schema as S
+from tools.nl2yaml import sol_review
 
 
 REPO = Path(__file__).resolve().parents[2]
@@ -36,7 +38,7 @@ GATE_CONDITIONS = [
     {"id": "buzz", "subject": "social_mentions", "scope": "cross_section",
      "operator": "rank", "value": None},
     {"id": "five", "subject": "basket_size", "scope": "cross_section",
-     "operator": "top_k", "value": 5, "quantified": True},
+     "operator": "exact_top_k", "value": 5, "quantified": True},
     {"id": "order", "subject": "score_order", "scope": "cross_section",
      "operator": "rank", "value": "desc", "quantified": True},
 ]
@@ -48,7 +50,7 @@ CASE_CONDITIONS = [
      "operator": "exists", "scope": "universe", "is_ranking": True,
      "rank_direction": "desc"},
     {"cid": "five", "polarity": "include", "subject": "basket_size",
-     "operator": "top_n", "value": 5, "unit": "count", "scope": "universe"},
+     "operator": "exact_n", "value": 5, "unit": "count", "scope": "universe"},
     {"cid": "order", "polarity": "include", "subject": "score_order",
      "operator": "exists", "scope": "universe", "is_ranking": True,
      "rank_direction": "desc"},
@@ -61,8 +63,9 @@ def _private_file(path: Path, content: str) -> None:
     os.chmod(path, 0o600)
 
 
-def _review(yaml_text: str, *, request: str = RAW_REQUEST) -> dict:
-    return {
+def _review(yaml_text: str, *, request: str = RAW_REQUEST,
+            promote_to_gold: bool = False) -> dict:
+    review = {
         "schema": worker.REVIEW_SCHEMA,
         "queue_row_id": ROW_ID,
         "user_text_sha256": S.sha256_hex(request),
@@ -71,6 +74,7 @@ def _review(yaml_text: str, *, request: str = RAW_REQUEST) -> dict:
             json.loads(FIXTURE.read_text(encoding="utf-8"))
         ),
         "prompt_sha256": S.sha256_hex("synthetic frozen prompt for queue bridge"),
+        "sol_review_prompt_sha256": S.sha256_hex("synthetic frozen Sol review prompt"),
         "gate_conditions": copy.deepcopy(GATE_CONDITIONS),
         "case_conditions": copy.deepcopy(CASE_CONDITIONS),
         "capability_map": [
@@ -94,12 +98,56 @@ def _review(yaml_text: str, *, request: str = RAW_REQUEST) -> dict:
             {"cid": "five", "quote": "Select 5"},
             {"cid": "order", "quote": "descending"},
         ],
-        "promote_to_gold": True,
-        "human_reviewed_by": "reviewer_alpha",
-        "human_reviewed_at": "2026-08-02T12:00:00Z",
-        "model_reviewed_by": "gpt-5.6-sol",
-        "model_reviewed_at": "2026-08-02T11:00:00Z",
+        "promote_to_gold": promote_to_gold,
     }
+    if promote_to_gold:
+        review.update({
+            "human_reviewed_by": "reviewer_alpha",
+            "human_reviewed_at": "2026-08-02T12:00:00Z",
+        })
+    return review
+
+
+def _write_approved_sol_review(inputs: dict, *, review: dict | None = None,
+                               yaml_text: str | None = None) -> None:
+    """Issue synthetic local audit evidence after replaying the fixture."""
+    if review is None:
+        review = json.loads(inputs["review"].read_text(encoding="utf-8"))
+    if yaml_text is None:
+        yaml_text = inputs["yaml"].read_text(encoding="utf-8")
+    row = worker._queue_row(inputs["queue"], ROW_ID)
+    request = worker._request_from_row(row)
+    case_id = S.case_id_for(S.sha256_hex(request))
+    bundle = json.loads(inputs["bundle"].read_text(encoding="utf-8"))
+    prepared = evaluate.prepare_ledger_evaluation(
+        case_id=case_id,
+        attempt_index=1,
+        prompt_sha256=review["prompt_sha256"],
+        source_text=request,
+        nl=request,
+        yaml_answer=yaml_text,
+        conditions=review["gate_conditions"],
+        bundle=bundle,
+        repo_git_sha="a" * 40,
+        sampling_purpose=S.SamplingPurpose.CONVERT,
+    )
+    artifacts = worker._sol_artifact_hashes(
+        review=review,
+        evaluation=prepared,
+        verified_repo_git_sha="a" * 40,
+    )
+    receipt = sol_review.issue_receipt(
+        artifact_hashes=artifacts,
+        cid_verdicts=[
+            sol_review.CidVerdict(cid=cid, verdict="satisfied")
+            for cid in sorted(condition["cid"] for condition in review["case_conditions"])
+        ],
+        decision=sol_review.APPROVED,
+        provider_id="synthetic-test-provider",
+        response_sha256=S.sha256_hex("synthetic Sol review response"),
+        issued_at="2026-08-02T11:00:00Z",
+    )
+    sol_review.write_receipt(inputs["sol_review"], receipt)
 
 
 @pytest.fixture
@@ -111,6 +159,9 @@ def queue_inputs(tmp_path, monkeypatch):
     salt = private / "salt"
     salt.write_bytes(b"synthetic queue bridge salt bytes")
     os.chmod(salt, 0o600)
+    sol_key = private / sol_review.HMAC_KEY_FILENAME
+    sol_key.write_bytes(b"synthetic queue bridge Sol review HMAC key material")
+    os.chmod(sol_key, 0o600)
 
     queue = private / "strategy_test_queue.csv"
     fields = ["queue_rank", "cluster_id", "row_id", "dup_count", "month", "lang",
@@ -136,14 +187,17 @@ def queue_inputs(tmp_path, monkeypatch):
     review_path = private / "review.json"
     _private_file(yaml_path, yaml_text)
     _private_file(review_path, json.dumps(_review(yaml_text), ensure_ascii=False))
-    return {
+    inputs = {
         "private": private,
         "queue": queue,
         "review": review_path,
         "yaml": yaml_path,
         "bundle": FIXTURE,
         "public": tmp_path / "public-ledger",
+        "sol_review": private / "sol_review.json",
     }
+    _write_approved_sol_review(inputs)
+    return inputs
 
 
 def _process(inputs: dict, **overrides):
@@ -155,6 +209,7 @@ def _process(inputs: dict, **overrides):
         "bundle_path": inputs["bundle"],
         "repo_git_sha": "a" * 40,
         "public_root": inputs["public"],
+        "sol_review_path": inputs["sol_review"],
     }
     kwargs.update(overrides)
     return worker.process_queue_case(**kwargs)
@@ -181,10 +236,10 @@ def _rewrite_queue_request(inputs: dict, request: str, *, user_id: str | None = 
     os.chmod(inputs["queue"], 0o600)
 
 
-def test_queue_case_writes_private_pair_and_strict_human_gold(queue_inputs):
+def test_queue_case_writes_private_pair_without_claiming_gold(queue_inputs):
     result = _process(queue_inputs)
 
-    assert result.gold_promoted is True
+    assert result.gold_promoted is False
     assert result.run_written is True
     cases_path = queue_inputs["public"] / "cases.jsonl"
     attempts_path = queue_inputs["public"] / "attempts.jsonl"
@@ -196,22 +251,60 @@ def test_queue_case_writes_private_pair_and_strict_human_gold(queue_inputs):
     run = list(S.read_runs(runs_path))[0]
 
     assert case.case_id == result.case_id == attempt.case_id == run.case_id
-    assert case.gold_eligible_for_sft is True
-    assert case.human_reviewed_by == worker._public_metadata_label("reviewer", "reviewer_alpha")
+    assert case.gold_eligible_for_sft is False
+    assert case.human_reviewed_by is None
     assert attempt.stopped_at_gate is S.Gate.PASSED
     assert run.signal_count == 1
     assert S.audit_public_private_case_links(cases_path, [internal_path])[case.case_id] == RAW_REQUEST
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-    assert receipt["model_reviewed_by"] == "gpt-5.6-sol"
+    # A local receipt may exist for private replay integrity, but a non-gold
+    # row must not present it as proof of an external Sol review.
+    assert receipt["sol_reviewer_model"] is None
+    assert receipt["sol_reasoning_effort"] is None
+    assert receipt["sol_review_receipt_sha256"] is None
     assert receipt_path.stat().st_mode & 0o777 == 0o600
 
     public_rendered = "\n".join(path.read_text(encoding="utf-8")
                                   for path in (cases_path, attempts_path, runs_path))
     assert RAW_REQUEST not in public_rendered
     assert "synthetic-private-marker-queue-cedar" not in public_rendered
-    assert '"model_reviewed_by"' not in cases_path.read_text(encoding="utf-8"), (
-        "model review is private; converter metadata is separate from review identity"
+    assert '"sol_reviewer_model"' not in cases_path.read_text(encoding="utf-8"), (
+        "Sol review is private; converter metadata is separate from review identity"
     )
+
+
+def test_gold_promotion_requires_a_content_bound_sol_receipt(queue_inputs):
+    review = _review(SPEC.read_text(encoding="utf-8"), promote_to_gold=True)
+    _write_review(queue_inputs, review)
+    queue_inputs["sol_review"].unlink()
+
+    with pytest.raises(ValueError, match="Sol review receipt is missing"):
+        _process(queue_inputs)
+    assert not (queue_inputs["public"] / "cases.jsonl").exists()
+    assert not (queue_inputs["private"] / worker.DEFAULT_INTERNAL_CASES).exists()
+
+
+def test_local_hmac_audit_receipt_can_never_promote_strict_gold(queue_inputs):
+    review = _review(SPEC.read_text(encoding="utf-8"), promote_to_gold=True)
+    _write_review(queue_inputs, review)
+    _write_approved_sol_review(queue_inputs, review=review)
+
+    with pytest.raises(ValueError, match="local HMAC review receipt is private integrity evidence"):
+        _process(queue_inputs)
+    assert not (queue_inputs["public"] / "cases.jsonl").exists()
+    assert not (queue_inputs["private"] / worker.DEFAULT_INTERNAL_CASES).exists()
+
+
+def test_free_model_review_metadata_cannot_substitute_for_sol_receipt(queue_inputs):
+    queue_inputs["sol_review"].unlink()
+    review = _review(SPEC.read_text(encoding="utf-8"), promote_to_gold=True)
+    review["model_reviewed_by"] = "gpt-5.6-sol"
+    review["model_reviewed_at"] = "2026-08-02T11:00:00Z"
+    _write_review(queue_inputs, review)
+
+    with pytest.raises(ValueError, match="unknown or missing field"):
+        _process(queue_inputs)
+    assert not (queue_inputs["public"] / "cases.jsonl").exists()
 
 
 def test_proxy_or_unsupported_review_refuses_before_any_public_write(queue_inputs):
@@ -227,6 +320,14 @@ def test_proxy_or_unsupported_review_refuses_before_any_public_write(queue_input
     assert not (queue_inputs["public"] / "cases.jsonl").exists()
     assert not (queue_inputs["private"] / worker.DEFAULT_INTERNAL_CASES).exists()
 
+    outcome_path = queue_inputs["private"] / worker.DEFAULT_PRIVATE_OUTCOMES
+    outcome = json.loads(outcome_path.read_text(encoding="utf-8"))
+    assert outcome["outcome"] == "unsupported"
+    assert outcome["queue_row_id"] == ROW_ID
+    assert RAW_REQUEST not in outcome_path.read_text(encoding="utf-8")
+    assert "synthetic-user-queue-alpha" not in outcome_path.read_text(encoding="utf-8")
+    assert outcome_path.stat().st_mode & 0o777 == 0o600
+
 
 def test_public_condition_must_losslessly_match_the_executed_gate(queue_inputs):
     review = _review(SPEC.read_text(encoding="utf-8"))
@@ -239,6 +340,39 @@ def test_public_condition_must_losslessly_match_the_executed_gate(queue_inputs):
         _process(queue_inputs)
     assert not (queue_inputs["public"] / "cases.jsonl").exists()
     assert not (queue_inputs["private"] / worker.DEFAULT_PRIVATE_DIAGNOSTICS).exists()
+
+
+def test_exact_basket_count_rejects_at_most_source_wording(queue_inputs):
+    raw_request = RAW_REQUEST.replace("Select 5", "Select at most 5")
+    _rewrite_queue_request(queue_inputs, raw_request)
+    review = _review(SPEC.read_text(encoding="utf-8"), request=raw_request)
+    for quote in review["conditions_with_quotes"]:
+        if quote["cid"] == "five":
+            quote["quote"] = "Select at most 5"
+    _write_review(queue_inputs, review)
+
+    with pytest.raises(ValueError, match="exact basket count conflicts"):
+        _process(queue_inputs)
+    assert not (queue_inputs["public"] / "cases.jsonl").exists()
+
+
+def test_legacy_at_most_basket_count_needs_and_accepts_ceiling_wording(queue_inputs):
+    raw_request = RAW_REQUEST.replace("Select 5", "Select at most 5")
+    _rewrite_queue_request(queue_inputs, raw_request)
+    review = _review(SPEC.read_text(encoding="utf-8"), request=raw_request)
+    for condition in review["gate_conditions"]:
+        if condition["id"] == "five":
+            condition["operator"] = "top_k"
+    for condition in review["case_conditions"]:
+        if condition["cid"] == "five":
+            condition["operator"] = "top_n"
+    for quote in review["conditions_with_quotes"]:
+        if quote["cid"] == "five":
+            quote["quote"] = "Select at most 5"
+    _write_review(queue_inputs, review)
+
+    result = _process(queue_inputs)
+    assert result.gold_promoted is False
 
 
 def test_public_condition_unit_must_match_the_executed_predicate(queue_inputs):
@@ -355,7 +489,9 @@ def test_numeric_unit_must_be_adjacent_to_the_same_source_literal(queue_inputs):
 def test_nonclean_frozen_replay_cannot_promote_gold_or_write_pair(queue_inputs):
     raw_request = RAW_REQUEST.replace("100000000", "9000000000000000")
     _rewrite_queue_request(queue_inputs, raw_request)
-    review = _review(SPEC.read_text(encoding="utf-8"), request=raw_request)
+    review = _review(
+        SPEC.read_text(encoding="utf-8"), request=raw_request, promote_to_gold=True
+    )
     for condition in review["gate_conditions"]:
         if condition["id"] == "liq":
             condition["value"] = {"op": ">", "threshold": 9_000_000_000_000_000}
@@ -429,15 +565,25 @@ def test_nonpromoted_yaml_with_copied_request_is_rejected_before_case_pair(queue
     _private_file(queue_inputs["yaml"], yaml_text)
     review = _review(yaml_text)
     review["promote_to_gold"] = False
-    review.pop("human_reviewed_by")
-    review.pop("human_reviewed_at")
     _write_review(queue_inputs, review)
 
-    with pytest.raises(S.PrivacyError, match="reproduces user wording"):
+    with pytest.raises(S.PrivacyError, match=r"reproduces (entire )?user wording"):
         _process(queue_inputs)
     assert not (queue_inputs["public"] / "cases.jsonl").exists()
     assert not (queue_inputs["public"] / "attempts.jsonl").exists()
     assert not (queue_inputs["private"] / worker.DEFAULT_INTERNAL_CASES).exists()
+
+
+def test_public_preflight_rejects_an_entire_short_request_without_8gram_overlap():
+    """The broad worker boundary closes short copied values outside YAML writes."""
+    request = "Buy BTC now"  # invented fixture; never corpus text
+    public_value = {"metadata": "review note: BUY btc NOW"}
+    assert S.verbatim_overlap(public_value["metadata"], request, 8) == set()
+
+    with pytest.raises(S.PrivacyError, match="entire user wording"):
+        worker._assert_no_verbatim_public_strings(
+            public_value, request=request, user_id="synthetic-user-queue-alpha"
+        )
 
 
 def test_repeated_or_partial_queue_recovery_is_idempotent(queue_inputs):

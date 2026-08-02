@@ -36,8 +36,10 @@ from . import mine
 from . import schema
 
 REPO = Path(__file__).resolve().parents[2]
-DEFAULT_CSV = (REPO / "docs" / "user_demand_analysis" / "2026-05_07_trading_intent"
-               / "trading_intent_chats_2026-05_07_zh_en.csv")
+PRIVATE_SOURCE_RELATIVE = (
+    Path("user_demand_analysis") / "2026-05_07_trading_intent"
+    / "trading_intent_chats_2026-05_07_zh_en.csv"
+)
 DEFAULT_CANDIDATES = REPO / "tools" / "nl2yaml" / "dataset" / "candidates.jsonl"
 DEFAULT_OUT_NAME = "strategy_test_queue.csv"
 
@@ -96,6 +98,17 @@ def default_out_path() -> Path:
     overrides.
     """
     return schema.internal_root() / DEFAULT_OUT_NAME
+
+
+def default_csv_path() -> Path:
+    """Return the private raw corpus location, never a repo-local fallback.
+
+    The source has user IDs and verbatim requests.  ``.gitignore`` is not a
+    security boundary, so a convenience default must be beneath the same
+    private root as the queue it produces.  An operator may still pass
+    ``--csv`` for a separately protected export.
+    """
+    return schema.internal_root() / PRIVATE_SOURCE_RELATIVE
 
 
 def _is_beneath(path: Path, root: Path) -> bool:
@@ -300,7 +313,9 @@ def build(csv_path: Path, candidates_path: Path, out_path: Path,
 
 def main(argv: List[str] | None = None) -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--csv", default=str(DEFAULT_CSV))
+    ap.add_argument("--csv", type=Path,
+                    help=("private source CSV (default: "
+                          "$NL2YAML_INTERNAL_ROOT/%s)" % PRIVATE_SOURCE_RELATIVE))
     ap.add_argument("--candidates", default=str(DEFAULT_CANDIDATES))
     ap.add_argument("--out", type=Path,
                     help="private queue path beneath $NL2YAML_INTERNAL_ROOT "
@@ -311,7 +326,8 @@ def main(argv: List[str] | None = None) -> None:
     a = ap.parse_args(argv)
 
     out_path = a.out or default_out_path()
-    summary = build(Path(a.csv), Path(a.candidates), out_path,
+    csv_path = a.csv or default_csv_path()
+    summary = build(csv_path, Path(a.candidates), out_path,
                     a.shapes.split(","), a.tiers.split(","), a.keep_presets)
     width = max(len(name) for name, _ in summary["funnel"])
     for name, count in summary["funnel"]:

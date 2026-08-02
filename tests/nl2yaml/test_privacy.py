@@ -23,6 +23,7 @@ Five things are checked, in the order they would fail in practice:
 
 from __future__ import annotations
 
+import csv
 import json
 import os
 import re
@@ -376,6 +377,71 @@ def test_no_pii_in_publishable_dataset_files():
 
 
 # ---------------------------------------------------------------------------
+# 2b. a gitignored raw export is still a privacy incident
+# ---------------------------------------------------------------------------
+
+_RAW_CONVERSATION_COLUMNS = frozenset({
+    "user_id", "chat_id", "first_query", "user_text_excerpt",
+})
+
+
+def _repo_data_files_including_ignored():
+    """Yield CSV/JSONL files visible to git, including ignored local files.
+
+    This deliberately uses git rather than a repository-wide recursive walk:
+    it sees an ignored export before a PR does, while avoiding virtual
+    environments and the repository's own administrative directory.  We only
+    inspect headers/keys below; no conversation value is returned or printed.
+    """
+    seen = set()
+    commands = (
+        ["git", "ls-files"],
+        ["git", "ls-files", "--others", "--exclude-standard"],
+        ["git", "ls-files", "--others", "--ignored", "--exclude-standard"],
+    )
+    for argv in commands:
+        output = subprocess.run(
+            argv, cwd=REPO, capture_output=True, text=True, check=True,
+        ).stdout.splitlines()
+        for rel in output:
+            path = REPO / rel
+            if path.suffix.lower() in {".csv", ".jsonl"} and path.is_file():
+                seen.add(path)
+    return sorted(seen)
+
+
+def _has_raw_conversation_columns(path):
+    """Inspect only a CSV header or a JSONL object's keys."""
+    if path.suffix.lower() == ".csv":
+        with path.open(newline="", encoding="utf-8-sig") as handle:
+            header = next(csv.reader(handle), [])
+        return _RAW_CONVERSATION_COLUMNS <= set(header)
+
+    with path.open(encoding="utf-8") as handle:
+        for line in handle:
+            if line.strip():
+                payload = json.loads(line)
+                return (isinstance(payload, dict)
+                        and _RAW_CONVERSATION_COLUMNS <= set(payload))
+    return False
+
+
+def test_no_raw_conversation_export_exists_anywhere_under_repo():
+    """Raw chats belong below ``NL2YAML_INTERNAL_ROOT``, never under git.
+
+    ``.gitignore`` is deliberately included in the scan: ignoring a CSV does
+    not stop an editor, archive, accidental ``git add -f``, or a changed ignore
+    rule from exposing it.  The failure reports filenames only, not user text.
+    """
+    offenders = [str(path.relative_to(REPO)) for path in _repo_data_files_including_ignored()
+                if _has_raw_conversation_columns(path)]
+    assert offenders == [], (
+        "raw conversation exports must live below %s, not the repository: %s"
+        % (S.internal_root(), offenders)
+    )
+
+
+# ---------------------------------------------------------------------------
 # 3. the internal store is outside the repo, and its salt is locked down
 # ---------------------------------------------------------------------------
 
@@ -505,6 +571,23 @@ def test_write_attempt_also_checks_the_model_output(tmp_path, internal):
     with pytest.raises(S.PrivacyError, match="reproduces the user's wording"):
         S.write_attempt(tmp_path / "attempts.jsonl", attempt,
                         source_text=FAKE_USER_TEXT_ZH)
+
+
+def test_write_attempt_rejects_an_entire_short_source_even_without_8gram_overlap(
+        tmp_path, internal):
+    """A copied three-token request is private even though n-grams cannot see it."""
+    source_text = "Buy BTC now"  # invented fixture; never corpus text
+    yaml_text = SAFE_YAML + "\n# BUY btc NOW\n"
+    assert S.verbatim_overlap(yaml_text, source_text, 8) == set()
+
+    attempt = S.AttemptRecord(
+        case_id=S.new_case_id(), attempt_index=1,
+        sampling_purpose=S.SamplingPurpose.CONVERT,
+        prompt_sha256=S.sha256_hex("prompt"), yaml_text=yaml_text,
+        stopped_at_gate=S.Gate.PASSED)
+    with pytest.raises(S.PrivacyError, match="entire user's source text"):
+        S.write_attempt(tmp_path / "attempts.jsonl", attempt, source_text=source_text)
+    assert not (tmp_path / "attempts.jsonl").exists()
 
 
 def test_verbatim_check_cannot_be_skipped_by_omission(tmp_path, internal):

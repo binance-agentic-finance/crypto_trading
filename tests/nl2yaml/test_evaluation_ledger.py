@@ -31,7 +31,7 @@ NEWS_CONDITIONS = [
     {"id": "buzz", "subject": "social_mentions", "scope": "cross_section",
      "operator": "rank", "value": None},
     {"id": "five", "subject": "basket_size", "scope": "cross_section",
-     "operator": "top_k", "value": 5, "quantified": True},
+     "operator": "exact_top_k", "value": 5, "quantified": True},
     {"id": "order", "subject": "score_order", "scope": "cross_section",
      "operator": "rank", "value": "desc", "quantified": True},
 ]

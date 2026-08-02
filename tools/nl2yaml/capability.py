@@ -127,7 +127,12 @@ AMBIGUITY_TYPES = ("unit", "reading", "conflict", "undefined")
 OPERATORS = frozenset({
     "compare",     # numeric threshold: >, <, between
     "rank",        # order the universe by this column
-    "top_k",       # keep the first K
+    "top_k",       # at most K: keep up to the first K
+    # Exact output cardinality is deliberately distinct from ``top_k``.  The
+    # YAML surface can ask for the first K either way, but only an exact request
+    # turns a frozen snapshot with fewer eligible rows into a data-plane
+    # insufficiency instead of silently accepting the smaller basket.
+    "exact_top_k",
     "exclude",     # drop named members
     "require",     # keep only named members
     "equals",      # categorical == / tag membership
@@ -1037,10 +1042,15 @@ def lookup(subject: str, scope: str = "*", operator: str = "*") -> Capability:
     row). Returning ``expressible`` or ``not_expressible`` by default would be
     the guess this whole module exists to avoid.
     """
+    # ``selection.top_k`` is the implementation vocabulary for both cardinality
+    # readings.  Keep its existing table row as the capability grant and carry
+    # the stricter exactness in the condition/predicate layer, rather than
+    # duplicating a row whose blocks and required sources are identical.
+    capability_operator = "top_k" if operator == "exact_top_k" else operator
     for candidate in (
-        (subject, scope, operator),
+        (subject, scope, capability_operator),
         (subject, scope, "*"),
-        (subject, "*", operator),
+        (subject, "*", capability_operator),
         (subject, "*", "*"),
     ):
         row = _INDEX.get(candidate)
@@ -1103,10 +1113,38 @@ class Condition:
         if self.scope not in SCOPES:
             raise ValueError("scope must be one of %s, got %r"
                              % (sorted(SCOPES), self.scope))
+        # Cardinality is not a numeric threshold.  Coercing ``5.5`` to 5 (or
+        # ``True`` to 1) is an especially dangerous failure here: it lets a
+        # malformed structured request reach G1e as a different request.  Keep
+        # this check at the capability boundary as well as in the gate helpers,
+        # because queue/CLI callers can invoke ``plan_conversion`` before any
+        # public-record schema exists.
+        # ``measure.map_condition`` intentionally represents an unquantified
+        # ranking phrase (for example, "top coins" with no N) as
+        # ``value=None, quantified=False``.  It is not an executable count and
+        # must remain distinguishable from a malformed *used* count.  Every
+        # quantified/non-null cardinality is still fail-closed below.
+        # Only legacy ``top_k`` can stand for an unquantified ranking phrase.
+        # ``exact_top_k`` itself asserts that a particular cardinality was
+        # requested, so accepting ``None`` there would erase that meaning.
+        unquantified_count_placeholder = (
+            self.operator == "top_k" and self.value is None and not self.quantified
+        )
+        if (self.operator in ("top_k", "exact_top_k")
+                and not unquantified_count_placeholder
+                and not _is_positive_int(self.value)):
+            raise ValueError(
+                "%s condition needs a positive integer count; got %r"
+                % (self.operator, self.value))
 
     @property
     def capability(self) -> Capability:
         return lookup(self.subject, self.scope, self.operator)
+
+
+def _is_positive_int(value: Any) -> bool:
+    """True only for a protocol count, never a coercible numeric look-alike."""
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
 
 
 #: Keys that would carry user text into a public repo if a caller passed them.
