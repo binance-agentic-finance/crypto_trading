@@ -21,7 +21,8 @@ import pandas as pd
 import pytest
 
 from cyqnt_trd.standard_bot.data.input_bundle import (
-    FRAME_SHAPES, build_input_bundle, load_input_bundle, write_input_bundle)
+    FRAME_SHAPES, build_input_bundle, load_input_bundle, read_input_bundle,
+    write_input_bundle)
 from cyqnt_trd.standard_bot.data.internal_slots import INTERNAL_SLOTS
 from cyqnt_trd.standard_bot.core import Bar, MarketBundle
 
@@ -123,6 +124,61 @@ def test_rows_after_the_decision_time_are_dropped():
     bundle = _build(news_frame=future)
     ids = [row["event_id"] for row in bundle["frames"]["news"]["rows"]]
     assert ids == ["past"], "a row we could not yet have known must not be bundled"
+
+
+@pytest.mark.parametrize(
+    "bad_available_time, expected",
+    [
+        (None, "missing available_time"),
+        ("not-an-epoch-ms", "unparseable available_time"),
+    ],
+)
+def test_serialized_rows_require_a_parseable_available_time(
+    bad_available_time, expected
+):
+    """The replay ingress must not infer a clock for malformed JSON rows."""
+    bundle = _build(universe_frame=pd.DataFrame({
+        "instrument_id": ["BTCUSDT"], "available_time": [DT],
+        "quote_volume": [5e8],
+    }))
+    bundle["frames"]["universe"]["rows"][0]["available_time"] = bad_available_time
+
+    with pytest.raises(ValueError, match=expected):
+        load_input_bundle(bundle)
+
+
+def test_serialized_read_and_write_boundaries_refuse_a_future_row(tmp_path):
+    """Persisted artifacts fail closed both before write and immediately on read."""
+    bundle = _build(universe_frame=pd.DataFrame({
+        "instrument_id": ["BTCUSDT"], "available_time": [DT],
+        "quote_volume": [5e8],
+    }))
+    bundle["frames"]["universe"]["rows"][0]["available_time"] = DT + 1
+    path = tmp_path / "future-row.json"
+
+    with pytest.raises(ValueError, match=r"frame 'universe' row 0 .*decision_time"):
+        write_input_bundle(bundle, str(path))
+    assert not path.exists(), "invalid data must not be persisted"
+
+    # Simulate a hand-edited/corrupted artifact, which cannot go through the
+    # guarded writer. The reader must reject it before any consumer sees rows.
+    path.write_text(json.dumps(bundle), encoding="utf-8")
+    with pytest.raises(ValueError, match=r"frame 'universe' row 0 .*decision_time"):
+        read_input_bundle(str(path))
+
+
+def test_serialized_kline_preserves_a_zero_available_time():
+    """A valid epoch zero must not be silently replaced with its close time."""
+    bundle = _build(bars=_bars(1))
+    row = bundle["frames"]["klines"]["rows"][0]
+    row["available_time"] = 0
+    row["open_time"] = 0
+
+    snapshot = load_input_bundle(bundle)
+    bar = next(iter(snapshot.require_market().bars.values()))[0]
+
+    assert bar.extras["available_time"] == 0
+    assert bar.extras["open_time"] == 0
 
 
 def test_decision_time_defaults_to_the_last_confirmed_bar():

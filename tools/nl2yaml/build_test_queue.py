@@ -12,8 +12,9 @@
 
 隱私
 ----
-輸出**含使用者原文與 user_id**,所以只能寫進 ``docs/user_demand_analysis/``
-(已在 .gitignore,repo 的兩個 remote 都是公開的)。腳本會拒絕寫到別處。
+輸出**含使用者原文與 user_id**,所以只能寫進
+``schema.internal_root()``（repository 之外的 private directory）。gitignore
+不是安全邊界：任何 repository 路徑，即使目前被忽略，也會被拒絕。
 
 用法
 ----
@@ -25,23 +26,20 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import re
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
 from . import mine
+from . import schema
 
 REPO = Path(__file__).resolve().parents[2]
 DEFAULT_CSV = (REPO / "docs" / "user_demand_analysis" / "2026-05_07_trading_intent"
                / "trading_intent_chats_2026-05_07_zh_en.csv")
 DEFAULT_CANDIDATES = REPO / "tools" / "nl2yaml" / "dataset" / "candidates.jsonl"
-DEFAULT_OUT = (REPO / "docs" / "user_demand_analysis" / "2026-05_07_trading_intent"
-               / "strategy_test_queue.csv")
-
-#: The only directory allowed to hold user text. Enforced, not documented:
-#: writing this file one level up puts verbatim questions and user_ids into a
-#: public repo, and it is one mistyped path away at all times.
-INTERNAL_DIR = REPO / "docs" / "user_demand_analysis"
+DEFAULT_OUT_NAME = "strategy_test_queue.csv"
 
 #: Columns copied straight from the source CSV. ``first_query`` and
 #: ``user_text_excerpt`` are the two that carry the request itself.
@@ -87,6 +85,99 @@ _TEMPLATE_MIN_USERS = 10
 #: An emoji opener is already strong evidence, so it needs far less repetition —
 #: but not none, or a user who opens with 🚀 gets dropped for punctuation.
 _EMOJI_MIN_USERS = 2
+
+
+def default_out_path() -> Path:
+    """The private default, evaluated after environment configuration.
+
+    ``NL2YAML_INTERNAL_ROOT`` is intentionally read here rather than at module
+    import time.  That makes the command-line default follow the same privacy
+    boundary as the rest of the dataset tooling, including test or operator
+    overrides.
+    """
+    return schema.internal_root() / DEFAULT_OUT_NAME
+
+
+def _is_beneath(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+    except ValueError:
+        return False
+    return True
+
+
+def _private_output_path(out_path: Path) -> tuple[Path, Path]:
+    """Validate and prepare the actual private output location.
+
+    ``schema.internal_root`` checks the configured path textually.  Resolve it
+    here as well, before creating anything, so a symlinked parent cannot turn a
+    seemingly external override into a repository write.  The requested file
+    must be a descendant (not the root itself), and it may never resolve into
+    this repository.
+    """
+    configured_root = schema.internal_root()
+    private_root = configured_root.resolve()
+    repo_root = REPO.resolve()
+    target = Path(out_path).expanduser().resolve()
+
+    if _is_beneath(private_root, repo_root):
+        raise schema.PrivacyError(
+            "internal root %s resolves inside the repository (%s); refusing private queue write"
+            % (private_root, repo_root))
+    if target == private_root or not _is_beneath(target, private_root):
+        raise schema.PrivacyError(
+            "refusing to write %s: this queue carries verbatim user questions and "
+            "user_ids, so it must be beneath the internal root %s"
+            % (target, private_root))
+    if _is_beneath(target, repo_root):
+        raise schema.PrivacyError(
+            "refusing to write %s: no private queue may be written inside the repository %s"
+            % (target, repo_root))
+    if target.exists():
+        if not target.is_file():
+            raise schema.PrivacyError(
+                "refusing to write %s: private queue target must be a regular file" % target)
+        # Tighten an old queue before opening the source corpus.  Otherwise a
+        # prior 644 file remains readable for the whole filtering pass even
+        # though the replacement below is written safely.
+        os.chmod(target, 0o600)
+
+    private_root.mkdir(parents=True, exist_ok=True)
+    os.chmod(private_root, 0o700)
+
+    # A nested queue directory must not undo the root's protection.  Build it
+    # a component at a time after the resolved containment check above; this is
+    # also what makes a custom ``--out`` safe without requiring a special name.
+    current = private_root
+    for part in target.parent.relative_to(private_root).parts:
+        current /= part
+        current.mkdir(exist_ok=True)
+        os.chmod(current, 0o700)
+    return private_root, target
+
+
+def _write_private_csv(out_path: Path, records: Iterable[Dict[str, Any]]) -> None:
+    """Write a queue atomically with mode 600 from its first visible byte."""
+    # ``mkstemp`` creates the staging file as 600.  ``os.replace`` means an
+    # old output (already tightened before source input is read) is never
+    # truncated and refilled before it is replaced by the private file.
+    fd, tmp_name = tempfile.mkstemp(prefix=".%s." % out_path.name, suffix=".tmp",
+                                    dir=str(out_path.parent))
+    tmp_path = Path(tmp_name)
+    try:
+        os.chmod(tmp_path, 0o600)
+        with os.fdopen(fd, "w", newline="", encoding="utf-8-sig") as handle:
+            writer = csv.DictWriter(handle, fieldnames=list(OUT_COLUMNS))
+            writer.writeheader()
+            for record in records:
+                writer.writerow(record)
+        os.replace(tmp_path, out_path)
+        os.chmod(out_path, 0o600)
+    finally:
+        # On write/replace errors, do not leave a partially written private
+        # queue around for a later run to mistake for a complete one.
+        if tmp_path.exists():
+            tmp_path.unlink()
 
 
 def _normalise(text: str) -> str:
@@ -141,12 +232,7 @@ def build(csv_path: Path, candidates_path: Path, out_path: Path,
           shapes: Iterable[str], tiers: Iterable[str],
           keep_presets: bool = False) -> Dict[str, Any]:
     shapes, tiers = set(shapes), set(tiers)
-    out_path = out_path.resolve()
-    if INTERNAL_DIR.resolve() not in out_path.parents:
-        raise ValueError(
-            "refusing to write %s: this file carries verbatim user questions and "
-            "user_ids, so it may only land under %s, which is gitignored"
-            % (out_path, INTERNAL_DIR))
+    _, out_path = _private_output_path(out_path)
 
     source_rows = mine.read_rows(csv_path)
     # The source text, keyed the way mine.py keys it, so the join cannot drift.
@@ -205,29 +291,27 @@ def build(csv_path: Path, candidates_path: Path, out_path: Path,
     for rank, record in enumerate(records, start=1):
         record["queue_rank"] = rank
 
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    with out_path.open("w", newline="", encoding="utf-8-sig") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(OUT_COLUMNS))
-        writer.writeheader()
-        for record in records:
-            writer.writerow(record)
+    _write_private_csv(out_path, records)
 
     funnel.append(("written", len(records)))
     return {"funnel": funnel, "written": len(records), "unjoinable": missing,
             "out": str(out_path)}
 
 
-def main() -> None:
+def main(argv: List[str] | None = None) -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--csv", default=str(DEFAULT_CSV))
     ap.add_argument("--candidates", default=str(DEFAULT_CANDIDATES))
-    ap.add_argument("--out", default=str(DEFAULT_OUT))
+    ap.add_argument("--out", type=Path,
+                    help="private queue path beneath $NL2YAML_INTERNAL_ROOT "
+                         "(default: $NL2YAML_INTERNAL_ROOT/%s)" % DEFAULT_OUT_NAME)
     ap.add_argument("--shapes", default="selection,trade,both")
     ap.add_argument("--tiers", default="A,B")
     ap.add_argument("--keep-presets", action="store_true")
-    a = ap.parse_args()
+    a = ap.parse_args(argv)
 
-    summary = build(Path(a.csv), Path(a.candidates), Path(a.out),
+    out_path = a.out or default_out_path()
+    summary = build(Path(a.csv), Path(a.candidates), out_path,
                     a.shapes.split(","), a.tiers.split(","), a.keep_presets)
     width = max(len(name) for name, _ in summary["funnel"])
     for name, count in summary["funnel"]:

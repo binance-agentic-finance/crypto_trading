@@ -2125,7 +2125,7 @@ def _require_derived_column(tickers: pd.DataFrame, column: str, caller: str,
 def _bounded_filter(tickers: pd.DataFrame, column: str, *, caller: str,
                     step: str, bounds: Sequence[Tuple[str, Optional[float], str]],
                     remedy: str) -> pd.DataFrame:
-    """Apply ``>=`` / ``<=`` bounds to one numeric column, dropping unknowns.
+    """Apply inclusive/exclusive numeric bounds to one column, dropping unknowns.
 
     ``bounds`` is ``(keyword name, value, "min"|"max"|"absmin"|"absmax")``.
     """
@@ -2147,8 +2147,12 @@ def _bounded_filter(tickers: pd.DataFrame, column: str, *, caller: str,
         threshold = float(value)
         if kind == "min":
             matches &= values >= threshold
+        elif kind == "strict_min":
+            matches &= values > threshold
         elif kind == "max":
             matches &= values <= threshold
+        elif kind == "strict_max":
+            matches &= values < threshold
         elif kind == "absmin":
             matches &= values.abs() >= threshold
         elif kind == "absmax":
@@ -2244,12 +2248,15 @@ def filter_long_short_ratio(
     tickers: pd.DataFrame,
     min_long_account_pct: Optional[float] = None,
     max_long_account_pct: Optional[float] = None,
+    min_long_account_pct_exclusive: Optional[float] = None,
 ) -> pd.DataFrame:
     """Keep instruments by how long-leaning the crowd is, in percentage points.
 
     Needs :func:`augment_with_long_short_ratio`. ``min_long_account_pct=60``
-    is "more than 60 % of accounts holding this perpetual are long" — the
-    contrarian-short screen that a real selection request asks for.
+    means "at least 60 % of accounts holding this perpetual are long"; use
+    ``min_long_account_pct_exclusive=60`` for the strict ``> 60 %`` wording.
+    The two lower bounds are mutually exclusive so a generated YAML cannot
+    quietly choose between inclusive and strict semantics.
 
     The bounds are on ``long_account_pct`` and not on ``long_short_ratio``
     because the share has a fixed scale: 50 is balanced and the value cannot
@@ -2257,10 +2264,17 @@ def filter_long_short_ratio(
     (1.0) is a number a reader has to know. Both columns remain available for a
     spec that really wants the ratio.
     """
+    if min_long_account_pct is not None and min_long_account_pct_exclusive is not None:
+        raise ValueError(
+            "filter_long_short_ratio accepts either min_long_account_pct (>=) or "
+            "min_long_account_pct_exclusive (>) but not both"
+        )
     return _bounded_filter(
         tickers, "long_account_pct", caller="filter_long_short_ratio",
         step="augment_with_long_short_ratio",
         bounds=(("min_long_account_pct", min_long_account_pct, "min"),
+                ("min_long_account_pct_exclusive", min_long_account_pct_exclusive,
+                 "strict_min"),
                 ("max_long_account_pct", max_long_account_pct, "max")),
         remedy="universe.augment_with_long_short_ratio")
 
@@ -2990,10 +3004,15 @@ class UniverseFilter:
         self,
         min_long_account_pct: Optional[float] = None,
         max_long_account_pct: Optional[float] = None,
+        min_long_account_pct_exclusive: Optional[float] = None,
     ) -> "UniverseFilter":
         """Bound crowd skew — see :func:`filter_long_short_ratio`."""
-        self.df = filter_long_short_ratio(self.df, min_long_account_pct,
-                                          max_long_account_pct)
+        self.df = filter_long_short_ratio(
+            self.df,
+            min_long_account_pct=min_long_account_pct,
+            max_long_account_pct=max_long_account_pct,
+            min_long_account_pct_exclusive=min_long_account_pct_exclusive,
+        )
         return self
 
     def with_spread(

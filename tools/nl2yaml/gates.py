@@ -275,11 +275,13 @@ class GateReport:
         check here prevents a future status regression from making retry or gold
         selection accept a quietly proxied or unprovable answer.
         """
-        return self.ok and all(
+        return (self.ok
+                and bool(self.condition_verdicts)
+                and all(
             item.verdict == SATISFIED
             and not item.silently_proxied
             and not item.undisclosed_assumption
-            for item in self.condition_verdicts)
+            for item in self.condition_verdicts))
 
     def summary(self) -> str:
         lines = ["%s %s%s" % (result.gate,
@@ -1007,6 +1009,21 @@ def _declared_assumption_cids(spec: Mapping[str, Any]) -> set:
 def _gate_e(batch: Mapping[str, Any], spec: Mapping[str, Any],
             conditions: Sequence[Any],
             allow_proxy_for: Sequence[str]) -> Tuple[GateResult, Tuple[ConditionVerdict, ...]]:
+    # An execution with no structured request conditions may still be useful for
+    # a developer smoke test, but it cannot establish that the generated YAML
+    # answered the request.  ``all([])`` would otherwise make both ``clean`` and
+    # a level-5 promotion accidentally true.  Keep the earlier G1a--G1d results
+    # intact, then fail at the one gate whose evidence is absent.
+    if not conditions:
+        return GateResult(
+            "G1e", STATUS_CONDITION_UNRESOLVED,
+            errors=(
+                "no structured conditions were supplied; G1e cannot verify any "
+                "user criterion. Extract reviewed conditions and rerun against "
+                "the same frozen bundle before treating this as runtime-valid.",
+            ),
+            detail="zero structured conditions: request semantics were not evaluated",
+        ), ()
     verdicts = evaluate_conditions(batch, spec, conditions,
                                    allow_proxy_for=allow_proxy_for)
     violated = [item for item in verdicts if item.verdict == VIOLATED]

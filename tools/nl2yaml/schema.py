@@ -519,6 +519,13 @@ class ConditionCheckStatus(str, Enum):
     VIOLATED = "violated"
     #: expressible, but nothing in the pinned bundle can prove it either way
     UNVERIFIABLE = "unverifiable"
+    #: the generated spec omitted the condition altogether.  This is distinct
+    #: from ``UNVERIFIABLE``: the latter names an expressed criterion that the
+    #: frozen output cannot prove, while this one says the converter never
+    #: carried the request criterion into YAML.  Recording it as ``satisfied``
+    #: would turn the exact silent-drop failure G1e exists to catch into SFT
+    #: training data.
+    NOT_EXPRESSED = "not_expressed"
     #: the spec answered a correlated question instead
     PROXIED = "proxied"
 
@@ -562,6 +569,14 @@ class Gate(str, Enum):
     BUNDLE_INSUFFICIENT = "bundle_insufficient"
     EXECUTION_ERROR = "execution_error"
     INTENT_MISMATCH = "intent_mismatch"
+    #: G1e ran against a real batch and found an objectively false predicate.
+    #: Kept separate from ``INTENT_MISMATCH``: G1c reads the YAML, while this
+    #: status is evidence from its emitted output.
+    CONDITION_VIOLATED = "condition_violated"
+    #: G1e could not establish the request criterion (including an omitted
+    #: condition).  A run may still be linked to this failure because G1d did
+    #: execute a pinned bundle; it is never a passed attempt.
+    CONDITION_UNRESOLVED = "condition_unresolved"
     #: every predicate held, under a reading of the request the spec chose and
     #: never stated. A valid DPO negative: declaring the reading is squarely the
     #: model's job, and the fix is a section it can write.
@@ -1252,6 +1267,9 @@ class CaseRecord:
         for verdict in self.gold_condition_verdicts:
             _require(verdict.cid in set(cids),
                      "gold_condition_verdicts references unknown cid %r" % (verdict.cid,))
+        reviewed = [verdict.cid for verdict in self.gold_condition_verdicts]
+        _require(len(reviewed) == len(set(reviewed)),
+                 "duplicate cid in gold_condition_verdicts: %r" % (reviewed,))
 
         verdicts = {e.verdict for e in self.capability_map}
         if self.tier is None:
@@ -1305,7 +1323,7 @@ class CaseRecord:
         Then, exactly:
 
         ``gold_eligible_for_sft = level >= 5 and gold_unverifiable_cids == []
-        and not proxy_used``
+        and not proxy_used and a human reviewer signed the record``
         ``gold_eligible_loose  = level >= 4 and not proxy_used``
 
         🔴 ``proxy_used=True`` forces **both** to False at any level. This is not
@@ -1325,13 +1343,15 @@ class CaseRecord:
         _derive(self, "proxy_used", bool(self.proxy_cids))
         _derive(self, "gold_unverifiable_cids",
                 sorted(v.cid for v in self.gold_condition_verdicts
-                       if v.status is ConditionCheckStatus.UNVERIFIABLE))
+                       if v.status in (ConditionCheckStatus.UNVERIFIABLE,
+                                       ConditionCheckStatus.NOT_EXPRESSED)))
 
         level = int(self.gold_verification_level)
         _derive(self, "gold_eligible_for_sft",
                 level >= int(GoldVerificationLevel.ALL_CHECKABLE_CONDITIONS_SATISFIED)
                 and self.gold_unverifiable_cids == []
-                and not self.proxy_used)
+                and not self.proxy_used
+                and bool(self.human_reviewed_by and self.human_reviewed_at))
         _derive(self, "gold_eligible_loose",
                 level >= int(GoldVerificationLevel.EXECUTED_ON_PINNED_BUNDLE)
                 and not self.proxy_used)
@@ -1375,6 +1395,13 @@ class CaseRecord:
                      "human_reviewed_by and human_reviewed_at go together")
 
         if level >= int(GoldVerificationLevel.ALL_CHECKABLE_CONDITIONS_SATISFIED):
+            reviewed_cids = {v.cid for v in self.gold_condition_verdicts}
+            missing = sorted(set(c.cid for c in self.conditions) - reviewed_cids)
+            _require(not missing,
+                     "level 5 requires one verdict for every request condition; missing %s. "
+                     "A condition absent from the verdict list is indistinguishable from a "
+                     "criterion silently dropped by the converter."
+                     % missing)
             violated = [v.cid for v in self.gold_condition_verdicts
                         if v.status is ConditionCheckStatus.VIOLATED]
             _require(not violated,
@@ -1385,6 +1412,14 @@ class CaseRecord:
             _require(bool(self.gold_condition_verdicts) or not self.conditions,
                      "level 5 requires per-condition verdicts; with none recorded nothing "
                      "was actually checked")
+            omitted = [v.cid for v in self.gold_condition_verdicts
+                       if v.status is ConditionCheckStatus.NOT_EXPRESSED]
+            _require(not omitted,
+                     "level 5 cannot contain omitted request conditions: %s. An "
+                     "unverifiable observation may still be an honest boundary, but "
+                     "not_expressed means the converter silently left the criterion "
+                     "out of the YAML."
+                     % omitted)
 
         _require(self.gold_is_refusal == bool(self.refusal_gap_ids),
                  "gold_is_refusal and refusal_gap_ids must agree: a refusal has to name "
@@ -1607,7 +1642,9 @@ class RunRecord:
     ``candidates`` is embedded in full rather than referenced: it is small, and
     it is the object of every argument about whether a run answered the
     question. A pointer to a basket that has since been regenerated settles
-    nothing.
+    nothing.  A selection strategy normally emits *one* v2 signal containing
+    many candidates, so ``signal_count`` and the length of ``candidates`` must
+    never be equated.
     """
 
     run_id: str
@@ -1619,6 +1656,13 @@ class RunRecord:
     python_version: str
     pandas_version: str
     signal_count: int
+    #: The three fields form an all-or-none provenance link when a run is used
+    #: as evidence for a corpus attempt.  Standalone runtime smoke tests may
+    #: leave all three absent, but a promoted run must name the exact case and
+    #: YAML that produced its signal batch.
+    case_id: Optional[str] = None
+    attempt_index: Optional[int] = None
+    yaml_sha256: Optional[str] = None
     bundle_nodes: List[BundleNode] = field(default_factory=list)
     signal_batch_sha256: Optional[str] = None
     candidates: List[Candidate] = field(default_factory=list)
@@ -1630,6 +1674,22 @@ class RunRecord:
                            for c in self.candidates]
         _require(bool(SHA256_RE.match(self.bundle_sha256)),
                  "bundle_sha256 must be 64 lowercase hex chars")
+        if self.case_id is not None:
+            _require(bool(CASE_ID_RE.match(self.case_id)
+                          or ULID_RE.match(self.case_id)
+                          or UUID4_RE.match(self.case_id)),
+                     "case_id %r must be case_<16 hex>, a ULID, or a lowercase uuid4"
+                     % (self.case_id,))
+        if self.attempt_index is not None:
+            _require(self.attempt_index >= 1, "attempt_index starts at 1")
+        if self.yaml_sha256 is not None:
+            _require(bool(SHA256_RE.match(self.yaml_sha256)),
+                     "yaml_sha256 must be 64 lowercase hex chars")
+        provenance = (self.case_id, self.attempt_index, self.yaml_sha256)
+        _require(not any(value is not None for value in provenance)
+                 or all(value is not None for value in provenance),
+                 "case_id, attempt_index, and yaml_sha256 are an all-or-none run "
+                 "provenance link")
         if self.signal_batch_sha256 is not None:
             _require(bool(SHA256_RE.match(self.signal_batch_sha256)),
                      "signal_batch_sha256 must be 64 lowercase hex chars")
@@ -1649,14 +1709,18 @@ class RunRecord:
             symbols = [c.symbol for c in self.candidates]
             _require(len(symbols) == len(set(symbols)),
                      "duplicate candidate symbol: %r" % (symbols,))
-            _require(self.signal_count == len(self.candidates),
-                     "signal_count=%d but %d candidates embedded; the embedded basket has "
-                     "to be the basket that was emitted or it is not evidence"
-                     % (self.signal_count, len(self.candidates)))
+            _require(self.signal_count >= 1,
+                     "signal_count=0 but %d candidates are embedded; a basket must be "
+                     "carried by at least one emitted selection signal"
+                     % len(self.candidates))
             _require(any(n.rows > 0 for n in self.bundle_nodes),
                      "candidates produced from a bundle whose every frame is empty — the "
                      "recurring silent failure is an empty/short frame that still yields "
                      "plausible output")
+        if all(value is not None for value in provenance):
+            _require(self.signal_batch_sha256 is not None,
+                     "a case-linked run requires signal_batch_sha256 so the stored "
+                     "candidates can be tied to the immutable execution output")
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "RunRecord":

@@ -481,7 +481,8 @@ def test_a_basket_ranked_on_a_different_column_than_requested_is_violated():
     ``reconcile_intent``'s score-dependency checks are for), so this is defence in
     depth: G1c reads the spec, G1e reads what the spec actually emitted.
     """
-    report = gates.run_gates(_spec(SPEC_NEWS), nl=NL_NEWS, bundle=_bundle())
+    report = gates.run_gates(_spec(SPEC_NEWS), nl=NL_NEWS, bundle=_bundle(),
+                             conditions=NEWS_CONDITIONS)
     assert report.status == gates.STATUS_PASSED
 
     ruled = gates.evaluate_conditions(
@@ -493,6 +494,18 @@ def test_a_basket_ranked_on_a_different_column_than_requested_is_violated():
     assert ruled[0].verdict == gates.VIOLATED
     assert "ranked on something other than quoteVolume" in ruled[0].detail
     assert ruled[0].offenders
+
+
+def test_no_structured_conditions_cannot_be_clean_or_runtime_valid():
+    """A real replay without request predicates is only a smoke test."""
+    report = gates.run_gates(_spec(SPEC_NEWS), nl=NL_NEWS, bundle=_bundle())
+
+    assert [result.gate for result in report.results] == list(gates.GATES)
+    assert report.failed_gate == "G1e"
+    assert report.status == gates.STATUS_CONDITION_UNRESOLVED
+    assert report.condition_verdicts == ()
+    assert report.clean is False
+    assert "no structured conditions" in report.results[-1].errors[0]
 
 
 def test_g1e_agrees_with_the_capability_plan_about_what_never_got_converted():

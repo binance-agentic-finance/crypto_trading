@@ -875,6 +875,7 @@ def test_exact_requests_really_send_the_selection_prompt(
         captured.update(url=url, headers=headers, body=json, timeout=timeout)
         return Response()
 
+    monkeypatch.setenv(demo_server.EXTERNAL_LLM_OPT_IN_ENV, "1")
     monkeypatch.setattr(demo_server.requests, "post", fake_post)
     demo_server.call_llm("http://llm/v1", "", "model", phrase)
 
@@ -882,6 +883,27 @@ def test_exact_requests_really_send_the_selection_prompt(
     assert "selection:" in system
     assert "universe.augment_with_news" in system
     assert captured["body"]["messages"][1]["content"] == phrase
+
+
+def test_external_llm_route_is_safe_default_deny(demo_server, monkeypatch):
+    """No raw NL leaves the local demo unless its process opted in explicitly."""
+
+    monkeypatch.delenv(demo_server.EXTERNAL_LLM_OPT_IN_ENV, raising=False)
+    monkeypatch.setattr(
+        demo_server.requests,
+        "post",
+        lambda *_, **__: (_ for _ in ()).throw(
+            AssertionError("disabled route must not make an HTTP request")
+        ),
+    )
+
+    result = demo_server.convert_nl(
+        "http://llm/v1", "", "model", "幫我挑選最近新聞常提到的五個幣種"
+    )
+
+    assert result["status"] == "external_llm_disabled"
+    assert result["valid"] is False
+    assert demo_server.EXTERNAL_LLM_OPT_IN_ENV in "\n".join(result["errors"])
 
 
 def test_chinese_news_request_converts_to_a_valid_selection_spec(
@@ -1041,6 +1063,168 @@ def test_open_interest_cross_section_uses_the_now_supported_fanout_path(
     rejected = demo_server.convert_nl("http://llm/v1", "", "model", phrase)
     assert rejected["valid"] is False
     assert any("open interest" in str(error) for error in rejected["errors"])
+
+
+def test_long_short_ratio_is_not_misread_as_a_bullish_news_preference(
+    demo_server, monkeypatch,
+):
+    """Crowd-long positioning must use its own frame and percent-point filter."""
+
+    request = "選五個散戶多空比偏多 > 60% 的幣"
+    intent = demo_server.classify_request(request)
+
+    assert intent.sources == frozenset({"long_short_ratio"})
+    assert intent.long_short_min_account_pct == 60.0
+    assert intent.long_short_min_account_operator == ">"
+    assert intent.bullish_preference is False
+    assert intent.directions == ()
+    prompt = demo_server.build_system_prompt("selection", intent)
+    assert "universe.augment_with_long_short_ratio" in prompt
+    assert "long_short_ratio_snapshot" in prompt
+    assert "min_long_account_pct_exclusive: 60" in prompt
+
+    monkeypatch.setattr(
+        demo_server,
+        "call_llm",
+        lambda *_, **__: demo_server._long_short_ratio_selection_example(intent),
+    )
+    accepted = demo_server.convert_nl("http://llm/v1", "", "model", request)
+    assert accepted["status"] == "valid", accepted
+    assert accepted["valid"] is True, accepted
+
+    # A syntactically valid inclusive filter would be one candidate too broad
+    # at exactly 60 %.  Reconciliation must preserve the user's strict sign.
+    wrong_boundary = yaml.safe_load(
+        demo_server._long_short_ratio_selection_example(intent)
+    )
+    wrong_boundary["selection"]["universe"][-1]["params"] = {
+        "min_long_account_pct": 60.0,
+    }
+    monkeypatch.setattr(
+        demo_server,
+        "call_llm",
+        lambda *_, **__: yaml.safe_dump(
+            wrong_boundary, allow_unicode=True, sort_keys=False,
+        ),
+    )
+    wrong_boundary_result = demo_server.convert_nl(
+        "http://llm/v1", "", "model", request,
+    )
+    assert wrong_boundary_result["valid"] is False
+    assert any("min_long_account_pct_exclusive" in str(error)
+               for error in wrong_boundary_result["errors"])
+
+    # The prior generic news YAML is structurally valid, but it answers a
+    # different question and must fail reconciliation rather than look green.
+    monkeypatch.setattr(
+        demo_server, "call_llm", lambda *_, **__: demo_server.SELECTION_EXAMPLE_YAML
+    )
+    rejected = demo_server.convert_nl("http://llm/v1", "", "model", request)
+    assert rejected["valid"] is False
+    assert any("多空比" in str(error) or "long_short" in str(error)
+               for error in rejected["errors"])
+
+
+def test_long_short_ratio_preserves_an_inclusive_boundary(demo_server):
+    request = "選五個散戶多空比偏多至少 60% 的幣"
+    intent = demo_server.classify_request(request)
+
+    assert intent.long_short_min_account_pct == 60.0
+    assert intent.long_short_min_account_operator == ">="
+    example = yaml.safe_load(demo_server._long_short_ratio_selection_example(intent))
+    params = example["selection"]["universe"][-1]["params"]
+    assert params == {"min_long_account_pct": 60.0}
+
+
+def test_multi_timeframe_supertrend_request_requires_real_direction_steps(
+    demo_server, monkeypatch,
+):
+    """H4/H1/M15 are timeframes, and all three must affect the selector."""
+
+    request = "選五個幣，Supertrend(10,3) 在 H4/H1/M15 同時偏空"
+    intent = demo_server.classify_request(request)
+
+    assert intent.kind == "selection"
+    assert intent.intervals == ("4h", "1h", "15m")
+    assert intent.named_symbols == ()
+    assert intent.directions == ("short",)
+    assert intent.supertrend_parameters == ((10, 3.0),)
+    prompt = demo_server.build_system_prompt("selection", intent)
+    assert "universe.augment_with_indicator" in prompt
+    assert "output: 1" in prompt
+    assert "all_of" in prompt
+
+    monkeypatch.setattr(
+        demo_server,
+        "call_llm",
+        lambda *_, **__: demo_server._supertrend_selection_example(intent),
+    )
+    accepted = demo_server.convert_nl("http://llm/v1", "", "model", request)
+    assert accepted["status"] == "valid", accepted
+    assert accepted["valid"] is True, accepted
+
+    # A plausible price/liquidity basket no longer passes merely because it is
+    # a valid selection YAML: every requested timeframe must be real and wired.
+    monkeypatch.setattr(
+        demo_server,
+        "call_llm",
+        lambda *_, **__: demo_server.LIQUIDITY_SELECTION_EXAMPLE_YAML,
+    )
+    rejected = demo_server.convert_nl("http://llm/v1", "", "model", request)
+    assert rejected["valid"] is False
+    assert any("Supertrend" in str(error) for error in rejected["errors"])
+
+
+def test_multi_timeframe_supertrend_rejects_an_any_of_bypass(
+    demo_server, monkeypatch,
+):
+    """Mentioning H4 is insufficient when liquidity can replace it."""
+    request = "選五個幣，Supertrend(10,3) 在 H4/H1/M15 同時偏空"
+    intent = demo_server.classify_request(request)
+    bypass = yaml.safe_load(demo_server._supertrend_selection_example(intent))
+    leaves = bypass["selection"]["short_when"]["all_of"]
+    bypass["selection"]["short_when"] = {
+        "all_of": [
+            {
+                "any_of": [
+                    leaves[0],
+                    # This valid condition lets a liquid candidate through even
+                    # when the requested H4 Supertrend is not bearish.
+                    {"cond": "conditions.value_above", "args": ["quoteVolume", 0]},
+                ],
+            },
+            *leaves[1:],
+        ],
+    }
+    bypass_yaml = yaml.safe_dump(bypass, allow_unicode=True, sort_keys=False)
+
+    monkeypatch.setattr(demo_server, "call_llm", lambda *_, **__: bypass_yaml)
+    rejected = demo_server.convert_nl("http://llm/v1", "", "model", request)
+
+    assert rejected["valid"] is False
+    assert any("可繞過" in str(error) for error in rejected["errors"])
+
+
+def test_unmapped_asset_category_exclusions_stop_before_llm(demo_server, monkeypatch):
+    """Never claim TradFi/stock-token/stablecoin exclusions from a guess."""
+
+    def should_not_run(*_, **__):
+        raise AssertionError("unmapped category exclusion must stop before LLM")
+
+    monkeypatch.setattr(demo_server, "call_llm", should_not_run)
+    result = demo_server.convert_nl(
+        "http://llm/v1", "", "model",
+        "選五個成交量最高的幣，排除 TradFi、股票代幣與穩定幣",
+    )
+
+    assert result["status"] == "needs_clarification"
+    assert result["valid"] is False
+    assert set(result["intent"]["unsupported_preferences"]) >= {
+        "category_exclusion:tradfi",
+        "category_exclusion:stock_token",
+        "category_exclusion:stablecoin",
+    }
+    assert any("metadata" in str(error) for error in result["errors"])
 
 
 def test_lowest_funding_is_expressed_with_ascending_order(
@@ -1913,13 +2097,22 @@ def test_browser_routes_only_valid_selection_and_never_persists_the_api_key():
         '(isSelection ? $("selYaml") : $("yaml")).value = d.yaml'
     )
     assert convert_js.count("await selection()") == 1
+    selection_call = convert_js.index("const selectionSucceeded = await selection();")
+    assert "if(selectionSucceeded)" in convert_js
+    assert "選幣執行失敗" in convert_js
+    assert "YAML 靜態驗證雖已通過，但目前資料快照執行失敗" in convert_js
+    assert selection_call < convert_js.index("if(selectionSucceeded)")
+    # Regression for the old unconditional success message after the await:
+    # a static YAML pass is not a live/captured-data execution receipt.
+    post_selection = convert_js[selection_call:]
+    assert 'await selection();\n        setFlow($("convMsg"),warning||"選幣 YAML 已產生；' not in post_selection
     valid_branch = convert_js.index("if(d.valid){")
     invalid_yaml_badge = convert_js.index(
         'setBadge($("convBadge"),false', valid_branch
     )
     assert (
         valid_branch
-        < convert_js.index("await selection()")
+        < selection_call
         < invalid_yaml_badge
     ), "selection execution must remain inside the valid-YAML branch"
 

@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 """Turn the 2026-08-02 five-case end-to-end demo into dataset records.
 
-Why this exists: the demo produced real, audited evidence — five user
-conversations, the conditions extracted from them, the YAML each was converted
-to, the actual run output on a pinned bundle, and an independent per-condition
-verdict. That is exactly the shape of a training example, but it was written as
-loose JSON in a session scratchpad, which is wiped. Nothing downstream can train
-on or re-check a directory that no longer exists.
+Why this exists: the demo preserved five user conversations, their extracted
+conditions, converted YAML, and independent per-condition review.  A legacy
+review is enough to retain an intent-reconciled training example, but it is not
+enough to assert an execution fact: only an adjacent safe frozen receipt can
+make a locally checkable claim tying the exact YAML to a pinned bundle and
+emitted signal batch.  That receipt is local evidence, not a signature, remote
+attestation, or non-forgeable proof.  This migration does not re-run the
+evaluator, so even a linked receipt must never be described as cryptographic
+proof that the recorded execution happened.  The source was written as loose
+JSON in a session scratchpad, which is wiped. Nothing downstream can train on
+or re-check a directory that no longer exists.
 
 So: read the archived demo artifacts, map them onto :mod:`tools.nl2yaml.schema`
 records, and split them by privacy — user text and per-condition quotes to the
@@ -25,6 +30,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -32,22 +38,46 @@ import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from . import evaluate as frozen_evaluate
 from . import schema as S
+from .capability import normalize_condition
 
 # The demo ranked a frozen cross-section; a gold verified against it is only
 # meaningful while that bundle is pinned, so the id travels with the record.
 BUNDLE_REL = "tests/standard_bot/fixtures/universe_cross_section.json"
 DEMO_RUN = "demo_2026-08-02_five_case"
 
+# A legacy source directory may optionally contain one safe frozen-evaluation
+# receipt per case.  Keep the convention next to the YAML it attests, rather
+# than in a shared log whose entries have to be joined by a hand-maintained id:
+#
+#     <case>.yaml
+#     <case>_frozen_conditions.json
+#     <case>_receipt.json
+#
+# ``<case>_frozen_conditions.json`` is the exact privacy-safe JSON list passed
+# to ``evaluate_frozen``; it is deliberately distinct from the legacy
+# ``<case>_conditions.json``, which may contain internal reviewer quotes.  The
+# receipt is a local *evidence/claim*, not a replacement for either input and
+# not a signed or otherwise non-forgeable attestation.  It contains only
+# hashes/aggregate statuses in ``cyqnt.nl2yaml.frozen-evaluation/v1`` and is
+# never copied into the public dataset.  This importer checks its linkage but
+# does not replay it, so it cannot claim cryptographic authenticity.  A missing
+# (or malformed) pair is intentionally non-fatal for migration: it preserves
+# the reviewed YAML at level 3, but can never promote it to level 4/5.
+RECEIPT_SUFFIX = "_receipt.json"
+FROZEN_CONDITIONS_SUFFIX = "_frozen_conditions.json"
+_REQUIRED_RUNTIME_GATES = ("G1a", "G1b", "G1c", "G1d")
+
 #: Verdict vocabulary used by the demo's reviewer -> schema vocabulary.
-#: ``not_expressed`` has no ConditionCheckStatus: a condition the spec never
-#: attempted is not a *check* that came back negative. It is recorded as an
-#: unexpressed cid on the case instead, so "we did not try" can never be read as
-#: "we tried and it held".
+#: Legacy imports intentionally omit a condition that was never expressed;
+#: explicit ``not_expressed`` verdicts are mapped to the fail-closed schema
+#: status so "we did not try" can never be read as "we tried and it held".
 _STATUS = {
     "satisfied": S.ConditionCheckStatus.SATISFIED,
     "violated": S.ConditionCheckStatus.VIOLATED,
     "unverifiable": S.ConditionCheckStatus.UNVERIFIABLE,
+    "not_expressed": S.ConditionCheckStatus.NOT_EXPRESSED,
 }
 
 # The demo's A1 agents were not given the closed vocabulary (my omission), so
@@ -154,6 +184,276 @@ def _read(path: Path) -> Optional[Any]:
         return json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         return None
+
+
+def _receipt_path(src: Path, cid: str) -> Path:
+    """Return the one deterministic safe-receipt location for ``cid``."""
+    return src / f"{cid}{RECEIPT_SUFFIX}"
+
+
+def _frozen_conditions_path(src: Path, cid: str) -> Path:
+    """Return the exact reviewed-condition input paired with a receipt."""
+    return src / f"{cid}{FROZEN_CONDITIONS_SUFFIX}"
+
+
+def _canonical_json_sha256(value: Any) -> Optional[str]:
+    """Match the frozen evaluator's canonical JSON hash without emitting input."""
+    try:
+        payload = json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError):
+        return None
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _pinned_bundle_sha256(repo: Path) -> Optional[str]:
+    """Hash the frozen legacy fixture using the evaluator's canonical encoding.
+
+    The receipt must attest to the same bundle the migration names.  A hash
+    which merely looks like a SHA-256 is not enough: otherwise a receipt from a
+    different market snapshot could promote a legacy case to ``level=4``.
+    """
+    bundle = _read(repo / BUNDLE_REL)
+    if not isinstance(bundle, dict) or bundle.get("schema") != "cyqnt.input/v1":
+        return None
+    return _canonical_json_sha256(bundle)
+
+
+def _is_sha256(value: Any) -> bool:
+    return isinstance(value, str) and bool(re.fullmatch(r"[0-9a-f]{64}", value))
+
+
+def _normalized_frozen_conditions(path: Path) -> Optional[Tuple[str, Tuple[Any, ...]]]:
+    """Return canonical hash plus closed-vocabulary conditions for one receipt.
+
+    The legacy ``*_conditions.json`` is an extraction/reviewer artifact and can
+    contain quote fields.  It must never be treated as the evaluator input just
+    because the filename is convenient.  The separately named frozen file has
+    to pass the same closed, privacy-safe condition boundary as
+    :func:`tools.nl2yaml.evaluate.evaluate_frozen` before its hash can attest to
+    a runtime receipt.
+    """
+    if not path.is_file():
+        return None
+    conditions = _read(path)
+    if not isinstance(conditions, list):
+        return None
+    try:
+        # The evaluator first canonicalizes JSON, then normalizes every mapping.
+        # Do the same work here before using a hash as promotion evidence.
+        canonical = json.loads(json.dumps(
+            conditions,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ))
+        if not all(isinstance(condition, dict) for condition in canonical):
+            return None
+        normalized = tuple(normalize_condition(condition) for condition in canonical)
+    except (TypeError, ValueError):
+        return None
+    digest = _canonical_json_sha256(canonical)
+    if digest is None:
+        return None
+    return digest, normalized
+
+
+def _frozen_conditions_evidence(path: Path) -> Optional[Tuple[str, int]]:
+    """Return ``(canonical_sha256, count)`` for one evaluator condition input."""
+    frozen = _normalized_frozen_conditions(path)
+    if frozen is None:
+        return None
+    digest, normalized = frozen
+    return digest, len(normalized)
+
+
+# A v1 frozen condition does not carry a unit, timeframe, conflict set, or the
+# whole legacy operator vocabulary.  Promotion is therefore intentionally
+# limited to the one lossless legacy spelling that the frozen gate can express.
+# Add a row only after it has a similarly exact, reviewed mapping; a broad
+# "same subject and count" fallback would turn an unrelated receipt into a
+# claimed execution of a different user condition.
+_RECEIPT_COMPARISON_UNITS = {
+    "quote_volume_24h": S.Unit.USD,
+}
+_LEGACY_COMPARISON_OPS = {
+    S.Operator.GT: ">",
+    S.Operator.GTE: ">=",
+    S.Operator.LT: "<",
+    S.Operator.LTE: "<=",
+    S.Operator.EQ: "==",
+}
+
+
+def _same_canonical_json(left: Any, right: Any) -> bool:
+    """Compare JSON values without Python's ``True == 1`` coercion."""
+    left_hash = _canonical_json_sha256(left)
+    right_hash = _canonical_json_sha256(right)
+    return left_hash is not None and left_hash == right_hash
+
+
+def _legacy_condition_matches_frozen(legacy: "S.Condition", frozen: Any) -> bool:
+    """Return whether one frozen v1 predicate is a lossless legacy counterpart.
+
+    This is deliberately smaller than either source vocabulary.  The frozen
+    input cannot safely represent a legacy timeframe, unit ambiguity, ranking,
+    or conflict relation, so those shapes fail closed rather than being
+    approximately matched.  Current approved mapping: a universe-wide USD
+    quote-volume comparison becomes the frozen cross-section ``compare`` form.
+    """
+    expected_unit = _RECEIPT_COMPARISON_UNITS.get(legacy.subject)
+    expected_op = _LEGACY_COMPARISON_OPS.get(legacy.operator)
+    if expected_unit is None or expected_op is None:
+        return False
+    if (
+        legacy.polarity is not S.Polarity.INCLUDE
+        or legacy.scope is not S.Scope.UNIVERSE
+        or legacy.granularity is not S.EvaluationGranularity.UNIVERSE
+        or legacy.measurability is not S.Measurability.QUANTIFIED
+        or legacy.unit is not expected_unit
+        or legacy.timeframe is not None
+        or legacy.is_ranking
+        or legacy.rank_direction is not None
+        or legacy.ambiguity_type is not None
+        or legacy.conflicts_with
+    ):
+        return False
+    if not isinstance(legacy.value, (int, float)) or isinstance(legacy.value, bool):
+        return False
+
+    frozen_value = getattr(frozen, "value", None)
+    if (
+        getattr(frozen, "id", None) != legacy.cid
+        or getattr(frozen, "subject", None) != legacy.subject
+        or getattr(frozen, "operator", None) != "compare"
+        or getattr(frozen, "polarity", None) != "require"
+        or getattr(frozen, "scope", None) != "cross_section"
+        or getattr(frozen, "quantified", None) is not True
+        or getattr(frozen, "ambiguity_type", None) is not None
+        or not isinstance(frozen_value, dict)
+        or set(frozen_value) != {"op", "threshold"}
+        or frozen_value.get("op") != expected_op
+    ):
+        return False
+    return _same_canonical_json(frozen_value.get("threshold"), legacy.value)
+
+
+def _legacy_conditions_match_frozen(
+    legacy_conditions: List["S.Condition"], frozen_conditions: Tuple[Any, ...],
+) -> bool:
+    """Require an exact id set and a lossless semantic pair for every condition."""
+    if not legacy_conditions or not frozen_conditions:
+        return False
+    legacy_by_id = {condition.cid: condition for condition in legacy_conditions}
+    frozen_by_id = {getattr(condition, "id", None): condition
+                    for condition in frozen_conditions}
+    # Dict construction must not erase a duplicate or unnamed condition.  A
+    # count-only match was the original bug: it let c1's receipt certify a
+    # different one-condition request.
+    if (
+        len(legacy_by_id) != len(legacy_conditions)
+        or len(frozen_by_id) != len(frozen_conditions)
+        or any(not isinstance(cid, str) or not cid for cid in legacy_by_id)
+        or any(not isinstance(cid, str) or not cid for cid in frozen_by_id)
+        or set(legacy_by_id) != set(frozen_by_id)
+    ):
+        return False
+    return all(
+        _legacy_condition_matches_frozen(legacy, frozen_by_id[cid])
+        for cid, legacy in legacy_by_id.items()
+    )
+
+
+def _receipt_state(
+    path: Path,
+    *,
+    frozen_conditions_path: Path,
+    yaml_text: str,
+    user_text: str,
+    conditions: List["S.Condition"],
+    pinned_bundle_sha256: Optional[str],
+) -> str:
+    """Classify one optional frozen-evaluation receipt without trusting it.
+
+    ``verified`` is deliberately a narrow *local-linkage* state.  Besides
+    matching the public evaluator schema and the exact YAML text that will be
+    stored as gold, it requires a receipt claiming a runtime-valid replay on
+    this repository's pinned bundle, an exact adjacent privacy-safe condition
+    input with lossless legacy-condition correspondence, and an emitted
+    signal-batch hash.  The importer does not rerun the evaluator or verify a
+    signature, so ``verified`` is never cryptographic proof that execution
+    happened.  The caller only promotes a case when this returns ``verified``;
+    all other states are safe, explainable caps at intent-reconciled level 3.
+
+    This function returns compact state names only.  It must not surface a
+    malformed receipt's text or values because source directories may be
+    internal/private.
+    """
+    if not path.exists():
+        return "missing"
+    if not path.is_file():
+        return "invalid"
+    receipt = _read(path)
+    if not isinstance(receipt, dict):
+        return "invalid"
+
+    frozen_conditions = _normalized_frozen_conditions(frozen_conditions_path)
+    if frozen_conditions is None:
+        return "invalid"
+    conditions_sha256, normalized_frozen_conditions = frozen_conditions
+    frozen_condition_count = len(normalized_frozen_conditions)
+    if not _legacy_conditions_match_frozen(conditions, normalized_frozen_conditions):
+        return "invalid"
+
+    expected_yaml_sha = S.sha256_hex(yaml_text)
+    expected_nl_sha = S.sha256_hex(user_text)
+    if (
+        receipt.get("schema") != frozen_evaluate.RECEIPT_SCHEMA
+        or receipt.get("yaml_sha256") != expected_yaml_sha
+        or receipt.get("nl_sha256") != expected_nl_sha
+        or receipt.get("conditions_sha256") != conditions_sha256
+        or receipt.get("runtime_valid") is not True
+        or receipt.get("draft_valid") is not True
+        or not _is_sha256(receipt.get("bundle_sha256"))
+        or receipt.get("bundle_sha256") != pinned_bundle_sha256
+        or not _is_sha256(receipt.get("signal_batch_sha256"))
+    ):
+        return "invalid"
+
+    signal_count = receipt.get("signal_count")
+    if (not isinstance(signal_count, int) or isinstance(signal_count, bool)
+            or signal_count < 0):
+        return "invalid"
+    candidate_count = receipt.get("selection_candidate_count")
+    if candidate_count is not None and (
+            not isinstance(candidate_count, int) or isinstance(candidate_count, bool)
+            or candidate_count < 0):
+        return "invalid"
+
+    gate_statuses = receipt.get("gate_statuses")
+    if (not isinstance(gate_statuses, dict)
+            or any(gate_statuses.get(gate) != "passed"
+                   for gate in _REQUIRED_RUNTIME_GATES)):
+        return "invalid"
+
+    summary = receipt.get("conditions")
+    if not isinstance(summary, dict):
+        return "invalid"
+    requested = summary.get("requested_count")
+    evaluated = summary.get("evaluated_count")
+    if (not isinstance(requested, int) or isinstance(requested, bool)
+            or not isinstance(evaluated, int) or isinstance(evaluated, bool)
+            or requested <= 0 or evaluated != requested
+            or requested != len(conditions)
+            or frozen_condition_count != len(conditions)):
+        return "invalid"
+    return "verified"
 
 
 def _git_sha(repo: Path) -> str:
@@ -419,14 +719,20 @@ def _capability(report: Optional[Dict[str, Any]],
 
 
 def _gold(verdict: Optional[Dict[str, Any]], yaml_text: Optional[str],
-          conds: List[S.Condition], caps: List[S.CapabilityEntry]) -> Dict[str, Any]:
+          conds: List[S.Condition], caps: List[S.CapabilityEntry], *,
+          receipt_verified: bool = False) -> Dict[str, Any]:
     """Derive gold fields from the independent reviewer's verdict.
 
-    Level is deliberately capped at 4 for every demo case. Level 5 means *all
-    checkable conditions satisfied*, and no case cleared that: E1 and E3 each
-    carry a ``violated``, and every case has conditions the spec never attempted.
-    Marking any of them 5 would put a wrong answer into the training target,
-    which is the failure this schema exists to prevent.
+    A reviewer plus YAML establishes intent reconciliation (level 3), not an
+    execution fact.  Level 4 requires :func:`_receipt_state` to link the exact
+    public YAML to a locally claimed runtime-valid frozen receipt; this
+    migration does not rerun that receipt and therefore makes no cryptographic
+    authenticity claim.  The receipt is execution provenance only: it never
+    upgrades the legacy reviewer's per-condition verdict from ``HUMAN`` to
+    ``EXECUTED`` (in particular, a G1e-failed run must not certify a human
+    ``satisfied`` label).  Level 5 remains unavailable to this migration: it
+    means *all* checkable conditions were satisfied, while the legacy review
+    records omissions/violations.
     """
     v = verdict or {}
     cvs = v.get("condition_verdicts") or []
@@ -436,7 +742,10 @@ def _gold(verdict: Optional[Dict[str, Any]], yaml_text: Optional[str],
 
     verdicts: List[S.ConditionVerdict] = []
     proxied: List[str] = []
-    violated = False
+    # The migration reads a receipt but does not replay it.  It may therefore
+    # establish level-4 execution *provenance*, never per-condition execution
+    # evidence; every status below remains the independent human review.
+    checked_by = S.CheckedBy.HUMAN
     for c in conds:
         raw = checked.get(c.cid) or {}
         status_raw = str(raw.get("verdict") or "").lower()
@@ -444,7 +753,7 @@ def _gold(verdict: Optional[Dict[str, Any]], yaml_text: Optional[str],
             proxied.append(c.cid)
             verdicts.append(S.ConditionVerdict(
                 cid=c.cid, status=S.ConditionCheckStatus.PROXIED,
-                checked_by=S.CheckedBy.EXECUTED))
+                checked_by=checked_by))
             continue
         status = _STATUS.get(status_raw)
         if status is None:                     # not_expressed / unknown
@@ -455,12 +764,10 @@ def _gold(verdict: Optional[Dict[str, Any]], yaml_text: Optional[str],
                 # the same place every other check lives.
                 verdicts.append(S.ConditionVerdict(
                     cid=c.cid, status=S.ConditionCheckStatus.UNVERIFIABLE,
-                    checked_by=S.CheckedBy.EXECUTED))
+                    checked_by=checked_by))
             continue
-        if status is S.ConditionCheckStatus.VIOLATED:
-            violated = True
         verdicts.append(S.ConditionVerdict(
-            cid=c.cid, status=status, checked_by=S.CheckedBy.EXECUTED))
+            cid=c.cid, status=status, checked_by=checked_by))
 
     refused = not yaml_text
     if refused:
@@ -468,9 +775,11 @@ def _gold(verdict: Optional[Dict[str, Any]], yaml_text: Optional[str],
         source = S.GoldSource.NONE
         specs: List[S.GoldSpec] = []
     else:
-        # Ran on the pinned bundle and was reconciled by a reviewer, but never
-        # all-conditions-clean -> 4, not 5.
-        level = S.GoldVerificationLevel.EXECUTED_ON_PINNED_BUNDLE
+        # YAML+review reaches at most intent reconciliation.  Only a safe
+        # receipt ties this exact YAML to the pinned input and emitted batch.
+        level = (S.GoldVerificationLevel.EXECUTED_ON_PINNED_BUNDLE
+                 if receipt_verified
+                 else S.GoldVerificationLevel.INTENT_RECONCILED)
         source = S.GoldSource.ATTEMPT_K
         specs = [S.GoldSpec(role=S.GoldRole.PRIMARY, yaml_text=yaml_text)]
 
@@ -527,6 +836,7 @@ def ingest(src: Path, public_out: Path, internal_out: Path, repo: Path) -> Dict[
     if not cases:
         raise SystemExit(f"no cases.json under {src}")
     sha = _git_sha(repo)
+    pinned_bundle_sha256 = _pinned_bundle_sha256(repo)
     summary: Dict[str, Any] = {"written": [], "skipped": [], "replaced": 0}
 
     # Idempotent by source text. Re-running after a fix must not double the corpus,
@@ -557,7 +867,20 @@ def ingest(src: Path, public_out: Path, internal_out: Path, repo: Path) -> Dict[
         conds = _conditions(conds_raw)
         n_conflict = _mark_conflicts(conds)
         caps = _capability(report, conds)
-        gold = _gold(verdict, yaml_text, conds, caps)
+        receipt_state = "not_applicable"
+        if yaml_text:
+            receipt_state = _receipt_state(
+                _receipt_path(src, cid),
+                frozen_conditions_path=_frozen_conditions_path(src, cid),
+                yaml_text=yaml_text,
+                user_text=user_text,
+                conditions=conds,
+                pinned_bundle_sha256=pinned_bundle_sha256,
+            )
+        gold = _gold(
+            verdict, yaml_text, conds, caps,
+            receipt_verified=(receipt_state == "verified"),
+        )
 
         text_sha = S.sha256_hex(user_text)
         case_id = S.case_id_for(text_sha)
@@ -628,6 +951,7 @@ def ingest(src: Path, public_out: Path, internal_out: Path, repo: Path) -> Dict[
             "n_conditions": len(conds), "tier": case.tier.value,
             "ambiguity": amb, "granularity": gran, "conflict_edges": n_conflict,
             "yaml_lines_sanitized": n_sanitized,
+            "receipt": receipt_state,
             "attempts_dropped_no_prompt_hash": n_attempts_dropped,
             "level": int(case.gold_verification_level),
             "refusal": case.gold_is_refusal,

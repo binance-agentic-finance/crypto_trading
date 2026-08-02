@@ -280,6 +280,7 @@
         "satisfied",
         "violated",
         "unverifiable",
+        "not_expressed",
         "proxied"
       ],
       "description": "Did the gold spec's *output* honour this condition?"
@@ -326,6 +327,8 @@
         "bundle_insufficient",
         "execution_error",
         "intent_mismatch",
+        "condition_violated",
+        "condition_unresolved",
         "undisclosed_assumption"
       ],
       "description": "Where the attempt stopped."

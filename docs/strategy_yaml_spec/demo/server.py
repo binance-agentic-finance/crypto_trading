@@ -6,11 +6,16 @@
 啟動:
     PYTHONPATH=<repo_root> <venv>/bin/python docs/strategy_yaml_spec/demo/server.py
     # 然後開 http://127.0.0.1:8799
+
+自然語言預設不會送到外部 LLM。僅限已明確同意送出的非敏感測試內容，才以
+``CYQNT_DEMO_ALLOW_EXTERNAL_LLM=1`` 啟動；私有對話語料必須走本地 frozen
+evaluator，不可走這條 demo 路由。
 """
 
 from __future__ import annotations
 
 import json
+import os
 import sys
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -49,6 +54,22 @@ from cyqnt_trd.standard_bot.yaml_pipeline.intent import (  # noqa: F401
 PORT = 8799
 SCHEMA_PATH = SPEC_DIR / "strategy.schema.yaml"
 FIXTURE_DIR = REPO_ROOT / "tests" / "blocks" / "fixtures"
+
+# The demo is a local convenience UI, not a sanctioned private-corpus egress
+# path.  A user must opt in at process launch before this server sends *any* NL
+# text to a user-supplied OpenAI-compatible endpoint.  Do not replace this guard
+# with redaction: arbitrary free text cannot be reliably made safe by a regex.
+EXTERNAL_LLM_OPT_IN_ENV = "CYQNT_DEMO_ALLOW_EXTERNAL_LLM"
+
+
+class ExternalLLMDisabled(RuntimeError):
+    """Raised before a request body is built or sent to an external endpoint."""
+
+
+def _external_llm_enabled() -> bool:
+    return os.environ.get(EXTERNAL_LLM_OPT_IN_ENV, "").strip().lower() in {
+        "1", "true", "yes",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -350,6 +371,173 @@ def _score_order_for(intent: IntentDecision | None, column: str) -> str | None:
     return intent.score_order
 
 
+def _long_short_ratio_selection_example(intent: IntentDecision) -> str:
+    """A runnable spelling of the precise crowd-long threshold the user named."""
+
+    minimum = intent.long_short_min_account_pct
+    if minimum is None:
+        raise ValueError("a long/short selection example needs an explicit minimum")
+    comparator = intent.long_short_min_account_operator
+    if comparator not in {">", ">="}:
+        raise ValueError("a long/short selection example needs an explicit lower-bound operator")
+    filter_param = ("min_long_account_pct_exclusive"
+                    if comparator == ">" else "min_long_account_pct")
+    return yaml.safe_dump({
+        "spec_version": "1.0",
+        "target": "standard_bot",
+        "strategy": {
+            "id": "retail_long_account_selector",
+            "description": "篩選散戶多方帳戶佔比達門檻的候選幣",
+        },
+        "run": {"mode": "backtest"},
+        "data": {
+            "symbol": "BTCUSDT", "market_type": "futures",
+            "primary": {"interval": "1h"},
+        },
+        "selection": {
+            "universe": [
+                {
+                    "block": "universe.filter_quote_volume",
+                    "params": {"min_quote_volume": 100000000},
+                },
+                {
+                    "block": "universe.augment_with_long_short_ratio",
+                    "with": ["long_short_ratio_snapshot"],
+                },
+                {
+                    "block": "universe.filter_long_short_ratio",
+                    "params": {filter_param: minimum},
+                },
+            ],
+            # The source condition is a filter, not a rank.  Use a stable
+            # liquidity tie-breaker rather than claiming the raw ratio is a
+            # cross-contract ranking score.
+            "score": "quoteVolume",
+            "top_k": intent.requested_count or 5,
+            "dedupe_by": "base_asset",
+        },
+    }, allow_unicode=True, sort_keys=False)
+
+
+def _supertrend_selection_example(intent: IntentDecision) -> str:
+    """Render the exact per-symbol MTF Supertrend contract the runtime supports."""
+
+    if len(intent.supertrend_parameters) != 1:
+        raise ValueError("a Supertrend selection needs exactly one explicit parameter pair")
+    if not intent.intervals:
+        raise ValueError("a Supertrend selection needs explicit timeframes")
+    directions = [side for side in ("long", "short") if side in intent.directions]
+    if len(directions) != 1:
+        raise ValueError("a Supertrend selection needs exactly one explicit direction")
+
+    period, multiplier = intent.supertrend_parameters[0]
+    side = directions[0]
+    relation = "value_above" if side == "long" else "value_below"
+    aliases = ["st_dir_%s" % timeframe for timeframe in intent.intervals]
+    universe = [
+        {
+            "block": "universe.filter_quote_volume",
+            "params": {"min_quote_volume": 100000000},
+        },
+    ]
+    # A combined crowd condition remains independently checkable; it must not
+    # disappear just because the Supertrend branch owns the prompt.
+    if "long_short_ratio" in intent.sources:
+        minimum = intent.long_short_min_account_pct
+        comparator = intent.long_short_min_account_operator
+        if minimum is None or comparator not in {">", ">="}:
+            raise ValueError("Supertrend crowd filter needs an exact lower bound")
+        filter_param = ("min_long_account_pct_exclusive"
+                        if comparator == ">" else "min_long_account_pct")
+        universe.extend([
+            {
+                "block": "universe.augment_with_long_short_ratio",
+                "with": ["long_short_ratio_snapshot"],
+            },
+            {
+                "block": "universe.filter_long_short_ratio",
+                "params": {filter_param: minimum},
+            },
+        ])
+    universe.extend(
+        {
+            "block": "universe.augment_with_indicator",
+            "with": ["universe_bars"],
+            "params": {
+                "indicator": "supertrend", "timeframe": timeframe,
+                # Supertrend returns (line, direction); the direction is output 1.
+                "output": 1, "as": alias, "agg": "last", "window_bars": 1,
+                "period": period, "multiplier": multiplier,
+            },
+        }
+        for timeframe, alias in zip(intent.intervals, aliases)
+    )
+    leaves = [
+        {"cond": "conditions.%s" % relation, "args": [alias, 0]}
+        for alias in aliases
+    ]
+    condition = {"all_of": leaves} if len(leaves) > 1 else leaves[0]
+    return yaml.safe_dump({
+        "spec_version": "1.0",
+        "target": "standard_bot",
+        "strategy": {
+            "id": "multi_timeframe_supertrend_selector",
+            "description": "Supertrend(%d,%g) 多時框同時偏%s的候選"
+                           % (period, multiplier, "多" if side == "long" else "空"),
+        },
+        "run": {"mode": "backtest"},
+        "data": {
+            "symbol": "BTCUSDT", "market_type": "futures",
+            "primary": {"interval": "1h" if "1h" in intent.intervals
+                        else intent.intervals[0]},
+        },
+        "selection": {
+            "universe": universe,
+            "score": "quoteVolume",
+            "top_k": intent.requested_count or 5,
+            "dedupe_by": "base_asset",
+            "%s_when" % side: condition,
+        },
+    }, allow_unicode=True, sort_keys=False)
+
+
+def _supertrend_selection_prompt(intent: IntentDecision) -> str:
+    example = _supertrend_selection_example(intent)
+    period, multiplier = intent.supertrend_parameters[0]
+    frames = ", ".join(intent.intervals)
+    direction = "偏多" if "long" in intent.directions else "偏空"
+    crowd_note = ""
+    if "long_short_ratio" in intent.sources:
+        minimum = intent.long_short_min_account_pct
+        comparator = intent.long_short_min_account_operator
+        if minimum is None or comparator not in {">", ">="}:
+            raise ValueError("Supertrend crowd prompt needs an exact lower bound")
+        filter_param = ("min_long_account_pct_exclusive"
+                        if comparator == ">" else "min_long_account_pct")
+        wording = "大於" if comparator == ">" else "至少"
+        crowd_note = (
+            "使用者也指定散戶多方帳戶佔比%s %.4g%%:必須先 "
+            "augment_with_long_short_ratio(with: [long_short_ratio_snapshot]),再以 "
+            "filter_long_short_ratio(%s: %.4g) 篩選。"
+            % (wording, minimum, filter_param, minimum)
+        )
+    return (
+        "你是一個把自然語言選幣需求轉成 StandardBot YAML 的轉換器。"
+        "只輸出一份合法 YAML,不要 markdown、解釋或多餘文字。\n\n"
+        "這次需求是每個候選幣的 Supertrend(%d,%g) 在 %s 同時%s。"
+        "選幣必須先用 universe.filter_quote_volume 收窄,然後每個 timeframe 都用 "
+        "universe.augment_with_indicator(with: [universe_bars])，參數必須是 "
+        "indicator: supertrend、period: %d、multiplier: %g、output: 1。"
+        "Supertrend output 0 是價格線,不能拿來判斷方向。%s_when 必須是 all_of，"
+        "每一個 timeframe 的 alias 都必須以 conditions.%s(_, 0) 接入。"
+        "%s\n\n=== 範例輸出 ===\n%s"
+        % (period, multiplier, frames, direction, period, multiplier,
+           "long" if "long" in intent.directions else "short",
+           "value_above" if "long" in intent.directions else "value_below",
+           crowd_note, example)
+    )
+
+
 def _candidate_trade_selection_prompt(intent: IntentDecision) -> str:
     """Prompt one outer selection with complete nested candidate trades.
 
@@ -528,6 +716,34 @@ def build_system_prompt(
     if kind == "selection":
         if intent is not None and intent.candidate_trade_requested:
             return _candidate_trade_selection_prompt(intent)
+        if intent is not None and "supertrend" in intent.indicator_names:
+            return _supertrend_selection_prompt(intent)
+        if intent is not None and "long_short_ratio" in intent.sources:
+            minimum = intent.long_short_min_account_pct
+            comparator = intent.long_short_min_account_operator
+            if minimum is None or comparator not in {">", ">="}:
+                raise ValueError(
+                    "long/short-ratio selection prompt requires an explicit "
+                    "lower-bound threshold and comparator"
+                )
+            filter_param = ("min_long_account_pct_exclusive"
+                            if comparator == ">" else "min_long_account_pct")
+            wording = "大於" if comparator == ">" else "至少"
+            return (
+                "你是一個把自然語言選幣需求轉成 StandardBot YAML 的轉換器。"
+                "只輸出一份合法 YAML,不要 markdown、解釋或多餘文字。\n\n"
+                "這次需求指定散戶多空比偏多,而且門檻是多方帳戶佔比%s %.4g%%。"
+                "頂層只用 selection:,不得產生 signals:、sizing:、risk: 或 backtest:。"
+                "先用 universe.filter_quote_volume 收窄,再精確寫 "
+                "universe.augment_with_long_short_ratio(with: "
+                "[long_short_ratio_snapshot])，最後必須使用 "
+                "universe.filter_long_short_ratio(%s: %.4g)。"
+                "long_account_pct 的單位是百分點,60 表示六成帳戶偏多,不是 0.6。"
+                "『多空比偏多』是群眾部位篩選,不得轉成新聞情緒或 long_when。\n\n"
+                "=== 範例輸出 ===\n%s"
+                % (wording, minimum, filter_param, minimum,
+                   _long_short_ratio_selection_example(intent))
+            )
         if intent is not None and "open_interest" in intent.sources:
             return (
                 "你是一個把自然語言選幣需求轉成 StandardBot YAML 的轉換器。"
@@ -748,6 +964,12 @@ def _strip_fences(text: str) -> str:
 
 
 def call_llm(api_base: str, api_key: str, model: str, nl: str) -> str:
+    if not _external_llm_enabled():
+        raise ExternalLLMDisabled(
+            "外部 LLM 路由預設停用，因為自然語言可能包含私人內容。"
+            "若這是你明確允許送出的非敏感測試內容，請在啟動 demo 前設定 "
+            "%s=1；私有對話語料不可使用此路徑。" % EXTERNAL_LLM_OPT_IN_ENV
+        )
     base = api_base.rstrip("/")
     url = base if base.endswith("/chat/completions") else base + "/chat/completions"
     headers = {"Content-Type": "application/json"}
@@ -795,6 +1017,29 @@ def convert_nl(api_base: str, api_key: str, model: str, nl: str) -> dict:
             "warnings": [],
         }
 
+    unmapped_categories = [
+        item.split(":", 1)[1]
+        for item in intent.unsupported_preferences
+        if item.startswith("category_exclusion:")
+    ]
+    if unmapped_categories:
+        return {
+            "ok": True,
+            "status": "needs_clarification",
+            "yaml": "",
+            "valid": False,
+            "strategy_kind": intent.kind,
+            "generated_strategy_kind": None,
+            "intent": intent.to_dict(),
+            "errors": [
+                "你要求排除資產類別(%s)，但 demo 尚未有經核對的 "
+                "exchange metadata 映射；已停止，請先指定可審核的分類映射，"
+                "不會猜測或以近似篩選代替。"
+                % ", ".join(unmapped_categories)
+            ],
+            "warnings": [],
+        }
+
     if intent.kind == "selection":
         # "Most negative funding" and "biggest gainers" used to be refused here.
         # Both refusals are gone, for different reasons: selection.order: asc now
@@ -818,7 +1063,47 @@ def convert_nl(api_base: str, api_key: str, model: str, nl: str) -> dict:
                 ],
                 "warnings": [],
             }
-        if not intent.sources:
+        if "long_short_ratio" in intent.sources and (
+                intent.long_short_min_account_pct is None
+                or intent.long_short_min_account_operator not in {">", ">="}):
+            return {
+                "ok": True,
+                "status": "needs_clarification",
+                "yaml": "",
+                "valid": False,
+                "strategy_kind": "selection",
+                "generated_strategy_kind": None,
+                "intent": intent.to_dict(),
+                "errors": [
+                    "散戶多空比需要明確的多方帳戶百分比門檻，例如「偏多 > 60%」；"
+                    "系統不會猜測 min_long_account_pct。"
+                ],
+                "warnings": [],
+            }
+        if "supertrend" in intent.indicator_names:
+            missing = []
+            if not intent.supertrend_parameters:
+                missing.append("Supertrend(period,multiplier)，例如 Supertrend(10,3)")
+            if not intent.intervals:
+                missing.append("timeframe，例如 H4/H1/M15")
+            if len([side for side in ("long", "short") if side in intent.directions]) != 1:
+                missing.append("明確方向（偏多或偏空）")
+            if missing:
+                return {
+                    "ok": True,
+                    "status": "needs_clarification",
+                    "yaml": "",
+                    "valid": False,
+                    "strategy_kind": "selection",
+                    "generated_strategy_kind": None,
+                    "intent": intent.to_dict(),
+                    "errors": [
+                        "Supertrend 選幣需要 %s；系統不會用漲跌幅或其他技術指標代替。"
+                        % "、".join(missing)
+                    ],
+                    "warnings": [],
+                }
+        if not intent.sources and "supertrend" not in intent.indicator_names:
             return {
                 "ok": True,
                 "status": "needs_clarification",
@@ -831,7 +1116,20 @@ def convert_nl(api_base: str, api_key: str, model: str, nl: str) -> dict:
                 "warnings": [],
             }
 
-    yaml_text = call_llm(api_base, api_key, model, nl)
+    try:
+        yaml_text = call_llm(api_base, api_key, model, nl)
+    except ExternalLLMDisabled as exc:
+        return {
+            "ok": True,
+            "status": "external_llm_disabled",
+            "yaml": "",
+            "valid": False,
+            "strategy_kind": intent.kind,
+            "generated_strategy_kind": None,
+            "intent": intent.to_dict(),
+            "errors": [str(exc)],
+            "warnings": [],
+        }
     errors: list[str] = []
     warnings: list[str] = []
     generated_kind = None

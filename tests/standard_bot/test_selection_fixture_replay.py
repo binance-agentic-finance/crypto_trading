@@ -30,6 +30,7 @@ nodes may take it and why a price snapshot may not.
 
 from __future__ import annotations
 
+import copy
 import json
 import urllib.request
 from pathlib import Path
@@ -243,6 +244,28 @@ def test_replay_is_byte_identical_including_the_signal_id(spec_path, _golden):
     assert first["signals"][0]["signal_id"]
     assert (json.dumps(first, sort_keys=True)
             == json.dumps(second, sort_keys=True))
+
+
+def test_replay_refuses_a_candidate_not_known_at_the_decision_time():
+    """A hand-edited replay cannot smuggle a future universe row past the gate.
+
+    The selected symbols are only a subset of the frozen cross-section.  Mutating
+    one candidate before `run_bundle` proves the ingress gate checks the input
+    artifact itself, rather than relying on whether a later selection filter
+    happens to touch that row.
+    """
+    bundle = copy.deepcopy(_fixture())
+    candidate = next(
+        row for row in bundle["frames"]["universe"]["rows"]
+        if row["instrument_id"] == "BNBUSDT"
+    )
+    candidate["available_time"] = bundle["decision_time"] + 1
+
+    with pytest.raises(
+        ValueError,
+        match=r"frame 'universe' row \d+ available_time=.*after decision_time",
+    ):
+        run_bundle(str(SPEC_NEWS), bundle)
 
 
 # --------------------------------------------------------------------------- #

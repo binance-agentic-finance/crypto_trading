@@ -193,8 +193,10 @@ async function convert(){
       body:JSON.stringify({nl, api_base:$("apiBase").value.trim(), api_key:$("apiKey").value.trim(), model:$("model").value.trim()})});
     const d = await r.json();
     if(!d.ok){ setFlow($("convMsg"),d.error||"轉換失敗",true); return; }
-    if(d.status === "needs_clarification" || d.status === "unsupported" || d.strategy_kind === "ambiguous"){
-      setBadge($("convBadge"),false,d.status === "unsupported"?"目前尚未支援":"需要確認需求");
+    if(d.status === "needs_clarification" || d.status === "unsupported" ||
+       d.status === "external_llm_disabled" || d.strategy_kind === "ambiguous"){
+      setBadge($("convBadge"),false,d.status === "unsupported"?"目前尚未支援":
+        (d.status === "external_llm_disabled"?"外部 LLM 已停用":"需要確認需求"));
       setFlow($("convMsg"),(d.errors||["無法可靠判斷交易或選幣需求"]).join("\n"),true);
       return;
     }
@@ -206,8 +208,14 @@ async function convert(){
       if(isSelection){
         setFlow($("convMsg"),warning||"已識別選幣需求，正在抓 Square 資料並產生候選訊號…");
         $("selectionCard").scrollIntoView({behavior:"smooth",block:"start"});
-        await selection();
-        setFlow($("convMsg"),warning||"選幣 YAML 已產生；執行結果顯示於下方。");
+        const selectionSucceeded = await selection();
+        if(selectionSucceeded){
+          setFlow($("convMsg"),warning||"選幣 YAML 已產生，且已在目前資料快照執行；結果顯示於下方。");
+        }else{
+          setBadge($("convBadge"),false,"選幣執行失敗");
+          setFlow($("convMsg"),(warning ? warning+"\n" : "")+
+            "YAML 靜態驗證雖已通過，但目前資料快照執行失敗；未將它標示為可用結果。請查看下方錯誤。",true);
+        }
       }else{
         setFlow($("convMsg"),warning||"已產生交易 YAML；請人工確認後選擇回測或產生訊號。");
       }
@@ -316,7 +324,7 @@ async function signal(){
 // ---------- 選幣 ----------
 async function selection(){
   const y = $("selYaml").value.trim();
-  if(!y){ setFlow($("selMsg"),"沒有選幣 YAML（可按「載入選幣範例」）",true); return; }
+  if(!y){ setFlow($("selMsg"),"沒有選幣 YAML（可按「載入選幣範例」）",true); return false; }
   $("btnSel").disabled=true; $("selBadge").innerHTML=""; setFlow($("selMsg"),"抓即時宇宙 + Square 熱度…");
   try{
     const r = await fetch("/api/selection",{method:"POST",headers:{"Content-Type":"application/json"},
@@ -324,7 +332,7 @@ async function selection(){
     const d = await r.json();
     if(!d.ok){ setBadge($("selBadge"),false,"失敗");
       setFlow($("selMsg"),(d.error||"")+(d.errors?("\n- "+d.errors.join("\n- ")):""),true);
-      return; }
+      return false; }
     setBadge($("selBadge"),true,"完成"); setFlow($("selMsg"),"");
     $("selOut").style.display="block";
     $("selMetrics").innerHTML = [
@@ -342,7 +350,8 @@ async function selection(){
       : "";
     $("selJson").textContent = d.signal ? JSON.stringify(d.signal,null,1) : (d.note||"(無候選)");
     if(!cs.length) setFlow($("selMsg"),d.note||"無候選");
-  }catch(e){ setFlow($("selMsg"),e,true); }
+    return true;
+  }catch(e){ setFlow($("selMsg"),e,true); return false; }
   finally{ $("btnSel").disabled=false; }
 }
 

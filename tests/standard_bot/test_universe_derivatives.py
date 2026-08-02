@@ -682,6 +682,26 @@ def test_the_crowd_filter_splits_the_frozen_roster():
         "using it could not fail")
 
 
+def test_strict_crowd_long_threshold_excludes_the_exact_boundary():
+    """`> 60%` and `>= 60%` are different user requests."""
+    frame = pd.DataFrame({
+        "instrument_id": ["EQUALUSDT", "ABOVEUSDT"],
+        "long_account_pct": [60.0, 60.0001],
+    })
+
+    inclusive = ub.filter_long_short_ratio(frame, min_long_account_pct=60.0)
+    strict = ub.filter_long_short_ratio(
+        frame, min_long_account_pct_exclusive=60.0)
+
+    assert inclusive["instrument_id"].tolist() == ["EQUALUSDT", "ABOVEUSDT"]
+    assert strict["instrument_id"].tolist() == ["ABOVEUSDT"]
+    with pytest.raises(ValueError, match="not both"):
+        ub.filter_long_short_ratio(
+            frame, min_long_account_pct=60.0,
+            min_long_account_pct_exclusive=60.0,
+        )
+
+
 # --------------------------------------------------------------------------- #
 # the fan-out constraints: the point of this stage                            #
 # --------------------------------------------------------------------------- #

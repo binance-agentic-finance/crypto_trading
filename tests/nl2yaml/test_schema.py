@@ -172,6 +172,8 @@ def _level5_case(**over):
         gold_condition_verdicts=[S.ConditionVerdict(
             cid="c1", status=S.ConditionCheckStatus.SATISFIED,
             checked_by=S.CheckedBy.EXECUTED)],
+        human_reviewed_by="synthetic-reviewer",
+        human_reviewed_at="2026-08-02T00:00:00Z",
     )
     base.update(over)
     return make_case(**base)
@@ -205,9 +207,18 @@ def test_eligibility_thresholds(level, strict, loose):
         gold_source=S.GoldSource.NONE if level == 0 else S.GoldSource.HANDWRITTEN,
         gold_verification_level=level,
         gold_condition_verdicts=verdicts,
+        human_reviewed_by="synthetic-reviewer",
+        human_reviewed_at="2026-08-02T00:00:00Z",
     )
     assert case.gold_eligible_for_sft is strict
     assert case.gold_eligible_loose is loose
+
+
+def test_unreviewed_level5_case_is_not_sft_eligible_but_remains_loose():
+    case = _level5_case(human_reviewed_by=None, human_reviewed_at=None)
+
+    assert case.gold_eligible_for_sft is False
+    assert case.gold_eligible_loose is True
 
 
 def test_unverifiable_condition_blocks_strict_but_not_loose():
@@ -230,6 +241,13 @@ def test_proxy_used_forces_ineligible_at_every_level(level):
     """
     verdicts = [S.ConditionVerdict(cid="c1", status=S.ConditionCheckStatus.SATISFIED,
                                    checked_by=S.CheckedBy.EXECUTED)] if level >= 3 else []
+    if level >= 5:
+        # Level 5 must retain a verdict for every extracted condition even
+        # when one is already known to be proxied; otherwise c2 could vanish
+        # from an ostensibly complete gold record.
+        verdicts.append(S.ConditionVerdict(
+            cid="c2", status=S.ConditionCheckStatus.PROXIED,
+            checked_by=S.CheckedBy.EXECUTED))
     case = make_case(
         conditions=[cond("c1"), cond("c2", subject="supertrend_direction",
                                      operator=S.Operator.EQ, value="bearish",
@@ -447,9 +465,46 @@ def test_level5_rejects_a_violated_condition():
                                checked_by=S.CheckedBy.EXECUTED)])
 
 
+def test_level5_rejects_a_condition_the_converter_never_expressed():
+    with pytest.raises(S.RecordError, match="omitted request conditions"):
+        _level5_case(gold_condition_verdicts=[
+            S.ConditionVerdict(cid="c1", status=S.ConditionCheckStatus.NOT_EXPRESSED,
+                               checked_by=S.CheckedBy.STATIC)])
+
+
 def test_level5_requires_that_something_was_actually_checked():
-    with pytest.raises(S.RecordError, match="per-condition verdicts"):
+    with pytest.raises(S.RecordError, match="one verdict for every request condition"):
         _level5_case(gold_condition_verdicts=[])
+
+
+def test_level5_requires_complete_condition_verdict_coverage():
+    """One satisfied condition cannot silently stand in for a second request."""
+    with pytest.raises(S.RecordError, match="one verdict for every request condition"):
+        _level5_case(
+            conditions=[
+                cond("c1"),
+                cond("c2", subject="stablecoin_exclusion",
+                     operator=S.Operator.NEQ, value="USDC", unit=S.Unit.LABEL),
+            ],
+            capability_map=[
+                S.CapabilityEntry(cid="c1", verdict=S.CapabilityVerdict.SUPPORTED),
+                S.CapabilityEntry(cid="c2", verdict=S.CapabilityVerdict.SUPPORTED),
+            ],
+            gold_condition_verdicts=[S.ConditionVerdict(
+                cid="c1", status=S.ConditionCheckStatus.SATISFIED,
+                checked_by=S.CheckedBy.EXECUTED,
+            )],
+        )
+
+
+def test_gold_condition_verdicts_cannot_repeat_a_cid():
+    with pytest.raises(S.RecordError, match="duplicate cid in gold_condition_verdicts"):
+        _level5_case(gold_condition_verdicts=[
+            S.ConditionVerdict(cid="c1", status=S.ConditionCheckStatus.SATISFIED,
+                               checked_by=S.CheckedBy.EXECUTED),
+            S.ConditionVerdict(cid="c1", status=S.ConditionCheckStatus.SATISFIED,
+                               checked_by=S.CheckedBy.EXECUTED),
+        ])
 
 
 def test_attempt_derived_gold_needs_intent_reconciliation():
@@ -633,10 +688,32 @@ def test_candidate_ranks_must_be_contiguous():
                              S.Candidate(rank=3, symbol="B", side=S.CandidateSide.SHORT)])
 
 
-def test_signal_count_must_match_the_embedded_basket():
+def test_selection_signal_count_is_independent_of_embedded_basket_size():
+    run = make_run(signal_count=1,
+                   candidates=[S.Candidate(rank=1, symbol="A", side=S.CandidateSide.SHORT),
+                               S.Candidate(rank=2, symbol="B", side=S.CandidateSide.SHORT)])
+    assert run.signal_count == 1
+    assert len(run.candidates) == 2
+
+
+def test_embedded_basket_requires_an_emitted_signal():
     with pytest.raises(S.RecordError, match="signal_count"):
-        make_run(signal_count=5,
+        make_run(signal_count=0,
                  candidates=[S.Candidate(rank=1, symbol="A", side=S.CandidateSide.SHORT)])
+
+
+def test_case_linked_run_requires_complete_provenance_and_signal_hash():
+    case_id = S.new_case_id()
+    with pytest.raises(S.RecordError, match="all-or-none run provenance"):
+        make_run(case_id=case_id)
+    with pytest.raises(S.RecordError, match="requires signal_batch_sha256"):
+        make_run(case_id=case_id, attempt_index=1,
+                 yaml_sha256=S.sha256_hex("strategy: {}\n"))
+
+    linked = make_run(case_id=case_id, attempt_index=1,
+                      yaml_sha256=S.sha256_hex("strategy: {}\n"),
+                      signal_batch_sha256=S.sha256_hex("signal-batch"))
+    assert linked.case_id == case_id
 
 
 def test_candidates_cannot_come_from_an_entirely_empty_bundle():

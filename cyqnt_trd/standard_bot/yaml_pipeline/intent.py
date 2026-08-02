@@ -50,6 +50,8 @@ class IntentDecision:
     __slots__ = (
         "kind", "evidence", "requested_count", "sources",
         "bullish_preference", "unsupported_preferences", "candidate_trade_requested",
+        "long_short_min_account_pct", "long_short_min_account_operator",
+        "supertrend_parameters",
         "named_symbols",
         "included_symbols", "excluded_symbols", "intervals", "market_type",
         "technical_periods", "excluded_technical_periods", "stop_pct",
@@ -69,6 +71,9 @@ class IntentDecision:
         bullish_preference=False,
         unsupported_preferences=(),
         candidate_trade_requested=False,
+        long_short_min_account_pct=None,
+        long_short_min_account_operator=None,
+        supertrend_parameters=(),
         named_symbols=(),
         included_symbols=(),
         excluded_symbols=(),
@@ -97,6 +102,9 @@ class IntentDecision:
         self.bullish_preference = bool(bullish_preference)
         self.unsupported_preferences = tuple(unsupported_preferences)
         self.candidate_trade_requested = bool(candidate_trade_requested)
+        self.long_short_min_account_pct = long_short_min_account_pct
+        self.long_short_min_account_operator = long_short_min_account_operator
+        self.supertrend_parameters = tuple(supertrend_parameters)
         self.named_symbols = tuple(named_symbols)
         self.included_symbols = tuple(included_symbols)
         self.excluded_symbols = tuple(excluded_symbols)
@@ -130,6 +138,12 @@ class IntentDecision:
             "bullish_preference": self.bullish_preference,
             "unsupported_preferences": list(self.unsupported_preferences),
             "candidate_trade_requested": self.candidate_trade_requested,
+            "long_short_min_account_pct": self.long_short_min_account_pct,
+            "long_short_min_account_operator": self.long_short_min_account_operator,
+            "supertrend_parameters": [
+                {"period": period, "multiplier": multiplier}
+                for period, multiplier in self.supertrend_parameters
+            ],
             "named_symbols": list(self.named_symbols),
             "included_symbols": list(self.included_symbols),
             "excluded_symbols": list(self.excluded_symbols),
@@ -353,11 +367,18 @@ _PLURAL_SCOPE = re.compile(
     r"|\b(?:coins|tokens)\b",
     re.IGNORECASE,
 )
+_LONG_SHORT_RATIO_TERM = (
+    r"(?:散戶(?:帳戶)?多空比|多空(?:帳戶)?比|多空比|"
+    r"long[\s/_-]*short(?:[\s_-]*(?:ratio|account))?|"
+    r"long[\s_-]*account(?:s)?\s*(?:ratio|share)?)"
+)
+_LONG_SHORT_RATIO = re.compile(_LONG_SHORT_RATIO_TERM, re.IGNORECASE)
 _SOURCE_RULES = _rules(
     ("news",
      r"(?:新聞|社群|熱度|熱門|提到|提及|Square|news|social|mention|mentioned|buzz|hot|trending|popular)"),
     ("funding", r"(?:資金費率|funding(?:\s+rate)?)"),
     ("open_interest", r"(?:未平倉|未平倉量|持倉量|open[\s_-]*interest|\bOI\b)"),
+    ("long_short_ratio", _LONG_SHORT_RATIO_TERM),
     ("liquidity", r"(?:流動性|成交量|交易量|quote[\s_-]*volume|\bvolume\b|liquidity)"),
     ("price_change", r"(?:漲幅|跌幅|漲最多|跌最多|price[\s_-]*change|gainers?|losers?)"),
 )
@@ -534,6 +555,20 @@ _BULLISH_PREFERENCE = re.compile(
     r"(?:可以漲|會漲|上漲|看漲|偏多|適合做多|可能漲|bullish|likely\s+to\s+(?:rise|go\s+up)|upside)",
     re.IGNORECASE,
 )
+# A named asset-class exclusion is a hard semantic constraint.  We deliberately
+# retain the category name instead of guessing whether a venue's free-form
+# metadata happens to use the same spelling.  The demo front door stops before
+# an LLM call until there is an explicit, reviewed mapping for it.
+_CATEGORY_EXCLUSION_RULES = (
+    ("tradfi", re.compile(r"(?:\btradfi\b|傳統金融|傳統金融類)", re.IGNORECASE)),
+    ("stock_token", re.compile(
+        r"(?:股票代幣|股權代幣|代幣化(?:股票|股權)|"
+        r"\b(?:stock|equity)[\s_-]*(?:tokens?|assets?)\b|"
+        r"\btokeni[sz]ed[\s_-]*(?:stocks?|equities)\b)",
+        re.IGNORECASE,
+    )),
+    ("stablecoin", re.compile(r"(?:穩定幣|\bstablecoins?\b)", re.IGNORECASE)),
+)
 _NEWS_MENTION_METRIC = re.compile(
     r"(?:常提到|常被提及|提及量|提及最多|熱門|熱度|"
     r"mentions?|mentioned|buzz|hot|trending|popular)",
@@ -617,11 +652,23 @@ _INTERVAL = re.compile(
     r"(?![A-Za-z])",
     re.IGNORECASE,
 )
+_PREFIX_INTERVAL = re.compile(
+    r"(?<![A-Za-z0-9])([mhdw])\s*(\d{1,4})(?![A-Za-z0-9])",
+    re.IGNORECASE,
+)
 _TECHNICAL_PERIOD = re.compile(
     r"(?<![A-Za-z])(EMA|SMA|RSI|ADX)\s*[-_]?\s*(\d{1,4})(?!\d)",
     re.IGNORECASE,
 )
-_TECHNICAL_NAME = re.compile(r"(?<![A-Za-z])(EMA|SMA|RSI|ADX|MACD)(?![A-Za-z])", re.IGNORECASE)
+_TECHNICAL_NAME = re.compile(
+    r"(?<![A-Za-z])(EMA|SMA|RSI|ADX|MACD|SUPERTREND)(?![A-Za-z])",
+    re.IGNORECASE,
+)
+_SUPERTREND_PARAMETERS = re.compile(
+    r"(?<![A-Za-z])supertrend\s*[（(]\s*(\d{1,4})\s*[,，]\s*"
+    r"(\d+(?:\.\d+)?)\s*[)）]",
+    re.IGNORECASE,
+)
 _RSI_THRESHOLD = re.compile(
     r"RSI(?:\s*[-_]?\s*\d{1,4})?.{0,24}?"
     r"(低於|小於|低于|below|under|高於|大於|高于|above|over)\s*(\d+(?:\.\d+)?)",
@@ -706,7 +753,11 @@ def _symbol_mentions(text: str) -> tuple[tuple[str, bool], ...]:
             symbol = match.group(0).upper()
             if pattern is _BARE_UPPER_SYMBOL and (
                 symbol in _SYMBOL_STOPWORDS
-                or re.fullmatch(r"(?:EMA|SMA|RSI|ADX|MACD)\d*", symbol)
+                or re.fullmatch(r"(?:EMA|SMA|RSI|ADX|MACD|SUPERTREND)\d*", symbol)
+                # H4/H1/M15 are ordinary chart intervals, not ticker symbols.
+                # Keeping them in ``named_symbols`` caused an MTF request to
+                # become an accidental universe allowlist downstream.
+                or re.fullmatch(r"(?:[MHDW]\d{1,4})", symbol)
             ):
                 continue
             found.append((match.start(), match.end(), symbol, match))
@@ -761,8 +812,114 @@ def _requested_intervals(text: str) -> tuple[str, ...]:
     values = []
     for match in _INTERVAL.finditer(text):
         unit = unit_map[match.group(2).lower()]
-        values.append("%d%s" % (int(match.group(1)), unit))
-    return tuple(dict.fromkeys(values))
+        values.append((match.start(), "%d%s" % (int(match.group(1)), unit)))
+    # Chart users commonly spell timeframes as H4/H1/M15 rather than 4h/1h/15m.
+    # Parse both forms in textual order so a generated MTF selector can preserve
+    # the requested timeframes exactly.
+    for match in _PREFIX_INTERVAL.finditer(text):
+        values.append((match.start(), "%d%s" % (
+            int(match.group(2)), match.group(1).lower()
+        )))
+    return tuple(dict.fromkeys(value for _start, value in sorted(values)))
+
+
+def _clauses(text: str) -> tuple[str, ...]:
+    """Small clause split for context-sensitive lexical meanings.
+
+    ``偏多`` in a crowd-positioning clause describes the *crowd*; it must not
+    turn into a request for a news-bullish proxy.  Likewise Supertrend bearish
+    is an indicator state, not a generic preference.  Punctuation boundaries
+    are enough here and deliberately avoid a brittle natural-language parser.
+    """
+
+    parts = []
+    start = 0
+    depth = 0
+    for index, char in enumerate(text):
+        if char in "(（":
+            depth += 1
+        elif char in ")）" and depth:
+            depth -= 1
+        elif depth == 0 and char in ",，。;；、\n":
+            part = text[start:index].strip()
+            if part:
+                parts.append(part)
+            start = index + 1
+    tail = text[start:].strip()
+    if tail:
+        parts.append(tail)
+    return tuple(parts)
+
+
+def _generic_bullish_preference(text: str) -> bool:
+    for match in _BULLISH_PREFERENCE.finditer(text):
+        clause = next(
+            (item for item in _clauses(text)
+             if match.group(0) in item),
+            "",
+        )
+        if _LONG_SHORT_RATIO.search(clause) or "supertrend" in clause.lower():
+            continue
+        return True
+    return False
+
+
+def _long_short_min_account_requirement(text: str) -> tuple[float, str] | None:
+    """Extract a crowd-long threshold and whether its lower bound is strict.
+
+    ``> 60%`` and ``>= 60%`` select different baskets at the exact boundary.
+    Preserve that operator here rather than collapsing it into a numeric floor;
+    the generated YAML then selects the matching inclusive or exclusive Block
+    parameter.  Raw ratio thresholds and an unspecified ``偏多`` remain a
+    clarification, never an invented comparator.
+    """
+
+    comparison_after = re.compile(
+        r"(?P<op>>=|>|大於等於|高於等於|至少|不低於|以上|大於|高於|超過|"
+        r"above|over|at\s+least)\s*(?P<value>\d+(?:\.\d+)?)\s*%",
+        re.IGNORECASE,
+    )
+    comparison_before = re.compile(
+        r"(?P<value>\d+(?:\.\d+)?)\s*%\s*(?P<op>以上|或以上|起|above|over)",
+        re.IGNORECASE,
+    )
+    inclusive = {">=", "大於等於", "高於等於", "至少", "不低於", "以上", "或以上",
+                 "起", "at least"}
+    for clause in _clauses(text):
+        if not _LONG_SHORT_RATIO.search(clause):
+            continue
+        if not re.search(r"(?:偏多|多方|long(?:[\s_-]*accounts?)?)", clause,
+                         re.IGNORECASE):
+            continue
+        match = comparison_after.search(clause) or comparison_before.search(clause)
+        if match:
+            operator = str(match.group("op")).lower()
+            return (float(match.group("value")), ">=" if operator in inclusive else ">")
+    return None
+
+
+def _supertrend_directions(text: str) -> tuple[str, ...]:
+    """Return explicit Supertrend direction states without borrowing ``偏多``.
+
+    This keeps ``散戶多空比偏多 > 60%`` as a crowd filter rather than a request
+    for ``long_when`` or a news-sentiment proxy.
+    """
+
+    directions = []
+    for clause in _clauses(text):
+        if "supertrend" not in clause.lower():
+            continue
+        if re.search(r"(?:偏多|bullish)", clause, re.IGNORECASE):
+            directions.append("long")
+        if re.search(r"(?:偏空|bearish)", clause, re.IGNORECASE):
+            directions.append("short")
+    return tuple(dict.fromkeys(directions))
+
+
+def _category_exclusions(text: str) -> tuple[str, ...]:
+    if not re.search(_EXCLUSION_VERB, text, re.IGNORECASE):
+        return ()
+    return tuple(name for name, rule in _CATEGORY_EXCLUSION_RULES if rule.search(text))
 
 
 def _percent_near(text: str, labels: str) -> float | None:
@@ -923,9 +1080,15 @@ def classify_request(nl: str) -> IntentDecision:
         kind = "ambiguous"
         evidence = ()
 
-    unsupported = ()
+    unsupported = []
     if _UNSUPPORTED_DISCOVERY.search(text):
-        unsupported = ("under_discovered",)
+        unsupported.append("under_discovered")
+    # A request such as "排除 TradFi / 股票代幣 / 穩定幣" is not safely
+    # equivalent to an arbitrary string comparison.  Retain the category so the
+    # front door can stop before an LLM invents a mapping to exchange metadata.
+    unsupported.extend(
+        "category_exclusion:%s" % name for name in _category_exclusions(text)
+    )
     sources = {name for name, rule in _SOURCE_RULES if rule.search(text)}
     if _VOLUME_RANKING.search(text):
         ranking_metric = "liquidity"
@@ -959,6 +1122,14 @@ def classify_request(nl: str) -> IntentDecision:
         if name not in target:
             target.append(name)
 
+    supertrend_parameters = []
+    for match in _SUPERTREND_PARAMETERS.finditer(text):
+        if _is_excluded_match(text, match):
+            continue
+        item = (int(match.group(1)), float(match.group(2)))
+        if item not in supertrend_parameters:
+            supertrend_parameters.append(item)
+
     directions = []
     excluded_directions = []
     for direction, pattern in (("long", _LONG_DIRECTION), ("short", _SHORT_DIRECTION)):
@@ -967,6 +1138,9 @@ def classify_request(nl: str) -> IntentDecision:
             directions.append(direction)
         if any(_is_excluded_match(text, match) for match in matches):
             excluded_directions.append(direction)
+    for direction in _supertrend_directions(text):
+        if direction not in directions:
+            directions.append(direction)
     symbol_mentions = _symbol_mentions(text)
     included_symbols = tuple(
         dict.fromkeys(symbol for symbol, excluded in symbol_mentions if not excluded)
@@ -990,14 +1164,20 @@ def classify_request(nl: str) -> IntentDecision:
     if _DIRECTION_EXCLUSION.search(text) or _DIMINISHED_SIGN.search(text):
         ordered = set()
     score_order_metric, score_order = ordered.pop() if len(ordered) == 1 else (None, None)
+    long_short_requirement = _long_short_min_account_requirement(text)
     return IntentDecision(
         kind=kind,
         evidence=evidence,
         requested_count=_requested_count(text),
         sources=sources,
-        bullish_preference=bool(_BULLISH_PREFERENCE.search(text)),
-        unsupported_preferences=unsupported,
+        bullish_preference=_generic_bullish_preference(text),
+        unsupported_preferences=tuple(unsupported),
         candidate_trade_requested=candidate_trade_requested,
+        long_short_min_account_pct=(long_short_requirement[0]
+                                    if long_short_requirement is not None else None),
+        long_short_min_account_operator=(long_short_requirement[1]
+                                         if long_short_requirement is not None else None),
+        supertrend_parameters=supertrend_parameters,
         named_symbols=tuple(dict.fromkeys(symbol for symbol, _ in symbol_mentions)),
         included_symbols=included_symbols,
         excluded_symbols=excluded_symbols,
@@ -1132,6 +1312,103 @@ def _selection_indicator_specs(steps) -> tuple[tuple[str, object, str], ...]:
         alias = str(params.get("as") or "%s_%s" % (name, timeframe))
         out.append((name, params.get("period"), alias))
     return tuple(out)
+
+
+def _selection_supertrend_aliases(
+    steps, *, period: int, multiplier: float, timeframe: str,
+) -> set[str]:
+    """Aliases from exact, runnable Supertrend-direction universe steps.
+
+    ``output: 1`` is not cosmetic: output zero is the Supertrend price line,
+    which is positive whether the trend is bearish or bullish.  Treating it as
+    a direction would make a structurally valid selector answer the opposite
+    semantic question.
+    """
+
+    aliases = set()
+    for step in steps:
+        if step.get("block") != "universe.augment_with_indicator":
+            continue
+        if not isinstance(step.get("with"), (list, tuple)) \
+                or "universe_bars" not in step.get("with"):
+            continue
+        params = step.get("params") or {}
+        if not isinstance(params, dict):
+            continue
+        if str(params.get("indicator") or "").lower() != "supertrend":
+            continue
+        if str(params.get("timeframe") or "").lower() != timeframe:
+            continue
+        if not _close_enough(params.get("period"), period) \
+                or not _close_enough(params.get("multiplier"), multiplier) \
+                or not _close_enough(params.get("output"), 1):
+            continue
+        aliases.add(str(params.get("as") or "supertrend_%s" % timeframe))
+    return aliases
+
+
+def _mandatory_supertrend_aliases(node, *, aliases: set[str], relation: str) -> set[str] | None:
+    """Return direction aliases every truth path of *node* must satisfy.
+
+    Presence anywhere in an AST is insufficient for a ``同時`` request.  For
+    example, ``any_of: [st_4h < 0, quoteVolume > 0]`` mentions ``st_4h`` but a
+    liquid asset can pass without being bearish on 4h.  Boolean necessity is
+    deliberately conservative:
+
+    * an ``all_of`` needs the union of every child requirement;
+    * an ``any_of`` needs only the intersection shared by *every* branch; and
+    * ``not`` / ``exclude_when`` reject the proof because a direction alias
+      nested there does not establish the requested positive direction.
+
+    ``None`` means the expression has a form this semantic checker refuses to
+    reason about.  The YAML interpreter may still run such a form, but it may
+    not claim to meet a multi-timeframe Supertrend request.
+    """
+    if not isinstance(node, dict):
+        return None
+
+    if "cond" in node:
+        if not str(node.get("cond") or "").endswith(relation):
+            return set()
+        args = node.get("args") or []
+        if (not isinstance(args, (list, tuple)) or not args
+                or not _close_enough(_leaf_threshold(node), 0)):
+            return set()
+        alias = str(args[0])
+        return {alias} if alias in aliases else set()
+
+    if "all_of" in node:
+        children = node.get("all_of")
+        if not isinstance(children, list) or not children:
+            return None
+        required: set[str] = set()
+        for child in children:
+            child_required = _mandatory_supertrend_aliases(
+                child, aliases=aliases, relation=relation)
+            if child_required is None:
+                return None
+            required.update(child_required)
+        return required
+
+    if "any_of" in node:
+        children = node.get("any_of")
+        if not isinstance(children, list) or not children:
+            return None
+        branch_requirements = []
+        for child in children:
+            child_required = _mandatory_supertrend_aliases(
+                child, aliases=aliases, relation=relation)
+            if child_required is None:
+                return None
+            branch_requirements.append(child_required)
+        return set.intersection(*branch_requirements)
+
+    # The requested "all timeframes bearish/bullish" property is positive. A
+    # negated or exclusion tree may be a legitimate strategy expression, but it
+    # cannot be mechanically shown to mean the requested Supertrend state.
+    if "not" in node or "exclude_when" in node:
+        return None
+    return None
 
 
 def _iter_strings(value):
@@ -1652,6 +1929,48 @@ def reconcile_intent(intent: IntentDecision, spec: dict) -> tuple[list[str], lis
                 "需求提到 open interest,但 selection 的排名或過濾沒有實際讀取 OI 欄位"
             )
 
+    if "long_short_ratio" in intent.sources:
+        lsr_augments = [
+            step for step in steps
+            if step.get("block") == "universe.augment_with_long_short_ratio"
+            and isinstance(step.get("with"), (list, tuple))
+            and "long_short_ratio_snapshot" in step.get("with")
+        ]
+        if not lsr_augments:
+            errors.append(
+                "需求提到散戶多空比,selection 必須使用 "
+                "universe.augment_with_long_short_ratio(with: "
+                "[long_short_ratio_snapshot])"
+            )
+        minimum = intent.long_short_min_account_pct
+        filters = [
+            step for step in steps
+            if step.get("block") == "universe.filter_long_short_ratio"
+        ]
+        comparator = intent.long_short_min_account_operator
+        if minimum is None or comparator not in {">", ">="}:
+            errors.append(
+                "需求提到散戶多空比但未明確指定可驗證的多方帳戶百分比門檻;"
+                "不得猜測 min_long_account_pct"
+            )
+        else:
+            parameter = ("min_long_account_pct_exclusive"
+                         if comparator == ">" else "min_long_account_pct")
+            wording = "大於" if comparator == ">" else "至少"
+            matched = any(
+                isinstance(step.get("params"), dict)
+                and _close_enough(
+                    (step.get("params") or {}).get(parameter), minimum
+                )
+                for step in filters
+            )
+            if not matched:
+                errors.append(
+                    "需求要求散戶多方帳戶佔比%s %.4g%%,但 selection 沒有 "
+                    "filter_long_short_ratio(%s: %.4g)"
+                    % (wording, minimum, parameter, minimum)
+                )
+
     if "news" in intent.sources:
         augment = [step for step in steps
                    if step.get("block") == "universe.augment_with_news"]
@@ -1717,6 +2036,55 @@ def reconcile_intent(intent: IntentDecision, spec: dict) -> tuple[list[str], lis
                 "需求以成交量/流動性作選幣依據,但 selection.score 沒有實際依賴"
                 " quoteVolume"
             )
+
+    if "supertrend" in intent.indicator_names:
+        if not intent.supertrend_parameters:
+            errors.append(
+                "需求指定 Supertrend,但沒有可驗證的 (period, multiplier) 參數"
+            )
+        if not intent.intervals:
+            errors.append("需求指定 Supertrend,但沒有可驗證的 timeframe")
+        requested_sides = [side for side in ("long", "short") if side in intent.directions]
+        if not requested_sides:
+            errors.append("需求指定 Supertrend,但沒有明確偏多或偏空方向")
+        for period, multiplier in intent.supertrend_parameters:
+            aliases = set()
+            for timeframe in intent.intervals:
+                found = _selection_supertrend_aliases(
+                    steps, period=period, multiplier=multiplier, timeframe=timeframe,
+                )
+                if not found:
+                    errors.append(
+                        "需求指定 Supertrend(%d,%.4g) %s,但 selection 沒有 "
+                        "universe.augment_with_indicator(with: [universe_bars], "
+                        "output: 1) 的同參數 step"
+                        % (period, multiplier, timeframe)
+                    )
+                aliases.update(found)
+
+            for side in requested_sides:
+                node = selection.get("%s_when" % side)
+                relation = "value_above" if side == "long" else "value_below"
+                mandatory_aliases = _mandatory_supertrend_aliases(
+                    node, aliases=aliases, relation=relation,
+                )
+                missing_aliases = (sorted(aliases - mandatory_aliases)
+                                   if mandatory_aliases is not None
+                                   else sorted(aliases))
+                if missing_aliases:
+                    errors.append(
+                        "需求指定 Supertrend(%d,%.4g) 偏%s,但 %s_when 沒有以 "
+                        "conditions.%s(_, 0) 在每條可行判斷路徑實際要求: %s"
+                        % (period, multiplier, "多" if side == "long" else "空", side,
+                           relation, ", ".join(missing_aliases))
+                    )
+                if len(intent.intervals) > 1 and aliases and (
+                        mandatory_aliases is None or not aliases.issubset(mandatory_aliases)):
+                    errors.append(
+                        "需求指定多時框 Supertrend 同時偏%s,但 %s_when 存在可繞過某個 "
+                        "timeframe 的布林分支；每條可行路徑都必須要求所有 timeframe"
+                        % ("多" if side == "long" else "空", side)
+                    )
 
     if intent.candidate_trade_requested:
         if "long" in intent.directions and not selection.get("long_when"):
@@ -1911,6 +2279,17 @@ def reconcile_intent(intent: IntentDecision, spec: dict) -> tuple[list[str], lis
         errors.append(
             "使用者明確排除 %s,但 YAML 的 universe.exclude_symbols 未完整排除: %s"
             % (", ".join(intent.excluded_symbols), ", ".join(missing_excluded))
+        )
+    unmapped_categories = [
+        item.split(":", 1)[1]
+        for item in intent.unsupported_preferences
+        if item.startswith("category_exclusion:")
+    ]
+    if unmapped_categories:
+        errors.append(
+            "使用者要求排除資產類別(%s),但沒有經核對的 metadata 映射;"
+            "拒絕以近似的 universe filter 假裝已排除"
+            % ", ".join(unmapped_categories)
         )
     if "under_discovered" in intent.unsupported_preferences:
         warnings.append(

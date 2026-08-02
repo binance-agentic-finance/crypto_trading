@@ -343,9 +343,12 @@ selection:                            # 选币 / 截面排名
 #                                             門檻,美元欄留 5 檔、幣數欄留 3 檔,只重疊
 #                                             1 檔。所以 basis 一定要明寫。
 #                                             (要先 augment_with_oi_change)
-#   filter_long_short_ratio(min_long_account_pct? max_long_account_pct?)
+#   filter_long_short_ratio(min_long_account_pct? max_long_account_pct?
+#                           min_long_account_pct_exclusive?)
 #                                             多空帳戶比:多方帳戶佔比的百分點上下限
-#                                             (60 = 「六成帳戶偏多」)。
+#                                             (60 = 「至少六成帳戶偏多」)。若使用者
+#                                             明說「> 60%」，要用 exclusive 參數，
+#                                             不得用 inclusive 的 min 偷換邊界。
 #                                             (要先 augment_with_long_short_ratio)
 #   filter_spread(max_spread_bps? min_spread_bps?)
 #                                             盤口價差的上下限,單位是**基點**

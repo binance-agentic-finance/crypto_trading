@@ -51,6 +51,7 @@ import json
 import os
 import time
 import uuid
+from collections.abc import Mapping
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 from ..core import (
@@ -125,6 +126,103 @@ def _rows(frame) -> List[Dict[str, Any]]:
     for record in clean.to_dict(orient="records"):
         out.append({k: (v.item() if hasattr(v, "item") else v) for k, v in record.items()})
     return out
+
+
+_SERIALIZED_FRAME_SHAPES = frozenset(set(FRAME_SHAPES.values()) | {
+    "RawFrame@1.0",
+})
+
+
+def _serialized_epoch_ms(value: Any, *, location: str,
+                         field: str = "available_time") -> int:
+    """Return one wire-format epoch-ms value or explain why it is unsafe.
+
+    A replay artifact is intentionally stricter than an in-memory collection
+    helper: once a row crosses the JSON boundary, ``available_time`` is the
+    evidence that the row was knowable at the decision clock.  Do not infer it
+    from ``event_time`` / a bar close here; that would turn a malformed replay
+    into a silently optimistic one.
+    """
+    if value is None:
+        raise ValueError("%s is missing %s" % (location, field))
+    if isinstance(value, bool):
+        raise ValueError("%s has unparseable %s %r" % (location, field, value))
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError, OverflowError):
+        raise ValueError("%s has unparseable %s %r" % (location, field, value))
+
+    # ``int(1.5)`` silently truncates and ``int('')`` already failed above.  A
+    # persisted contract declares epoch *milliseconds*, so accepting a fractional
+    # number would make its exact decision clock ambiguous.
+    if isinstance(value, float) and value != float(parsed):
+        raise ValueError("%s has unparseable %s %r" % (location, field, value))
+    return parsed
+
+
+def _validate_serialized_input_bundle(bundle: Any) -> None:
+    """Fail closed on malformed or future rows before loading a replay artifact.
+
+    Builders apply their PIT gate while collecting data.  This is the companion
+    *ingress* gate for persisted ``cyqnt.input/v1``: a hand-edited or corrupted
+    JSON artifact must not bypass the original gate merely because it is read
+    back into a :class:`DataSnapshot`.  It validates only the wire envelope and
+    the cross-field clock invariant; it deliberately does not filter or repair
+    rows, because either action would hide that a replay input was invalid.
+    """
+    if not isinstance(bundle, Mapping):
+        raise ValueError("not a %s bundle: expected object, got %s"
+                         % (INPUT_SCHEMA_VERSION, type(bundle).__name__))
+    if bundle.get("schema") != INPUT_SCHEMA_VERSION:
+        raise ValueError("not a %s bundle: schema=%r"
+                         % (INPUT_SCHEMA_VERSION, bundle.get("schema")))
+    if "decision_time" not in bundle:
+        raise ValueError("%s bundle is missing decision_time" % INPUT_SCHEMA_VERSION)
+
+    decision_time = _serialized_epoch_ms(
+        bundle["decision_time"], location="%s bundle" % INPUT_SCHEMA_VERSION,
+        field="decision_time",
+    )
+
+    frames = bundle.get("frames")
+    if frames is None:
+        # ``frames`` is optional at the top level for a deliberately empty
+        # artifact, but an explicitly null value is not a serialised frame map.
+        if "frames" in bundle:
+            raise ValueError("%s bundle frames must be an object, got null"
+                             % INPUT_SCHEMA_VERSION)
+        return
+    if not isinstance(frames, Mapping):
+        raise ValueError("%s bundle frames must be an object, got %s"
+                         % (INPUT_SCHEMA_VERSION, type(frames).__name__))
+
+    for node, frame in frames.items():
+        node_label = "frame %r" % node
+        if not isinstance(frame, Mapping):
+            raise ValueError("%s must be an object, got %s"
+                             % (node_label, type(frame).__name__))
+        shape = frame.get("shape")
+        if not isinstance(shape, str) or shape not in _SERIALIZED_FRAME_SHAPES:
+            raise ValueError("%s has unknown or missing shape %r"
+                             % (node_label, shape))
+        if "rows" not in frame:
+            raise ValueError("%s is missing rows" % node_label)
+        rows = frame["rows"]
+        if not isinstance(rows, list):
+            raise ValueError("%s rows must be an array, got %s"
+                             % (node_label, type(rows).__name__))
+        for row_index, row in enumerate(rows):
+            row_label = "%s row %d" % (node_label, row_index)
+            if not isinstance(row, Mapping):
+                raise ValueError("%s must be an object, got %s"
+                                 % (row_label, type(row).__name__))
+            available_time = _serialized_epoch_ms(
+                row.get("available_time"), location=row_label)
+            if available_time > decision_time:
+                raise ValueError(
+                    "%s available_time=%d is after decision_time=%d"
+                    % (row_label, available_time, decision_time)
+                )
 
 
 def _pit(rows: Sequence[Dict[str, Any]], decision_time: int) -> List[Dict[str, Any]]:
@@ -451,10 +549,9 @@ def load_input_bundle(bundle: Any) -> DataSnapshot:
     import pandas as pd
 
     if isinstance(bundle, (str, bytes, os.PathLike)):
-        bundle = json.loads(open(bundle, encoding="utf-8").read())
-    if bundle.get("schema") != INPUT_SCHEMA_VERSION:
-        raise ValueError("not a %s bundle: schema=%r"
-                         % (INPUT_SCHEMA_VERSION, bundle.get("schema")))
+        bundle = read_input_bundle(bundle)
+    else:
+        _validate_serialized_input_bundle(bundle)
 
     decision_time = int(bundle["decision_time"])
     frames_in = bundle.get("frames") or {}
@@ -464,6 +561,8 @@ def load_input_bundle(bundle: Any) -> DataSnapshot:
     if "klines" in frames_in:
         bars: List[Bar] = []
         for row in frames_in["klines"]["rows"]:
+            open_time = row.get("open_time")
+            available_time = row.get("available_time")
             bars.append(Bar(
                 open=float(row["open"]), high=float(row["high"]),
                 low=float(row["low"]), close=float(row["close"]),
@@ -474,10 +573,11 @@ def load_input_bundle(bundle: Any) -> DataSnapshot:
                 confirmed=bool(row.get("confirmed", True)),
                 quote_volume=(None if row.get("quote_volume") is None
                               else float(row["quote_volume"])),
-                extras={"open_time": int(row.get("open_time") or row["close_time"]),
+                extras={"open_time": int(row["close_time"] if open_time is None
+                                         else open_time),
                         "close_time": int(row["close_time"]),
-                        "available_time": int(row.get("available_time")
-                                              or row["close_time"])},
+                        "available_time": int(row["close_time"] if available_time is None
+                                              else available_time)},
             ))
         if bars:
             key = MarketBundle.key(bars[0].instrument_id, bars[0].timeframe)
@@ -551,6 +651,7 @@ def load_input_bundle(bundle: Any) -> DataSnapshot:
 
 
 def write_input_bundle(bundle: Dict[str, Any], path: str) -> str:
+    _validate_serialized_input_bundle(bundle)
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(bundle, fh, ensure_ascii=False, separators=(",", ":"))
@@ -559,4 +660,6 @@ def write_input_bundle(bundle: Dict[str, Any], path: str) -> str:
 
 def read_input_bundle(path: str) -> Dict[str, Any]:
     with open(path, encoding="utf-8") as fh:
-        return json.load(fh)
+        bundle = json.load(fh)
+    _validate_serialized_input_bundle(bundle)
+    return bundle
