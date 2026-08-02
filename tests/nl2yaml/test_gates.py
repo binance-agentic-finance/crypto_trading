@@ -24,6 +24,9 @@ from tools.nl2yaml import gates
 
 REPO = Path(__file__).resolve().parents[2]
 FIXTURE = REPO / "tests" / "standard_bot" / "fixtures" / "universe_cross_section.json"
+CANDIDATE_FIXTURE = REPO / "tests" / "standard_bot" / "fixtures" / "universe_derivatives.json"
+TRADE_BUNDLE = REPO / "docs" / "standard_bot_io" / "samples" / "input_bundle_example.json"
+TRADE_SPEC = REPO / "docs" / "strategy_yaml_spec" / "example_multi_factor.yaml"
 SPEC_NEWS = REPO / "docs" / "strategy_yaml_spec" / "example_selection.yaml"
 SPEC_USER_CHAT = REPO / "docs" / "strategy_yaml_spec" / "example_from_user_chat.yaml"
 
@@ -46,6 +49,53 @@ def _spec(path: Path) -> dict:
     from cyqnt_trd.standard_bot.yaml_pipeline.spec import load_spec
 
     return load_spec(str(path))
+
+
+def _candidate_trade_spec(*, tp_pct=0.04) -> dict:
+    """A frozen five-symbol hybrid fixture with a complete candidate plan."""
+    return {
+        "spec_version": "1.0",
+        "target": "standard_bot",
+        "strategy": {"id": "g1e_candidate_trade"},
+        "run": {"mode": "backtest"},
+        "data": {
+            "symbol": "BTCUSDT",
+            "market_type": "futures",
+            "primary": {"interval": "1h"},
+        },
+        "selection": {
+            "universe": [
+                {"block": "universe.only_symbols", "params": {
+                    "symbols": ["ALLOUSDT", "TAGUSDT", "UAIUSDT", "UBUSDT", "USUSDT"],
+                }},
+                {"block": "universe.augment_with_indicator", "with": ["universe_bars"],
+                 "params": {"indicator": "rsi", "timeframe": "1h", "period": 14,
+                            "as": "rsi14"}},
+            ],
+            "score": "quoteVolume",
+            "order": "desc",
+            "top_k": 5,
+            "long_when": {"cond": "conditions.value_below", "args": ["rsi14", 101]},
+            "candidate_trade": {"entry_type": "market"},
+        },
+        "sizing": {"size": 0.05},
+        "risk": {"exit": {"type": "pct_stop_tp", "stop_pct": 0.02,
+                             "tp_pct": tp_pct}},
+    }
+
+
+def _always_long_trade_spec() -> dict:
+    spec = _spec(TRADE_SPEC)
+    spec["strategy"]["id"] = "g1e_standalone_trade"
+    spec["signals"] = {
+        "indicators": {},
+        "entry": {
+            "long": {"cond": "conditions.value_above", "args": ["close", 0]},
+            "short": {"cond": "conditions.value_below", "args": ["close", 0]},
+        },
+    }
+    spec["risk"]["exit"] = {"type": "time_only", "max_bars": 3}
+    return spec
 
 
 # The conditions the user-chat spec was converted from. Structured triples only.
@@ -195,6 +245,112 @@ def test_g1e_catches_a_threshold_violation_that_every_other_gate_waves_through()
     for offender in violated[0].offenders:
         assert float(offender.split("=")[1]) < 2_000_000, offender
     assert "quoteVolume" in violated[0].detail
+
+
+def _plan_condition(scope, value):
+    return {
+        "id": "plan",
+        "subject": "entry_exit_plan",
+        "scope": scope,
+        "operator": "plan",
+        "value": value,
+        "quantified": True,
+    }
+
+
+def test_g1e_reads_the_real_nested_candidate_trade_plan():
+    """The hybrid path is checked from emitted nested v2 trades, not YAML only."""
+    from cyqnt_trd.standard_bot.yaml_pipeline.bundle_runner import run_bundle
+
+    spec = _candidate_trade_spec()
+    batch = run_bundle(spec, str(CANDIDATE_FIXTURE))
+    condition = _plan_condition("cross_section", {
+        "entry_type": "market", "size": 0.05, "stop_pct": 0.02, "tp_pct": 0.04,
+    })
+
+    ruled = gates.evaluate_conditions(batch, spec, [condition])
+
+    assert [trade["symbol"] for trade in gates.trade_payloads(batch)] == [
+        candidate["symbol"] for candidate in batch["signals"][0]["candidates"]
+    ]
+    assert ruled[0].verdict == gates.SATISFIED, ruled[0].detail
+
+
+def test_g1e_rejects_a_nested_candidate_trade_target_that_does_not_match():
+    """A valid/runnable hybrid YAML still fails when its actual target is wrong."""
+    from cyqnt_trd.standard_bot.yaml_pipeline.bundle_runner import run_bundle
+
+    spec = _candidate_trade_spec(tp_pct=0.05)
+    batch = run_bundle(spec, str(CANDIDATE_FIXTURE))
+    ruled = gates.evaluate_conditions(batch, spec, [_plan_condition(
+        "cross_section", {"entry_type": "market", "size": 0.05,
+                          "stop_pct": 0.02, "tp_pct": 0.04})])
+
+    assert ruled[0].verdict == gates.VIOLATED
+    assert any("tp_pct" in offender for offender in ruled[0].offenders)
+
+
+def test_g1e_marks_an_omitted_candidate_plan_not_expressed():
+    """A pure selection may not get credit for an entry/exit request by chance."""
+    from cyqnt_trd.standard_bot.yaml_pipeline.bundle_runner import run_bundle
+
+    spec = _candidate_trade_spec()
+    spec["selection"].pop("candidate_trade")
+    spec.pop("sizing")
+    spec.pop("risk")
+    batch = run_bundle(spec, str(CANDIDATE_FIXTURE))
+    ruled = gates.evaluate_conditions(batch, spec, [_plan_condition(
+        "cross_section", {"entry_type": "market", "size": 0.05,
+                          "stop_pct": 0.02, "tp_pct": 0.04})])
+
+    assert ruled[0].verdict == gates.NOT_EXPRESSED
+    assert gates.trade_payloads(batch) == ()
+
+
+def test_g1e_reads_a_real_standalone_trade_plan_too():
+    """The normalized helper retains top-level trade signals as well as baskets."""
+    from cyqnt_trd.standard_bot.yaml_pipeline.bundle_runner import run_bundle
+
+    spec = _always_long_trade_spec()
+    batch = run_bundle(spec, str(TRADE_BUNDLE))
+    ruled = gates.evaluate_conditions(batch, spec, [_plan_condition(
+        "per_symbol_series", {"size": 0.5, "max_bars": 3})])
+
+    assert len(gates.trade_payloads(batch)) == 1
+    assert ruled[0].verdict == gates.SATISFIED, ruled[0].detail
+
+
+def test_g1e_entry_exit_plan_never_credits_the_wrong_output_dialect():
+    """Capability scope is a real contract, not a hint for matching payloads."""
+    from cyqnt_trd.standard_bot.yaml_pipeline.bundle_runner import run_bundle
+
+    candidate_spec = _candidate_trade_spec()
+    candidate_batch = run_bundle(candidate_spec, str(CANDIDATE_FIXTURE))
+    nested_as_series = gates.evaluate_conditions(candidate_batch, candidate_spec, [
+        _plan_condition("per_symbol_series", {"size": 0.05, "stop_pct": 0.02,
+                                                "tp_pct": 0.04})])
+    assert nested_as_series[0].verdict == gates.NOT_EXPRESSED
+
+    trade_spec = _always_long_trade_spec()
+    trade_batch = run_bundle(trade_spec, str(TRADE_BUNDLE))
+    standalone_as_basket = gates.evaluate_conditions(trade_batch, trade_spec, [
+        _plan_condition("cross_section", {"size": 0.5, "max_bars": 3})])
+    assert standalone_as_basket[0].verdict == gates.NOT_EXPRESSED
+
+
+def test_g1e_recognizes_an_explicit_opposite_signal_exit_plan():
+    """A valid non-price exit is not silently rejected as an incomplete plan."""
+    from cyqnt_trd.standard_bot.yaml_pipeline.bundle_runner import run_bundle
+
+    spec = _candidate_trade_spec()
+    spec["risk"]["exit"] = {"type": "opposite_signal"}
+    batch = run_bundle(spec, str(CANDIDATE_FIXTURE))
+    ruled = gates.evaluate_conditions(batch, spec, [_plan_condition(
+        "cross_section", {"entry_type": "market", "size": 0.05})])
+
+    assert ruled[0].verdict == gates.SATISFIED, ruled[0].detail
+    assert all(trade["exit_plan"]["exit_on_opposite_signal"]
+               for trade in gates.trade_payloads(batch))
 
 
 def test_an_undeclared_reading_fails_g1e_even_when_every_predicate_holds():

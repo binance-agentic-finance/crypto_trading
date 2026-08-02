@@ -51,6 +51,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import math
 import re
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
@@ -82,6 +83,7 @@ __all__ = [
     "run_gates",
     "run_with_retries",
     "selection_candidates",
+    "trade_payloads",
     "strip_code_fence",
 ]
 
@@ -323,6 +325,58 @@ def selection_candidates(batch: Mapping[str, Any]) -> Tuple[Dict[str, Any], ...]
     for signal in (batch.get("signals") or ()):
         if signal.get("kind") == "selection":
             out.extend(signal.get("candidates") or ())
+    return tuple(out)
+
+
+def trade_payloads(batch: Mapping[str, Any]) -> Tuple[Dict[str, Any], ...]:
+    """Every canonical v2 trade payload emitted by a batch.
+
+    A single-symbol strategy emits a top-level ``kind=trade`` signal, whereas a
+    compound selection carries one nested trade under each candidate.  G1e must
+    inspect both shapes; looking only at the outer selection is how the old
+    entry/exit-plan predicate concluded that candidate plans did not exist.
+    ``Mapping`` is checked rather than assumed so malformed output stays
+    unverifiable/violated at the predicate layer instead of throwing here.
+    """
+    out: List[Dict[str, Any]] = []
+    for signal in (batch.get("signals") or ()):
+        if not isinstance(signal, Mapping):
+            continue
+        if signal.get("kind") == "trade":
+            out.append(dict(signal))
+        elif signal.get("kind") == "selection":
+            for candidate in (signal.get("candidates") or ()):
+                if not isinstance(candidate, Mapping):
+                    continue
+                trade = candidate.get("trade")
+                if isinstance(trade, Mapping):
+                    out.append(dict(trade))
+    return tuple(out)
+
+
+def _entry_exit_subject_items(
+    batch: Mapping[str, Any], scope: str,
+) -> Tuple[Dict[str, Any], ...]:
+    """Candidate-shaped items used only by the entry/exit G1e predicate.
+
+    Preserve a selection candidate even when its nested ``trade`` is missing:
+    that is evidence that a requested candidate plan was not emitted, not a
+    reason to silently ignore the candidate.  Direct trade signals get the same
+    wrapper so the predicate can reason about one normalized shape.
+    """
+    out: List[Dict[str, Any]] = []
+    for signal in (batch.get("signals") or ()):
+        if not isinstance(signal, Mapping):
+            continue
+        if scope == "per_symbol_series" and signal.get("kind") == "trade":
+            out.append({"symbol": signal.get("symbol"), "trade": dict(signal),
+                        "nested": False})
+        elif scope == "cross_section" and signal.get("kind") == "selection":
+            for candidate in (signal.get("candidates") or ()):
+                if isinstance(candidate, Mapping):
+                    item = dict(candidate)
+                    item["nested"] = True
+                    out.append(item)
     return tuple(out)
 
 
@@ -713,6 +767,181 @@ def _contract_type(candidates, cond):
     return (SATISFIED, "every candidate is one of %s" % list(wanted), ())
 
 
+_PLAN_VALUE_ALIASES = {
+    "entry_type": "entry_type",
+    "size": "size",
+    "size_pct": "size",
+    "stop_pct": "stop_pct",
+    "stop_loss_pct": "stop_pct",
+    "tp_pct": "tp_pct",
+    "take_profit_pct": "tp_pct",
+    "stop_mult": "stop_mult",
+    "tp_mult": "tp_mult",
+    "trail_mult": "trail_mult",
+    "max_bars": "max_bars",
+}
+
+
+def _plan_expectations(value: Any) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """Normalize the closed, structured subset of an entry/exit condition.
+
+    Conditions intentionally carry only structured values, never a quoted user
+    request.  A mapping with an unknown field is therefore not something G1e
+    may silently ignore: it is an uncheckable request shape and must remain
+    ``unverifiable``.  ``None`` still lets G1e verify that a complete canonical
+    plan exists, which is useful for an unquantified plan request.
+    """
+    if value is None:
+        return {}, None
+    if not isinstance(value, Mapping):
+        return None, "entry_exit_plan value must be a mapping or null"
+    expected: Dict[str, Any] = {}
+    for key, raw_value in value.items():
+        canonical = _PLAN_VALUE_ALIASES.get(str(key))
+        if canonical is None:
+            return None, "entry_exit_plan value names unsupported field %r" % (key,)
+        if canonical in expected and expected[canonical] != raw_value:
+            return None, "entry_exit_plan value names %s twice with different values" % canonical
+        expected[canonical] = raw_value
+    return expected, None
+
+
+def _as_plan_number(value: Any) -> Optional[float]:
+    if isinstance(value, bool):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _plan_observed_value(trade: Mapping[str, Any], name: str) -> Any:
+    """Read one checkable field from a canonical ``cyqnt.signal/v2`` trade."""
+    entry = trade.get("entry")
+    size = trade.get("size")
+    exit_plan = trade.get("exit_plan")
+    stop_loss = exit_plan.get("stop_loss") if isinstance(exit_plan, Mapping) else None
+    take_profit = exit_plan.get("take_profit") if isinstance(exit_plan, Mapping) else None
+    first_target = (take_profit[0] if isinstance(take_profit, list) and take_profit
+                    and isinstance(take_profit[0], Mapping) else None)
+    time_stop = exit_plan.get("time_stop") if isinstance(exit_plan, Mapping) else None
+
+    if name == "entry_type":
+        return entry.get("type") if isinstance(entry, Mapping) else None
+    if name == "size":
+        return size.get("value") if isinstance(size, Mapping) else None
+    if name == "stop_pct":
+        return stop_loss.get("pct") if isinstance(stop_loss, Mapping) else None
+    if name == "tp_pct":
+        return first_target.get("pct") if isinstance(first_target, Mapping) else None
+    if name == "stop_mult":
+        return stop_loss.get("atr_mult") if isinstance(stop_loss, Mapping) else None
+    if name == "tp_mult":
+        return first_target.get("atr_mult") if isinstance(first_target, Mapping) else None
+    if name == "trail_mult":
+        if not isinstance(stop_loss, Mapping) or not stop_loss.get("trailing"):
+            return None
+        return stop_loss.get("atr_mult")
+    if name == "max_bars":
+        return time_stop.get("max_bars") if isinstance(time_stop, Mapping) else None
+    raise AssertionError("unknown canonical plan field %r" % (name,))
+
+
+def _matches_plan_value(observed: Any, expected: Any) -> bool:
+    """Exact strings, tolerant numeric values; no implicit threshold reading."""
+    if isinstance(expected, str):
+        return observed == expected
+    left = _as_plan_number(observed)
+    right = _as_plan_number(expected)
+    return left is not None and right is not None and math.isclose(
+        left, right, rel_tol=1e-12, abs_tol=1e-12)
+
+
+def _has_complete_plan(trade: Mapping[str, Any], *, nested: bool) -> Optional[str]:
+    """Return a human-safe reason when the output lacks a verifiable plan."""
+    if trade.get("schema") != "cyqnt.signal/v2" or trade.get("kind") != "trade":
+        return "not a canonical v2 trade payload"
+    size = trade.get("size")
+    exit_plan = trade.get("exit_plan")
+    if not isinstance(size, Mapping) or _as_plan_number(size.get("value")) is None:
+        return "missing numeric size"
+    if not isinstance(exit_plan, Mapping):
+        return "missing exit_plan"
+    has_exit = (bool(exit_plan.get("exit_on_opposite_signal"))
+                or isinstance(exit_plan.get("stop_loss"), Mapping)
+                or bool(exit_plan.get("take_profit"))
+                or isinstance(exit_plan.get("time_stop"), Mapping))
+    if not has_exit:
+        return "exit_plan has no opposite-signal, stop, target, or time stop"
+    if nested:
+        entry = trade.get("entry")
+        if not isinstance(entry, Mapping) or not entry.get("type"):
+            return "candidate trade has no executable entry"
+        if trade.get("requires_confirmation") is not True:
+            return "candidate trade is not confirmation-required"
+        if trade.get("auto_trade_eligible") is not False:
+            return "candidate trade is unexpectedly auto-trade eligible"
+    return None
+
+
+@register_predicate("entry_exit_plan")
+def _entry_exit_plan(items, cond):
+    """Verify actual standalone and nested candidate plans, not just the YAML.
+
+    Candidate plans are a different signal shape from standalone trades.  The
+    caller gives this predicate candidate-shaped items so a missing nested
+    ``trade`` remains visible rather than being dropped before the check.
+    """
+    if not items:
+        return _unverifiable("no trade payloads in the output to inspect")
+    expected, error = _plan_expectations(cond.value)
+    if error:
+        return _unverifiable(error)
+
+    offenders: List[str] = []
+    for item in items:
+        symbol = str(item.get("symbol") or "<unknown>")
+        trade = item.get("trade")
+        nested = bool(item.get("nested"))
+        if not isinstance(trade, Mapping):
+            offenders.append("%s: missing nested trade" % symbol)
+            continue
+        missing = _has_complete_plan(trade, nested=nested)
+        if missing:
+            offenders.append("%s: %s" % (symbol, missing))
+            continue
+        for name, wanted in expected.items():
+            observed = _plan_observed_value(trade, name)
+            if not _matches_plan_value(observed, wanted):
+                offenders.append("%s: %s=%r (wanted %r)" % (
+                    symbol, name, observed, wanted))
+                break
+
+    if offenders:
+        return (VIOLATED,
+                "%d of %d trade plan(s) are absent or do not match: %s"
+                % (len(offenders), len(items), "; ".join(offenders[:10])),
+                tuple(offenders))
+    return (SATISFIED, "all %d emitted trade plan(s) match the stated plan"
+            % len(items), ())
+
+
+def _spec_expresses_entry_exit_plan(spec: Mapping[str, Any], scope: str) -> bool:
+    """Whether the condition's declared frame carries the plan surface."""
+    risk = spec.get("risk")
+    sizing = spec.get("sizing")
+    if not (isinstance(risk, Mapping) and isinstance(risk.get("exit"), Mapping)
+            and isinstance(sizing, Mapping) and "size" in sizing):
+        return False
+    selection = spec.get("selection")
+    if scope == "cross_section":
+        return (isinstance(selection, Mapping)
+                and isinstance(selection.get("candidate_trade"), Mapping))
+    if scope == "per_symbol_series":
+        return isinstance(spec.get("signals"), Mapping)
+    return False
+
+
 def _never_verifiable(explanation: str) -> Predicate:
     """A predicate that can only ever answer ``unverifiable``.
 
@@ -754,9 +983,6 @@ _UNVERIFIABLE_SUBJECTS = {
         "timeframes' has nothing to check",
     "historical_range":
         "the cross-section is one instant; there is no window in the output",
-    "entry_exit_plan":
-        "the YAML selection path never fills a candidate's `trade` slot, so an "
-        "entry/stop/target claim cannot be read off the basket",
     "liquidation":
         "the cross-section carries no liquidation column; the per-symbol feed is "
         "not joined onto the universe frame",
@@ -888,6 +1114,21 @@ def evaluate_conditions(
                 detail="the spec names none of %s" % list(required)))
             continue
 
+        # ``entry_exit_plan`` deliberately grants field vocabulary rather than a
+        # BLOCK ref: both the standalone and candidate-trade dialects express it
+        # through closed YAML mappings.  Check that those mappings exist before
+        # evaluating the emitted signals, otherwise a pure selection that happens
+        # to contain no trades could look like an uncheckable runtime accident
+        # instead of the stronger fact that the converter omitted the plan.
+        if (cond.subject == "entry_exit_plan"
+                and not _spec_expresses_entry_exit_plan(spec, cond.scope)):
+            verdicts.append(ConditionVerdict(
+                condition=cond, verdict=NOT_EXPRESSED,
+                silently_proxied=not _output_admits(batch, proxy_tokens),
+                detail="the spec has no complete standalone or candidate-trade "
+                       "entry/exit plan"))
+            continue
+
         predicate = PREDICATES.get(cond.subject)
         if predicate is None:
             verdicts.append(ConditionVerdict(
@@ -897,7 +1138,9 @@ def evaluate_conditions(
                        "unverifiable rather than assume it held" % cond.subject))
             continue
 
-        verdict, detail, offenders = predicate(candidates, cond)
+        items = (_entry_exit_subject_items(batch, cond.scope)
+                 if cond.subject == "entry_exit_plan" else candidates)
+        verdict, detail, offenders = predicate(items, cond)
         verdicts.append(ConditionVerdict(
             condition=cond, verdict=verdict, detail=detail, offenders=offenders,
             undisclosed_assumption=undisclosed,

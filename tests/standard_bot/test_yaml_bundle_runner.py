@@ -91,6 +91,19 @@ def test_a_required_source_error_stops_the_strategy_instead_of_lying():
         run_bundle(spec, bundle)
 
 
+def test_run_bundle_rejects_a_tampered_event_clock_before_blocks_run():
+    """The YAML runner cannot bypass the serialized input contract ingress."""
+    bundle = _bundle()
+    row = bundle["frames"]["universe"]["rows"][0]
+    row["event_time"] = int(row["available_time"]) + 1
+
+    with pytest.raises(
+        ValueError,
+        match=r"frame 'universe' has rows whose event_time is AFTER available_time",
+    ):
+        run_bundle(str(SELECTION_SPEC), bundle)
+
+
 def test_required_error_with_a_reason_is_insufficient_not_merely_degraded():
     ctx = BotContext(
         decision_time=1,

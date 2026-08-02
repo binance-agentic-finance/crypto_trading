@@ -142,9 +142,56 @@ class FrameSchema:
             )
         if frame.empty:
             return
-        if EVENT_TIME in frame.columns and AVAILABLE_TIME in frame.columns:
+        self.validate_event_availability(
+            frame, node=label, canonical_event_clock=self.available_from)
+
+    @staticmethod
+    def validate_event_availability(
+        frame: Any,
+        *,
+        node: str = "",
+        canonical_event_clock: Optional[str] = None,
+    ) -> None:
+        """Reject rows that claim publication before the underlying event.
+
+        This is deliberately separate from a shape's required-column check so
+        a serialized ``RawFrame`` can still share the one canonical clock
+        invariant.  ``event_time`` is optional on a BarFrame, but its candle is
+        not knowable until ``close_time``; callers therefore pass the schema's
+        ``available_from`` as ``canonical_event_clock``.  The caller remains
+        responsible for converting a wire representation to timestamps before
+        invoking this helper.
+        """
+        import pandas as pd
+
+        label = node or "frame"
+        if not isinstance(frame, pd.DataFrame):
+            raise FrameValidationError(
+                "%s must be a pandas DataFrame, got %s"
+                % (label, type(frame).__name__)
+            )
+        if frame.empty:
+            return
+        if AVAILABLE_TIME not in frame.columns:
+            return
+
+        available = pd.to_datetime(frame[AVAILABLE_TIME], utc=True, errors="coerce")
+
+        def reject_if_after(clock: str, *, description: str) -> None:
+            if clock not in frame.columns:
+                return
+            event = pd.to_datetime(frame[clock], utc=True, errors="coerce")
+            both = event.notna() & available.notna()
+            if bool((event[both] > available[both]).any()):
+                raise FrameValidationError(
+                    "%s has rows whose %s is AFTER available_time — the data "
+                    "claims to have been readable before it happened" % (label, description)
+                )
+
+        if canonical_event_clock:
+            reject_if_after(canonical_event_clock, description=canonical_event_clock)
+        if EVENT_TIME in frame.columns and EVENT_TIME != canonical_event_clock:
             event = pd.to_datetime(frame[EVENT_TIME], utc=True, errors="coerce")
-            available = pd.to_datetime(frame[AVAILABLE_TIME], utc=True, errors="coerce")
             both = event.notna() & available.notna()
             if bool((event[both] > available[both]).any()):
                 raise FrameValidationError(

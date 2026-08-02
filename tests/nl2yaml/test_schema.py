@@ -156,6 +156,72 @@ def test_all_record_kinds_round_trip(tmp_path):
     assert [c.symbol for c in runs[0].candidates] == ["SNDKUSDT", "SOXLUSDT"]
 
 
+def _measure_gap(**over):
+    """One valid aggregate Gate0 row, deliberately unlike per-case GapRecord."""
+    base = {
+        "gap_id": "GAP-MARKET-CAP",
+        "detectable_by_this_pass": True,
+        "undetectable_reason_code": None,
+        "dup_weighted_count": 3,
+        "distinct_requests": 2,
+        "unique_canon": 2,
+        "rows_unlocked_if_closed": 1,
+        "distinct_requests_unlocked_if_closed": 1,
+        "largest_group_share": 0.5,
+        "largest_split_group_kind": "duplicate_cluster",
+        "tier_rows": {"A": 1, "B": 1, "C": 1, "D": 0},
+        "shape_rows": {"selection": 2, "trade": 1, "both": 0, "unclear": 0},
+        "blocking_sources": {"threshold/market_cap": 3},
+        "co_occurring_gaps": {"GAP-PER-SYMBOL-INDICATOR": 1},
+    }
+    base.update(over)
+    return base
+
+
+def test_measure_gap_stream_is_versioned_and_round_trips(tmp_path):
+    path = tmp_path / "gaps.jsonl"
+    row = _measure_gap()
+
+    S.write_measure_gaps(path, [row])
+
+    lines = path.read_text("ascii").splitlines()
+    assert json.loads(lines[0]) == {
+        "record_schema": S.MEASURE_GAP_RECORD_SCHEMA,
+        "schema": S.MEASURE_GAP_FILE_SCHEMA,
+    }
+    assert list(S.read_measure_gaps(path)) == [row]
+
+
+def test_measure_gap_stream_refuses_schema_drift_and_private_text_shapes(tmp_path):
+    path = tmp_path / "gaps.jsonl"
+    path.write_text(json.dumps(_measure_gap()) + "\n", encoding="ascii")
+    with pytest.raises(S.RecordError, match="invalid measure_gap_header"):
+        list(S.read_measure_gaps(path))
+
+    # ``ensure_ascii=True`` hides the characters on disk.  The reader must
+    # reject after JSON decoding, before schema diagnostics can echo a value.
+    hidden_non_ascii = _measure_gap(undetectable_reason_code="\u4e0d\u5141\u8a31")
+    header = {
+        "schema": S.MEASURE_GAP_FILE_SCHEMA,
+        "record_schema": S.MEASURE_GAP_RECORD_SCHEMA,
+    }
+    path.write_text("\n".join((
+        json.dumps(header, ensure_ascii=True),
+        json.dumps(hidden_non_ascii, ensure_ascii=True),
+    )) + "\n", encoding="ascii")
+    with pytest.raises(S.PrivacyError, match="non-ASCII"):
+        list(S.read_measure_gaps(path))
+
+    # The public artifact has no free-text slots: an ASCII user sentence cannot
+    # masquerade as a harmless metric label either.
+    with pytest.raises(S.RecordError, match="invalid measure_gap"):
+        S.write_measure_gaps(path, [_measure_gap(
+            undetectable_reason_code="free-form user sentence")])
+    with pytest.raises(S.RecordError, match="invalid measure_gap"):
+        S.write_measure_gaps(path, [_measure_gap(
+            blocking_sources={"free-form user sentence": 3})])
+
+
 # ---------------------------------------------------------------------------
 # 2. the eligibility formula
 # ---------------------------------------------------------------------------

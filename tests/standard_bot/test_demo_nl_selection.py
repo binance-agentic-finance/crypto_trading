@@ -166,6 +166,7 @@ def test_ambiguous_intent_fails_closed_without_calling_the_model(
         "找一些熱門幣，然後買進",
         "Select some hot coins and buy them",
         "Pick 5 coins and buy when EMA crosses",
+        "選成交量最大的五個幣後幫每個下單",
     ],
 )
 def test_compound_selection_and_execution_fails_closed(
@@ -206,6 +207,12 @@ def test_compound_selection_and_execution_fails_closed(
         (
             "選成交量最大的五個幣，還要 RSI14 低於30買點，高於70賣點，"
             "停損2%，停利4%，倉位5%",
+            (),
+            (("below", 30.0), ("above", 70.0)),
+            {"long_when", "short_when"},
+        ),
+        (
+            "選成交量最大的五個幣後幫每個下單，RSI14低於30買，高於70賣",
             (),
             (("below", 30.0), ("above", 70.0)),
             {"long_when", "short_when"},
@@ -351,22 +358,49 @@ def _fixture_candidate_trade_yaml(demo_server, request: str) -> dict:
     return _declare_candidate_defaults(demo_server, request, spec)
 
 
+@pytest.mark.parametrize(
+    ("user_request", "expected_cids"),
+    [
+        (
+            "從 ALLO、TAG、UAI、UB、US 中選成交量最大的五個幣，"
+            "還要技術分析買賣點",
+            {
+                "default_candidate_indicator",
+                "candidate_sell_point_as_short_entry",
+                "default_candidate_rsi_long",
+                "default_candidate_rsi_short",
+                "default_candidate_size",
+                "default_candidate_stop",
+                "default_candidate_take_profit",
+            },
+        ),
+        (
+            "從 ALLO、TAG、UAI、UB、US 中挑選成交量最大的五個幣後幫每個下單，"
+            "RSI14低於30買，高於70賣",
+            {
+                "candidate_sell_point_as_short_entry",
+                "default_candidate_size",
+                "default_candidate_stop",
+                "default_candidate_take_profit",
+            },
+        ),
+    ],
+    ids=["declared_trade_points", "colloquial_rsi_buy_sell"],
+)
 def test_selection_with_rsi_trade_points_stays_selection_through_runtime(
-    demo_server, monkeypatch,
+    demo_server, monkeypatch, user_request, expected_cids,
 ):
     """Golden NL -> mocked YAML -> real Blocks -> nested trade contracts."""
-    request = (
-        "從 ALLO、TAG、UAI、UB、US 中選成交量最大的五個幣，"
-        "還要技術分析買賣點"
-    )
-    generated = _fixture_candidate_trade_yaml(demo_server, request)
+    generated = _fixture_candidate_trade_yaml(demo_server, user_request)
     monkeypatch.setattr(
         demo_server,
         "call_llm",
         lambda *_, **__: yaml.safe_dump(generated, sort_keys=False),
     )
 
-    converted = demo_server.convert_nl("http://llm/v1", "", "model", request)
+    converted = demo_server.convert_nl(
+        "http://llm/v1", "", "model", user_request,
+    )
 
     assert converted["valid"] is True, converted
     assert converted["strategy_kind"] == "selection"
@@ -394,15 +428,6 @@ def test_selection_with_rsi_trade_points_stays_selection_through_runtime(
                for candidate in signal["candidates"])
     assert all(candidate["trade"]["requires_confirmation"] is True
                for candidate in signal["candidates"])
-    expected_cids = {
-        "default_candidate_indicator",
-        "candidate_sell_point_as_short_entry",
-        "default_candidate_rsi_long",
-        "default_candidate_rsi_short",
-        "default_candidate_size",
-        "default_candidate_stop",
-        "default_candidate_take_profit",
-    }
     assert all(any("assumption (%s)" % cid in warning
                    for warning in signal["warnings"])
                for cid in expected_cids)
@@ -769,6 +794,537 @@ def test_trade_semantic_gate_checks_symbol_interval_indicators_risk_and_size(
         "BTC", "1h", "EMA12", "EMA26", "cross_above", "停損", "停利", "倉位",
     ):
         assert expected in combined
+
+
+def test_bare_sell_action_stops_before_llm_and_cannot_be_folded_into_long_entry(
+    demo_server, monkeypatch,
+):
+    """A down-cross sell must not silently become another open-long trigger."""
+    request = (
+        "BTCUSDT EMA12 上穿 EMA26 買進，EMA12 下穿 EMA26 賣出，"
+        "停損 2%，停利 4%，倉位 5%"
+    )
+    intent = demo_server.classify_request(request)
+    assert intent.kind == "trade"
+    assert intent.directions == ("long",)
+    assert "bare_sell_direction_ambiguous" in intent.evidence
+
+    wrong_but_structural = yaml.safe_load(demo_server.EXAMPLE_YAML)
+    wrong_but_structural["signals"]["entry"].pop("short")
+    wrong_but_structural["signals"]["entry"]["long"] = {
+        "any_of": [
+            {"cond": "conditions.ma_cross_above", "args": ["ema_fast", "ema_slow"]},
+            {"cond": "conditions.ma_cross_below", "args": ["ema_fast", "ema_slow"]},
+        ],
+    }
+    validation_errors, _ = demo_server.validate_spec(wrong_but_structural)
+    assert validation_errors == []
+    reconciliation_errors, _ = demo_server.reconcile_intent(
+        intent, wrong_but_structural,
+    )
+    assert any("close_long" in error and "open_short" in error
+               for error in reconciliation_errors)
+
+    def should_not_run(*_, **__):
+        raise AssertionError("ambiguous sell action must stop before an LLM call")
+
+    monkeypatch.setattr(demo_server, "call_llm", should_not_run)
+    result = demo_server.convert_nl("http://llm/v1", "", "model", request)
+    assert result["status"] == "needs_clarification"
+    assert result["valid"] is False
+    assert result["yaml"] == ""
+    assert "close_long" in result["errors"][0]
+    assert "open_short" in result["errors"][0]
+
+
+def test_percent_stop_take_profit_cannot_be_hidden_under_time_only(
+    demo_server, monkeypatch,
+):
+    """Both structural and semantic gates bind percentage exits to their engine."""
+    request = "BTCUSDT EMA10 上穿 EMA30 買進，停損 2%，停利 4%"
+    intent = demo_server.classify_request(request)
+    decoy = yaml.safe_load(demo_server.EXAMPLE_YAML)
+    decoy["signals"]["entry"].pop("short")
+    decoy["signals"]["indicators"]["ema_fast"]["params"]["period"] = 10
+    decoy["signals"]["indicators"]["ema_slow"]["params"]["period"] = 30
+    decoy["risk"]["exit"] = {
+        "type": "time_only", "max_bars": 3,
+        "stop_pct": 0.02, "tp_pct": 0.04,
+    }
+
+    validation_errors, _ = demo_server.validate_spec(decoy)
+    assert any("risk.exit.stop_pct is not used by type=time_only" in error
+               for error in validation_errors)
+    reconciliation_errors, _ = demo_server.reconcile_intent(intent, decoy)
+    assert any("risk.exit.type 必須是 pct_stop_tp" in error
+               for error in reconciliation_errors)
+
+    monkeypatch.setattr(
+        demo_server,
+        "call_llm",
+        lambda *_, **__: yaml.safe_dump(decoy, allow_unicode=True, sort_keys=False),
+    )
+    result = demo_server.convert_nl("http://llm/v1", "", "model", request)
+    assert result["status"] == "rejected"
+    assert result["valid"] is False
+    assert any("risk.exit.stop_pct is not used by type=time_only" in error
+               for error in result["errors"])
+
+
+def test_multi_instrument_trade_and_spot_short_stop_before_llm(
+    demo_server, monkeypatch,
+):
+    def should_not_run(*_, **__):
+        raise AssertionError("unrepresentable trade intent must stop before an LLM call")
+
+    monkeypatch.setattr(demo_server, "call_llm", should_not_run)
+    multiple = demo_server.convert_nl(
+        "http://llm/v1", "", "model", "BTC、ETH 做多，SOL 做空，停損 2%",
+    )
+    assert multiple["status"] == "needs_clarification"
+    assert multiple["yaml"] == ""
+    assert "一個標的" in multiple["errors"][0]
+
+    spot_short = demo_server.convert_nl(
+        "http://llm/v1", "", "model", "BTC 現貨 EMA12 下穿 EMA26 做空",
+    )
+    assert spot_short["status"] == "needs_clarification"
+    assert spot_short["yaml"] == ""
+    assert "現貨不能開空" in spot_short["errors"][0]
+
+    invalid_spot = yaml.safe_load(demo_server.EXAMPLE_YAML)
+    invalid_spot["data"]["market_type"] = "spot"
+    validation_errors, _ = demo_server.validate_spec(invalid_spot)
+    assert any("signals.entry.short is not allowed" in error
+               for error in validation_errors)
+
+
+def _ema_rsi_trade_spec(demo_server, join: str) -> dict:
+    """A small long-only trade whose two entry predicates are independently clear."""
+    spec = yaml.safe_load(demo_server.EXAMPLE_YAML)
+    spec["signals"]["entry"].pop("short")
+    spec["signals"]["indicators"]["ema_fast"]["params"]["period"] = 10
+    spec["signals"]["indicators"]["ema_slow"]["params"]["period"] = 30
+    spec["signals"]["indicators"]["rsi14"] = {
+        "block": "indicators.rsi", "input": "close", "params": {"period": 14},
+    }
+    spec["signals"]["entry"]["long"] = {
+        join: [
+            {"cond": "conditions.ma_cross_above", "args": ["ema_fast", "ema_slow"]},
+            {
+                "cond": "conditions.rsi_oversold",
+                "args": ["rsi14"],
+                "params": {"threshold": 30},
+            },
+        ],
+    }
+    return spec
+
+
+def _rsi_only_trade_spec(demo_server, join: str) -> dict:
+    """A long-only trade with two explicit RSI predicates and no hidden EMA."""
+    spec = yaml.safe_load(demo_server.EXAMPLE_YAML)
+    spec["signals"] = {
+        "indicators": {
+            "rsi14": {
+                "block": "indicators.rsi", "input": "close", "params": {"period": 14},
+            },
+        },
+        "entry": {
+            "long": {
+                join: [
+                    {
+                        "cond": "conditions.rsi_oversold",
+                        "args": ["rsi14"],
+                        "params": {"threshold": 30},
+                    },
+                    {
+                        "cond": "conditions.rsi_overbought",
+                        "args": ["rsi14"],
+                        "params": {"threshold": 70},
+                    },
+                ],
+            },
+        },
+    }
+    return spec
+
+
+@pytest.mark.parametrize(
+    ("connector", "expected_join", "faithful_join", "wrong_join", "error_word"),
+    [
+        ("且", "all_of", "all_of", "any_of", "AND"),
+        ("或", "any_of", "any_of", "all_of", "OR"),
+    ],
+)
+def test_trade_boolean_join_is_proven_against_the_actual_entry_tree(
+    demo_server, monkeypatch, connector, expected_join, faithful_join, wrong_join, error_word,
+):
+    request = "BTC EMA10 上穿 EMA30 %s RSI14 低於30買進" % connector
+    intent = demo_server.classify_request(request)
+    assert intent.condition_join == expected_join
+
+    faithful = _ema_rsi_trade_spec(demo_server, faithful_join)
+    monkeypatch.setattr(
+        demo_server,
+        "call_llm",
+        lambda *_, **__: yaml.safe_dump(faithful, allow_unicode=True, sort_keys=False),
+    )
+    accepted = demo_server.convert_nl("http://llm/v1", "", "model", request)
+    assert accepted["valid"] is True, accepted
+
+    wrong = _ema_rsi_trade_spec(demo_server, wrong_join)
+    monkeypatch.setattr(
+        demo_server,
+        "call_llm",
+        lambda *_, **__: yaml.safe_dump(wrong, allow_unicode=True, sort_keys=False),
+    )
+    rejected = demo_server.convert_nl("http://llm/v1", "", "model", request)
+    assert rejected["valid"] is False
+    assert any(error_word in str(error) for error in rejected["errors"])
+
+    # An unrelated risk phrase containing 或 cannot silently reclassify the
+    # entry itself as an OR request.
+    unrelated_or = demo_server.classify_request(
+        "BTC EMA10 上穿 EMA30，停損或停利 RSI14 低於30買進",
+    )
+    assert unrelated_or.condition_join == "all_of"
+
+
+@pytest.mark.parametrize(
+    ("connector", "expected_join"),
+    [
+        ("或", "any_of"),
+        ("且", "all_of"),
+        ("以及", "all_of"),
+    ],
+)
+def test_rsi_only_boolean_thresholds_are_complete_and_joined(
+    demo_server, monkeypatch, connector, expected_join,
+):
+    request = "BTC RSI14 低於30%s高於70買進" % connector
+    intent = demo_server.classify_request(request)
+    assert intent.rsi_thresholds == (("below", 30.0), ("above", 70.0))
+    assert intent.condition_join == expected_join
+
+    faithful = _rsi_only_trade_spec(demo_server, expected_join)
+    monkeypatch.setattr(
+        demo_server,
+        "call_llm",
+        lambda *_, **__: yaml.safe_dump(faithful, allow_unicode=True, sort_keys=False),
+    )
+    accepted = demo_server.convert_nl("http://llm/v1", "", "model", request)
+    assert accepted["valid"] is True, accepted
+
+    wrong_join = "all_of" if expected_join == "any_of" else "any_of"
+    wrong = _rsi_only_trade_spec(demo_server, wrong_join)
+    monkeypatch.setattr(
+        demo_server,
+        "call_llm",
+        lambda *_, **__: yaml.safe_dump(wrong, allow_unicode=True, sort_keys=False),
+    )
+    rejected = demo_server.convert_nl("http://llm/v1", "", "model", request)
+    assert rejected["valid"] is False
+    assert any("AND" in str(error) or "OR" in str(error) for error in rejected["errors"])
+
+
+def test_mixed_entry_boolean_expression_stops_before_the_llm(demo_server, monkeypatch):
+    request = "BTC EMA10上穿EMA30且RSI14低於30或高於70買進"
+    intent = demo_server.classify_request(request)
+    assert intent.condition_join == "mixed"
+
+    mixed = _ema_rsi_trade_spec(demo_server, "any_of")
+    mixed["signals"]["entry"]["long"]["any_of"].append({
+        "cond": "conditions.rsi_overbought",
+        "args": ["rsi14"],
+        "params": {"threshold": 70},
+    })
+    errors, _warnings = demo_server.reconcile_intent(intent, mixed)
+    assert any("混合了 AND 與 OR" in error for error in errors)
+
+    def should_not_run(*_, **__):
+        raise AssertionError("mixed entry logic must stop before an LLM call")
+
+    monkeypatch.setattr(demo_server, "call_llm", should_not_run)
+    result = demo_server.convert_nl("http://llm/v1", "", "model", request)
+    assert result["status"] == "needs_clarification"
+    assert result["yaml"] == ""
+    assert "混合 AND 與 OR" in result["errors"][0]
+
+
+def test_vwap_entry_requires_price_to_reference_vwap_and_runs_the_real_block(
+    demo_server, monkeypatch,
+):
+    request = "BTC 價格上穿 VWAP 買進"
+    faithful = yaml.safe_load(demo_server.EXAMPLE_YAML)
+    faithful["signals"] = {
+        "indicators": {
+            "vwap": {"block": "indicators.vwap", "input": "df"},
+        },
+        "entry": {
+            "long": {
+                "cond": "conditions.price_touch_or_cross",
+                "args": ["df", "vwap"],
+                "params": {"direction": "up"},
+            },
+        },
+    }
+    errors, _ = demo_server.validate_spec(faithful)
+    assert errors == []
+
+    monkeypatch.setattr(
+        demo_server,
+        "call_llm",
+        lambda *_, **__: yaml.safe_dump(faithful, allow_unicode=True, sort_keys=False),
+    )
+    accepted = demo_server.convert_nl("http://llm/v1", "", "model", request)
+    assert accepted["valid"] is True, accepted
+
+    import pandas as pd
+
+    from cyqnt_trd.blocks import conditions, indicators
+    from cyqnt_trd.standard_bot.yaml_pipeline.interpreter import build_make_signals
+
+    frame = pd.DataFrame({
+        "open": [10.0, 9.0, 10.0, 12.0],
+        "high": [11.0, 10.0, 11.0, 13.0],
+        "low": [9.0, 8.0, 9.0, 11.0],
+        "close": [10.0, 9.0, 10.5, 12.5],
+        "volume": [10.0, 10.0, 10.0, 10.0],
+    })
+    expected = conditions.price_touch_or_cross(
+        frame, indicators.vwap(frame), direction="up",
+    )
+    actual, _short = build_make_signals(faithful)(frame)
+    assert actual.equals(expected)
+
+    ema_proxy = yaml.safe_load(demo_server.EXAMPLE_YAML)
+    ema_proxy["signals"]["entry"].pop("short")
+    ema_proxy["signals"]["indicators"]["vwap"] = {
+        "block": "indicators.vwap", "input": "df",
+    }
+    monkeypatch.setattr(
+        demo_server,
+        "call_llm",
+        lambda *_, **__: yaml.safe_dump(ema_proxy, allow_unicode=True, sort_keys=False),
+    )
+    rejected = demo_server.convert_nl("http://llm/v1", "", "model", request)
+    assert rejected["valid"] is False
+    assert any("VWAP" in str(error) for error in rejected["errors"])
+
+    # Above/below is a state, not the requested crossing event.  It used to be
+    # accepted solely because it mentioned the right VWAP series.
+    state_proxy = copy.deepcopy(faithful)
+    state_proxy["signals"]["entry"]["long"] = {
+        "cond": "conditions.close_above", "args": ["df", "vwap"],
+    }
+    monkeypatch.setattr(
+        demo_server,
+        "call_llm",
+        lambda *_, **__: yaml.safe_dump(state_proxy, allow_unicode=True, sort_keys=False),
+    )
+    rejected_state = demo_server.convert_nl("http://llm/v1", "", "model", request)
+    assert rejected_state["valid"] is False
+    assert any("VWAP" in str(error) for error in rejected_state["errors"])
+
+
+def test_atr_trailing_stop_requires_exact_parameters_and_never_becomes_leverage(
+    demo_server, monkeypatch,
+):
+    request = "BTC EMA10 上穿 EMA30 買進，ATR(14) 2x 追蹤停損"
+    intent = demo_server.classify_request(request)
+    assert (intent.exit_type, intent.exit_atr_period, intent.exit_trail_mult) == (
+        "atr_trailing_stop", 14, 2.0,
+    )
+    assert "gap:GAP-ACCOUNT-OPS" not in intent.unsupported_preferences
+    assert intent.included_symbols == ("BTC",)
+
+    faithful = yaml.safe_load(demo_server.EXAMPLE_YAML)
+    faithful["signals"]["entry"].pop("short")
+    faithful["signals"]["indicators"]["ema_fast"]["params"]["period"] = 10
+    faithful["signals"]["indicators"]["ema_slow"]["params"]["period"] = 30
+    faithful["risk"]["exit"] = {
+        "type": "atr_trailing_stop",
+        "atr_period": 14,
+        "trail_mult": 2.0,
+        "max_bars": 96,
+    }
+    monkeypatch.setattr(
+        demo_server,
+        "call_llm",
+        lambda *_, **__: yaml.safe_dump(faithful, allow_unicode=True, sort_keys=False),
+    )
+    accepted = demo_server.convert_nl("http://llm/v1", "", "model", request)
+    assert accepted["valid"] is True, accepted
+
+    fixed_pct = copy.deepcopy(faithful)
+    fixed_pct["risk"]["exit"] = {
+        "type": "pct_stop_tp", "stop_pct": 0.02, "tp_pct": 0.04, "max_bars": 96,
+    }
+    monkeypatch.setattr(
+        demo_server,
+        "call_llm",
+        lambda *_, **__: yaml.safe_dump(fixed_pct, allow_unicode=True, sort_keys=False),
+    )
+    rejected = demo_server.convert_nl("http://llm/v1", "", "model", request)
+    assert rejected["valid"] is False
+    assert any("atr_trailing_stop" in str(error) for error in rejected["errors"])
+
+    def should_not_run(*_, **__):
+        raise AssertionError("partial ATR stop must stop before an LLM call")
+
+    monkeypatch.setattr(demo_server, "call_llm", should_not_run)
+    partial = demo_server.convert_nl(
+        "http://llm/v1", "", "model",
+        "BTC EMA10 上穿 EMA30 買進，使用2x ATR追蹤停損",
+    )
+    assert partial["status"] == "needs_clarification"
+    assert "ATR period" in partial["errors"][0]
+    assert demo_server.classify_request(
+        "BTC EMA10 上穿 EMA30，追蹤 ATR 指標",
+    ).exit_type is None
+
+
+def test_excluded_atr_trailing_stop_cannot_be_reintroduced_by_the_model(
+    demo_server, monkeypatch,
+):
+    request = "BTC EMA10 上穿 EMA30 買進，不使用 ATR(14) 2x 追蹤停損"
+    intent = demo_server.classify_request(request)
+    assert (intent.exit_type, intent.exit_atr_period, intent.exit_trail_mult) == (
+        None, None, None,
+    )
+    assert intent.excluded_exit_types == ("atr_trailing_stop",)
+
+    forbidden = yaml.safe_load(demo_server.EXAMPLE_YAML)
+    forbidden["signals"]["entry"].pop("short")
+    forbidden["signals"]["indicators"]["ema_fast"]["params"]["period"] = 10
+    forbidden["signals"]["indicators"]["ema_slow"]["params"]["period"] = 30
+    forbidden["risk"]["exit"] = {
+        "type": "atr_trailing_stop",
+        "atr_period": 14,
+        "trail_mult": 2.0,
+        "max_bars": 96,
+    }
+    monkeypatch.setattr(
+        demo_server,
+        "call_llm",
+        lambda *_, **__: yaml.safe_dump(forbidden, allow_unicode=True, sort_keys=False),
+    )
+    rejected = demo_server.convert_nl("http://llm/v1", "", "model", request)
+    assert rejected["valid"] is False
+    assert any("不要使用 ATR 追蹤停損" in str(error) for error in rejected["errors"])
+
+    replacement = demo_server.classify_request(
+        "BTC EMA10 上穿 EMA30 買進，不使用 ATR(14) 2x 追蹤停損，"
+        "使用 ATR(20) 3x 追蹤停損",
+    )
+    assert (
+        replacement.exit_type,
+        replacement.exit_atr_period,
+        replacement.exit_trail_mult,
+        replacement.excluded_exit_types,
+    ) == ("atr_trailing_stop", 20, 3.0, ())
+
+
+def test_multiple_positive_atr_trailing_stops_need_clarification_before_llm(
+    demo_server, monkeypatch,
+):
+    request = (
+        "BTC EMA10 上穿 EMA30 買進，使用 ATR(14) 2x 追蹤停損與 "
+        "ATR(20) 3x 追蹤停損"
+    )
+    intent = demo_server.classify_request(request)
+    assert (intent.exit_type, intent.exit_atr_period, intent.exit_trail_mult) == (
+        "atr_trailing_stop", None, None,
+    )
+
+    def should_not_run(*_, **__):
+        raise AssertionError("ambiguous ATR exits must stop before an LLM call")
+
+    monkeypatch.setattr(demo_server, "call_llm", should_not_run)
+    result = demo_server.convert_nl("http://llm/v1", "", "model", request)
+    assert result["status"] == "needs_clarification"
+    assert result["yaml"] == ""
+    assert "ATR period" in result["errors"][0]
+
+
+def test_excluded_source_lists_reject_news_or_funding_in_a_selection(
+    demo_server, monkeypatch,
+):
+    request = "選5個成交量最高，不要使用新聞或資金費率"
+    intent = demo_server.classify_request(request)
+    assert intent.kind == "selection"
+    assert intent.sources == frozenset({"liquidity"})
+    assert intent.excluded_sources == frozenset({"news", "funding"})
+
+    faithful = yaml.safe_load(demo_server.LIQUIDITY_SELECTION_EXAMPLE_YAML)
+    monkeypatch.setattr(
+        demo_server,
+        "call_llm",
+        lambda *_, **__: yaml.safe_dump(faithful, allow_unicode=True, sort_keys=False),
+    )
+    accepted = demo_server.convert_nl("http://llm/v1", "", "model", request)
+    assert accepted["valid"] is True, accepted
+
+    forbidden = copy.deepcopy(faithful)
+    forbidden["selection"]["universe"].extend([
+        {"block": "universe.augment_with_news", "with": ["ticker_rank"]},
+        {
+            "block": "universe.augment_with_funding",
+            "with": ["funding", "funding_info"],
+        },
+    ])
+    monkeypatch.setattr(
+        demo_server,
+        "call_llm",
+        lambda *_, **__: yaml.safe_dump(forbidden, allow_unicode=True, sort_keys=False),
+    )
+    rejected = demo_server.convert_nl("http://llm/v1", "", "model", request)
+    assert rejected["valid"] is False
+    assert any("不要使用 news" in str(error) for error in rejected["errors"])
+    assert any("不要使用 funding" in str(error) for error in rejected["errors"])
+
+
+@pytest.mark.parametrize("user_request", [
+    "選五個成交量最高，不使用新聞或資金費率",
+    "選五個成交量最高，不要使用新聞、以及資金費率",
+])
+def test_source_exclusion_variants_never_become_positive_requirements(
+    demo_server, user_request,
+):
+    intent = demo_server.classify_request(user_request)
+
+    assert intent.sources == frozenset({"liquidity"})
+    assert intent.excluded_sources == frozenset({"news", "funding"})
+
+
+@pytest.mark.parametrize(
+    ("user_request", "gap_id"),
+    [
+        ("選五個市值最大的幣", "GAP-MARKET-CAP"),
+        ("選五個鏈上持幣集中度最低的幣", "GAP-ONCHAIN-CONCENTRATION"),
+        ("BTC EMA10上穿EMA30，使用5x槓桿進場", "GAP-ACCOUNT-OPS"),
+        ("BTC EMA10上穿EMA30，限價單進場", "GAP-ACCOUNT-OPS"),
+        ("選五個成交量最高的幣後 Telegram 通知我", "GAP-ALERT-NOTIFY"),
+        ("選五個清算最多的幣", "GAP-LIQUIDATION-CROSS-SECTION"),
+    ],
+)
+def test_named_unsupported_requirements_stop_before_the_llm(
+    demo_server, monkeypatch, user_request, gap_id,
+):
+    monkeypatch.setattr(
+        demo_server,
+        "call_llm",
+        lambda *_, **__: (_ for _ in ()).throw(
+            AssertionError("named unsupported request must not call an LLM")
+        ),
+    )
+    result = demo_server.convert_nl("http://llm/v1", "", "model", user_request)
+    assert result["status"] == "unsupported"
+    assert result["valid"] is False
+    assert result["yaml"] == ""
+    assert "gap:%s" % gap_id in result["intent"]["unsupported_preferences"]
+    assert gap_id in result["errors"][0]
 
 
 def test_trade_indicator_must_drive_the_entry_condition(demo_server, monkeypatch):
@@ -1681,6 +2237,44 @@ def test_volume_selection_requires_volume_to_control_the_score(
     assert "score: quoteVolume" in demo_server.build_system_prompt(
         "selection", demo_server.classify_request(request)
     )
+
+
+@pytest.mark.parametrize(
+    "user_request",
+    [
+        "幫我選五個幣，依24小時成交額排名",
+        "幫我選五個幣，依24小時成交量排名",
+    ],
+)
+def test_24h_turnover_is_a_universe_metric_not_a_candle_interval(
+    demo_server, monkeypatch, user_request,
+):
+    """24h quote turnover arrives in the universe frame, not a 24h bar feed."""
+    intent = demo_server.classify_request(user_request)
+    assert intent.kind == "selection"
+    assert intent.sources == frozenset({"liquidity"})
+    assert intent.intervals == ()
+    assert intent.ranking_metric == "liquidity"
+
+    monkeypatch.setattr(
+        demo_server, "call_llm", lambda *_, **__: demo_server.LIQUIDITY_SELECTION_EXAMPLE_YAML,
+    )
+    converted = demo_server.convert_nl(
+        "http://llm/v1", "", "model", user_request,
+    )
+    assert converted["valid"] is True, converted
+    generated = yaml.safe_load(converted["yaml"])
+    assert generated["data"]["primary"]["interval"] == "1h"
+    assert generated["selection"]["score"] == "quoteVolume"
+    assert generated["selection"]["top_k"] == 5
+
+    from cyqnt_trd.standard_bot.yaml_pipeline.bundle_runner import run_bundle
+
+    batch = run_bundle(generated, str(UNIVERSE_DERIVATIVES_BUNDLE))
+    assert batch["signal_count"] == 1
+    signal = batch["signals"][0]
+    assert signal["kind"] == "selection"
+    assert len(signal["candidates"]) == 5
 
 
 def test_hot_coins_by_volume_uses_volume_as_the_primary_metric(

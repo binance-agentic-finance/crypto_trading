@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "measure_gap.schema.json",
+  "title": "Gate0 measurement gap",
+  "description": "One aggregate, privacy-safe capability-gap count emitted by gate0-measure. File version is declared by measure_gap_header.schema.json.",
+  "type": "object",
+  "$defs": {
+    "gap_id": {
+      "enum": [
+        "GAP-ACCOUNT-OPS", "GAP-ALERT-NOTIFY", "GAP-COMPOUND-SELECT-THEN-TRADE",
+        "GAP-CONTRACT-META", "GAP-ENTRY-EXIT-PER-CANDIDATE", "GAP-HISTORICAL-WINDOW",
+        "GAP-LIQUIDATION-CROSS-SECTION", "GAP-LONG-SHORT-RATIO", "GAP-MARKET-CAP",
+        "GAP-NEWS-EVENT-TEXT", "GAP-OI-CROSS-SECTION", "GAP-ONCHAIN-CONCENTRATION",
+        "GAP-PER-SYMBOL-INDICATOR", "GAP-SECTOR-LABEL", "GAP-SPREAD-DEPTH",
+        "GAP-VAGUE-CRITERION"
+      ]
+    },
+    "blocking_source_id": {
+      "enum": [
+        "asset/asset", "direction/side", "indicator/adx", "indicator/atr",
+        "indicator/bollinger", "indicator/breakdown", "indicator/breakout",
+        "indicator/cci", "indicator/cross_down", "indicator/cross_up",
+        "indicator/divergence", "indicator/ema", "indicator/fibonacci",
+        "indicator/ichimoku", "indicator/kdj", "indicator/ma", "indicator/macd",
+        "indicator/obv", "indicator/overbought", "indicator/oversold", "indicator/rsi",
+        "indicator/sma", "indicator/supertrend", "indicator/vwap", "rank_topn/universe",
+        "risk/leverage", "risk/max_drawdown", "risk/position_size", "risk/risk_control",
+        "risk/stop_loss", "risk/take_profit", "risk/trailing_stop", "spec_shape/both",
+        "threshold/atr", "threshold/funding_rate", "threshold/leverage", "threshold/macd",
+        "threshold/market_cap", "threshold/price", "threshold/price_change_pct",
+        "threshold/quote_volume", "threshold/rsi", "threshold/unspecified",
+        "threshold/volume", "threshold/win_rate", "timeframe/interval[multi]",
+        "universe_filter/blacklist", "universe_filter/exclude", "universe_filter/full_market",
+        "universe_filter/gainers", "universe_filter/liquidity", "universe_filter/losers",
+        "universe_filter/market_cap", "universe_filter/quote_volume",
+        "universe_filter/screen", "universe_filter/volume", "universe_filter/whitelist"
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "gap_id",
+    "detectable_by_this_pass",
+    "undetectable_reason_code",
+    "dup_weighted_count",
+    "distinct_requests",
+    "unique_canon",
+    "rows_unlocked_if_closed",
+    "distinct_requests_unlocked_if_closed",
+    "largest_group_share",
+    "largest_split_group_kind",
+    "tier_rows",
+    "shape_rows",
+    "blocking_sources",
+    "co_occurring_gaps"
+  ],
+  "properties": {
+    "gap_id": {
+      "$ref": "#/$defs/gap_id"
+    },
+    "detectable_by_this_pass": {
+      "type": "boolean"
+    },
+    "undetectable_reason_code": {
+      "type": ["string", "null"],
+      "enum": [null, "no_detector", "no_observed_hits"]
+    },
+    "dup_weighted_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "distinct_requests": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "unique_canon": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "rows_unlocked_if_closed": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "distinct_requests_unlocked_if_closed": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "largest_group_share": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "largest_split_group_kind": {
+      "type": ["string", "null"],
+      "enum": [null, "duplicate_cluster", "preset"]
+    },
+    "tier_rows": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["A", "B", "C", "D"],
+      "properties": {
+        "A": {"type": "integer", "minimum": 0},
+        "B": {"type": "integer", "minimum": 0},
+        "C": {"type": "integer", "minimum": 0},
+        "D": {"type": "integer", "minimum": 0}
+      }
+    },
+    "shape_rows": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["selection", "trade", "both", "unclear"],
+      "properties": {
+        "selection": {"type": "integer", "minimum": 0},
+        "trade": {"type": "integer", "minimum": 0},
+        "both": {"type": "integer", "minimum": 0},
+        "unclear": {"type": "integer", "minimum": 0}
+      }
+    },
+    "blocking_sources": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/blocking_source_id"
+      },
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "co_occurring_gaps": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/gap_id"
+      },
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "detectable_by_this_pass": {"const": false}
+        },
+        "required": ["detectable_by_this_pass"]
+      },
+      "then": {
+        "properties": {
+          "undetectable_reason_code": {
+            "enum": ["no_detector", "no_observed_hits"]
+          },
+          "dup_weighted_count": {"const": 0},
+          "distinct_requests": {"const": 0},
+          "unique_canon": {"const": 0},
+          "rows_unlocked_if_closed": {"const": 0},
+          "distinct_requests_unlocked_if_closed": {"const": 0},
+          "largest_group_share": {"const": 0},
+          "largest_split_group_kind": {"const": null},
+          "blocking_sources": {"maxProperties": 0},
+          "co_occurring_gaps": {"maxProperties": 0}
+        }
+      },
+      "else": {
+        "properties": {
+          "undetectable_reason_code": {"const": null}
+        }
+      }
+    }
+  ]
+}

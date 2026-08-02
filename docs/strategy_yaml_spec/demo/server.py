@@ -94,7 +94,7 @@ def _prompt_signature(ref: str) -> str:
 def _build_blocks_cheatsheet() -> str:
     indicators = [
         "indicators.ema", "indicators.sma", "indicators.rsi",
-        "indicators.atr", "indicators.adx", "indicators.macd",
+        "indicators.atr", "indicators.adx", "indicators.macd", "indicators.vwap",
     ]
     conditions = [
         "conditions.ma_cross_above", "conditions.ma_cross_below",
@@ -114,6 +114,7 @@ def _build_blocks_cheatsheet() -> str:
           "葉節點:{cond:\"conditions.xxx\",args:[...],params:{...}}\n"
         + "出場 risk.exit.type:pct_stop_tp{stop_pct,tp_pct,max_bars} / "
           "atr_stop_tp{atr_period,stop_mult,tp_mult,max_bars} / "
+          "atr_trailing_stop{atr_period,trail_mult,max_bars} / "
           "time_only{max_bars} / opposite_signal{max_bars}\n"
     )
 
@@ -992,9 +993,74 @@ def call_llm(api_base: str, api_key: str, model: str, nl: str) -> str:
     return _strip_fences(content)
 
 
+def _trade_preflight_clarification(intent: IntentDecision) -> str | None:
+    """Return a deterministic stop reason before a trade request leaves host.
+
+    These are not model-quality problems.  They describe an execution intent
+    the current single-instrument contract cannot safely infer, so calling an
+    opted-in model first would needlessly disclose the request and still leave
+    a semantic mismatch to catch later.
+    """
+    if intent.kind != "trade":
+        return None
+    if "bare_sell_direction_ambiguous" in intent.evidence:
+        return (
+            "『賣出/sell』可能代表平多(close_long)或開空(open_short)。"
+            "請明確指定其中一種；系統不會把下穿條件併入開多訊號。"
+        )
+    if len(intent.included_symbols) > 1:
+        return (
+            "目前 trade YAML 一次只能建立一個標的的規則；請分成各自的單標的策略，"
+            "或改成可驗證的 selection/candidate_trade 需求。"
+        )
+    if intent.market_type == "spot" and "short" in intent.directions:
+        return (
+            "現貨不能開空；請改成 futures/perpetual，或明確指定既有多單的 close_long。"
+        )
+    if intent.condition_join == "mixed":
+        return (
+            "進場條件同時混合 AND 與 OR（例如 EMA 條件加上一組 RSI 的 OR）；"
+            "目前 intent 尚無法可靠保留巢狀分組。請拆成可獨立驗證的策略，"
+            "或明確改寫為單一 all_of/any_of 規則。"
+        )
+    if intent.exit_type == "atr_trailing_stop":
+        missing = []
+        if intent.exit_atr_period is None:
+            missing.append("ATR period（例如 ATR14）")
+        if intent.exit_trail_mult is None:
+            missing.append("追蹤倍數（例如 2x ATR）")
+        if missing:
+            return (
+                "ATR 追蹤停損需要明確的%s；系統不會改用固定百分比停損。"
+                % "、".join(missing)
+            )
+    return None
+
+
 def convert_nl(api_base: str, api_key: str, model: str, nl: str) -> dict:
     """Convert, validate and ensure the generated YAML matches user intent."""
     intent = classify_request(nl)
+    unsupported_gaps = sorted({
+        item.split(":", 1)[1]
+        for item in intent.unsupported_preferences
+        if item.startswith("gap:")
+    })
+    if unsupported_gaps:
+        return {
+            "ok": True,
+            "status": "unsupported",
+            "yaml": "",
+            "valid": False,
+            "strategy_kind": intent.kind,
+            "generated_strategy_kind": None,
+            "intent": intent.to_dict(),
+            "errors": [
+                "需求包含目前 YAML/runtime 無法忠實表達的能力: %s；"
+                "系統已停止，不會以相關指標、下單或通知代理替代。"
+                % ", ".join(unsupported_gaps)
+            ],
+            "warnings": [],
+        }
     if intent.kind == "ambiguous":
         compound = "compound_selection_execution" in intent.evidence
         message = (
@@ -1014,6 +1080,20 @@ def convert_nl(api_base: str, api_key: str, model: str, nl: str) -> dict:
             "generated_strategy_kind": None,
             "intent": intent.to_dict(),
             "errors": [message],
+            "warnings": [],
+        }
+
+    preflight_error = _trade_preflight_clarification(intent)
+    if preflight_error:
+        return {
+            "ok": True,
+            "status": "needs_clarification",
+            "yaml": "",
+            "valid": False,
+            "strategy_kind": intent.kind,
+            "generated_strategy_kind": None,
+            "intent": intent.to_dict(),
+            "errors": [preflight_error],
             "warnings": [],
         }
 

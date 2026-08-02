@@ -555,6 +555,80 @@ def test_write_case_pair_wires_the_check_to_the_real_text(tmp_path, internal):
     assert len(list(S.read_cases(tmp_path / "cases.jsonl"))) == 1
 
 
+def _write_auditable_pair(tmp_path, internal, text=FAKE_USER_TEXT_ZH):
+    """Create one typed public/private case pair without exposing it in output."""
+    case_id = S.new_case_id()
+    pseudonym = S.hmac_pseudonym("123456789")
+    case = make_case(text, case_id=case_id, pseudonym_id=pseudonym)
+    private = S.InternalCaseRecord(
+        case_id=case_id, user_text_raw=text, user_text_redacted="[redacted]",
+        pseudonym_id=pseudonym, user_id="123456789")
+    public_path = tmp_path / "cases.jsonl"
+    private_path = internal / "cases_demo_internal.jsonl"
+    S.write_case(public_path, case, source_text=text)
+    S.write_case_internal(private_path, private)
+    return public_path, private_path, case, private
+
+
+def test_public_private_link_audit_requires_one_matching_typed_private_record(
+    tmp_path, internal,
+):
+    public_path, private_path, case, _private = _write_auditable_pair(tmp_path, internal)
+    # The mining store has a deliberately incompatible shape and must never be
+    # accidentally passed to the typed-case audit by automatic discovery.
+    (internal / "cases_internal.jsonl").write_text("{}\n", encoding="utf-8")
+
+    discovered = S.discover_case_internal_paths(internal)
+    linked = S.audit_public_private_case_links(public_path, discovered)
+
+    assert discovered == (private_path,)
+    assert linked == {case.case_id: FAKE_USER_TEXT_ZH}
+
+
+@pytest.mark.parametrize("fault", ["missing", "duplicate", "mismatch"])
+def test_public_private_link_audit_fails_closed_without_echoing_private_values(
+    tmp_path, internal, fault,
+):
+    public_path, private_path, case, private = _write_auditable_pair(tmp_path, internal)
+    if fault == "missing":
+        private_path.unlink()
+    elif fault == "duplicate":
+        S.write_case_internal(private_path, private)
+    else:
+        mismatched = S.InternalCaseRecord(
+            case_id=private.case_id, user_text_raw=FAKE_USER_TEXT_EN,
+            user_text_redacted="[redacted]", pseudonym_id=private.pseudonym_id,
+            user_id=private.user_id)
+        private_path.unlink()
+        S.write_case_internal(private_path, mismatched)
+
+    with pytest.raises(S.RecordError) as excinfo:
+        S.audit_public_private_case_links(public_path, [private_path])
+
+    detail = str(excinfo.value)
+    assert case.case_id in detail
+    assert FAKE_USER_TEXT_ZH not in detail
+    assert FAKE_USER_TEXT_EN not in detail
+    assert private.pseudonym_id not in detail
+    assert str(private_path) not in detail
+
+
+def test_public_private_link_audit_rejects_a_private_half_for_a_synthetic_case(
+    tmp_path, internal,
+):
+    public_path, private_path, case, _private = _write_auditable_pair(tmp_path, internal)
+    synthetic = make_case(
+        FAKE_USER_TEXT_ZH, case_id=case.case_id, pseudonym_id=None,
+        text_provenance=S.TextProvenance.SYNTHETIC,
+        mining_source=S.MiningSource.SYNTHETIC_TEMPLATE,
+    )
+    public_path.unlink()
+    S.write_case(public_path, synthetic, source_text=S.NO_SOURCE_TEXT)
+
+    with pytest.raises(S.RecordError, match="synthetic public case has a private record"):
+        S.audit_public_private_case_links(public_path, [private_path])
+
+
 #: Keys under which user prose can live in the internal store. Read raw rather
 #: than through :func:`read_cases_internal` on purpose: the internal file is
 #: written by the mining stage and may be a record shape this module has not seen

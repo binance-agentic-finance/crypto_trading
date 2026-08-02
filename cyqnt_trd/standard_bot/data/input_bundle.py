@@ -57,8 +57,8 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence
 from ..core import (
     Bar, DataSnapshot, MarketBundle, SnapshotMeta, UniverseBundle,
 )
-from ..core.input_contract import (INPUT_SCHEMA_VERSION, FrameKind, TypedFrame,
-                                   schema_for)
+from ..core.input_contract import (INPUT_SCHEMA_VERSION, FrameKind, FrameSchema,
+                                   FrameValidationError, TypedFrame, schema_for)
 from .internal_slots import (INTERNAL_SLOTS, internal_client_available,
                              normalize_internal_frame, slot_frame_shapes)
 
@@ -131,6 +131,12 @@ def _rows(frame) -> List[Dict[str, Any]]:
 _SERIALIZED_FRAME_SHAPES = frozenset(set(FRAME_SHAPES.values()) | {
     "RawFrame@1.0",
 })
+_SERIALIZED_SHAPE_SCHEMAS = {
+    schema.name: schema
+    for kind in FrameKind
+    for schema in (schema_for(kind),)
+    if schema is not None
+}
 
 
 def _serialized_epoch_ms(value: Any, *, location: str,
@@ -160,6 +166,48 @@ def _serialized_epoch_ms(value: Any, *, location: str,
     return parsed
 
 
+def _serialized_contract_frame(
+        rows: Sequence[Mapping[str, Any]], *, node_label: str,
+        canonical_event_clock: str | None = None,
+):
+    """Build the canonical contract view of JSON rows without repairing them.
+
+    The on-wire input contract uses epoch milliseconds, whereas
+    :class:`FrameSchema` works with timestamps.  Converting the two standard
+    clocks plus the schema's canonical event clock (``close_time`` for a bar)
+    lets the shared frame validator own the ordering invariant and keeps this
+    replay ingress from growing a subtly different timestamp parser. ``None``
+    remains missing for optional ``event_time``; every present wire value must
+    be an exact epoch-ms integer.
+    """
+    import pandas as pd
+
+    contract = pd.DataFrame(rows)
+    fields = ("event_time", "available_time")
+    if canonical_event_clock and canonical_event_clock not in fields:
+        fields += (canonical_event_clock,)
+    for field in fields:
+        if field not in contract.columns:
+            continue
+        values = []
+        # Ask the original mappings rather than the DataFrame column: pandas
+        # turns an absent optional field in one row into ``NaN`` once another
+        # row supplies it, and a missing optional event clock is not malformed.
+        for row_index, row in enumerate(rows):
+            value = row.get(field)
+            if value is None:
+                values.append(pd.NaT)
+                continue
+            epoch_ms = _serialized_epoch_ms(
+                value,
+                location="%s row %d" % (node_label, row_index),
+                field=field,
+            )
+            values.append(pd.to_datetime(epoch_ms, unit="ms", utc=True))
+        contract[field] = values
+    return contract
+
+
 def _validate_serialized_input_bundle(bundle: Any) -> None:
     """Fail closed on malformed or future rows before loading a replay artifact.
 
@@ -167,8 +215,9 @@ def _validate_serialized_input_bundle(bundle: Any) -> None:
     *ingress* gate for persisted ``cyqnt.input/v1``: a hand-edited or corrupted
     JSON artifact must not bypass the original gate merely because it is read
     back into a :class:`DataSnapshot`.  It validates only the wire envelope and
-    the cross-field clock invariant; it deliberately does not filter or repair
-    rows, because either action would hide that a replay input was invalid.
+    the canonical shape and cross-field clock invariants; it deliberately does
+    not filter or repair rows, because either action would hide that a replay
+    input was invalid.
     """
     if not isinstance(bundle, Mapping):
         raise ValueError("not a %s bundle: expected object, got %s"
@@ -205,12 +254,24 @@ def _validate_serialized_input_bundle(bundle: Any) -> None:
         if not isinstance(shape, str) or shape not in _SERIALIZED_FRAME_SHAPES:
             raise ValueError("%s has unknown or missing shape %r"
                              % (node_label, shape))
+        # A known node has exactly one canonical frame shape.  Allowing a
+        # valid-but-different shape (for example RawFrame on ``universe``)
+        # makes the loader take a trusted code path while silently dropping the
+        # node's required fields and its typed consumer contract.  Extensions
+        # remain free to opt into RawFrame by using a new node name.
+        expected_shape = FRAME_SHAPES.get(str(node))
+        if expected_shape is not None and shape != expected_shape:
+            raise ValueError(
+                "%s must declare canonical shape %s, got %s"
+                % (node_label, expected_shape, shape)
+            )
         if "rows" not in frame:
             raise ValueError("%s is missing rows" % node_label)
         rows = frame["rows"]
         if not isinstance(rows, list):
             raise ValueError("%s rows must be an array, got %s"
                              % (node_label, type(rows).__name__))
+        schema = _SERIALIZED_SHAPE_SCHEMAS.get(shape)
         for row_index, row in enumerate(rows):
             row_label = "%s row %d" % (node_label, row_index)
             if not isinstance(row, Mapping):
@@ -223,6 +284,37 @@ def _validate_serialized_input_bundle(bundle: Any) -> None:
                     "%s available_time=%d is after decision_time=%d"
                     % (row_label, available_time, decision_time)
                 )
+            # DataFrame-level validation can prove that a required *column*
+            # occurs somewhere in a frame.  At the JSON ingress we must also
+            # prove that every individual non-empty row carries every required
+            # value; otherwise pandas represents an omitted cell as NaN and a
+            # partially malformed MetricFrame becomes a plausible record.
+            if schema is not None:
+                for field in schema.required:
+                    if field == "available_time":
+                        # The exact epoch-ms and non-null check above gives a
+                        # more useful error for the one universal clock.
+                        continue
+                    if field not in row or row[field] is None:
+                        raise FrameValidationError(
+                            "%s is missing required %s for %s"
+                            % (row_label, field, schema.name)
+                        )
+
+        # Shape-specific required fields and ``event_time <= available_time``
+        # are owned by FrameSchema.  RawFrame intentionally has no required
+        # fields, but an opaque extension must still satisfy that same temporal
+        # invariant when it declares both clocks.  An empty response is valid
+        # regardless of its shape (and has no columns for FrameSchema to
+        # inspect), so it takes the shared clock-only path as well.
+        contract_frame = _serialized_contract_frame(
+            rows, node_label=node_label,
+            canonical_event_clock=(schema.available_from if schema else None),
+        )
+        if schema is None or not rows:
+            FrameSchema.validate_event_availability(contract_frame, node=node_label)
+        else:
+            schema.validate(contract_frame, node=node_label)
 
 
 def _pit(rows: Sequence[Dict[str, Any]], decision_time: int) -> List[Dict[str, Any]]:

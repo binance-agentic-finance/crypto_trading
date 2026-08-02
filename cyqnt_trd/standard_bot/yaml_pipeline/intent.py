@@ -48,7 +48,7 @@ class IntentDecision:
     """The independently-checkable meaning extracted before YAML generation."""
 
     __slots__ = (
-        "kind", "evidence", "requested_count", "sources",
+        "kind", "evidence", "requested_count", "sources", "excluded_sources",
         "bullish_preference", "unsupported_preferences", "candidate_trade_requested",
         "long_short_min_account_pct", "long_short_min_account_operator",
         "supertrend_parameters",
@@ -56,9 +56,10 @@ class IntentDecision:
         "included_symbols", "excluded_symbols", "intervals", "market_type",
         "technical_periods", "excluded_technical_periods", "stop_pct",
         "tp_pct", "size_fraction", "directions", "excluded_directions",
-        "news_metrics", "triggers", "indicator_names",
+        "news_metrics", "triggers", "condition_join", "indicator_names",
         "excluded_indicator_names", "rsi_thresholds", "ranking_metric",
-        "score_order", "score_order_metric",
+        "score_order", "score_order_metric", "exit_type", "exit_atr_period",
+        "exit_trail_mult", "excluded_exit_types",
     )
 
     def __init__(
@@ -68,6 +69,7 @@ class IntentDecision:
         evidence=(),
         requested_count=None,
         sources=frozenset(),
+        excluded_sources=frozenset(),
         bullish_preference=False,
         unsupported_preferences=(),
         candidate_trade_requested=False,
@@ -88,17 +90,23 @@ class IntentDecision:
         excluded_directions=(),
         news_metrics=(),
         triggers=(),
+        condition_join=None,
         indicator_names=(),
         excluded_indicator_names=(),
         rsi_thresholds=(),
         ranking_metric=None,
         score_order=None,
         score_order_metric=None,
+        exit_type=None,
+        exit_atr_period=None,
+        exit_trail_mult=None,
+        excluded_exit_types=(),
     ):
         self.kind = str(kind)
         self.evidence = tuple(evidence)
         self.requested_count = requested_count
         self.sources = frozenset(sources)
+        self.excluded_sources = frozenset(excluded_sources)
         self.bullish_preference = bool(bullish_preference)
         self.unsupported_preferences = tuple(unsupported_preferences)
         self.candidate_trade_requested = bool(candidate_trade_requested)
@@ -119,6 +127,7 @@ class IntentDecision:
         self.excluded_directions = tuple(excluded_directions)
         self.news_metrics = tuple(news_metrics)
         self.triggers = tuple(triggers)
+        self.condition_join = condition_join
         self.indicator_names = tuple(indicator_names)
         self.excluded_indicator_names = tuple(excluded_indicator_names)
         self.rsi_thresholds = tuple(rsi_thresholds)
@@ -128,6 +137,10 @@ class IntentDecision:
         # and nothing downstream may pretend otherwise.
         self.score_order = score_order
         self.score_order_metric = score_order_metric
+        self.exit_type = exit_type
+        self.exit_atr_period = exit_atr_period
+        self.exit_trail_mult = exit_trail_mult
+        self.excluded_exit_types = tuple(excluded_exit_types)
 
     def to_dict(self) -> dict:
         return {
@@ -135,6 +148,7 @@ class IntentDecision:
             "evidence": list(self.evidence),
             "requested_count": self.requested_count,
             "sources": sorted(self.sources),
+            "excluded_sources": sorted(self.excluded_sources),
             "bullish_preference": self.bullish_preference,
             "unsupported_preferences": list(self.unsupported_preferences),
             "candidate_trade_requested": self.candidate_trade_requested,
@@ -164,6 +178,7 @@ class IntentDecision:
             "excluded_directions": list(self.excluded_directions),
             "news_metrics": list(self.news_metrics),
             "triggers": list(self.triggers),
+            "condition_join": self.condition_join,
             "indicator_names": list(self.indicator_names),
             "excluded_indicator_names": list(self.excluded_indicator_names),
             "rsi_thresholds": [
@@ -173,6 +188,10 @@ class IntentDecision:
             "ranking_metric": self.ranking_metric,
             "score_order": self.score_order,
             "score_order_metric": self.score_order_metric,
+            "exit_type": self.exit_type,
+            "exit_atr_period": self.exit_atr_period,
+            "exit_trail_mult": self.exit_trail_mult,
+            "excluded_exit_types": list(self.excluded_exit_types),
         }
 
 
@@ -322,6 +341,11 @@ def _rules(*items):
 
 _SELECTION_RULES = _rules(
     ("zh_explicit_selection", r"選幣"),
+    # A counted basket often omits the final noun after the metric:
+    # "選五個成交量最高" is still a selector, whereas "選 EMA 10 還是 26"
+    # has no counted-candidate phrase and remains ambiguous.
+    ("zh_counted_selection",
+     r"(?:選|挑|篩).{0,24}(?:\d+|[一二兩三四五六七八九十]{1,3})\s*(?:個|名|檔)"),
     ("zh_asset_request",
      r"(?:選|挑|篩|找|列出|推薦).{0,60}(?:幣別|幣種|代幣|候選幣|幣)"),
     ("zh_which_assets", r"(?:哪些|哪幾個).{0,30}(?:幣別|幣種|代幣|幣)"),
@@ -379,7 +403,7 @@ _SOURCE_RULES = _rules(
     ("funding", r"(?:資金費率|funding(?:\s+rate)?)"),
     ("open_interest", r"(?:未平倉|未平倉量|持倉量|open[\s_-]*interest|\bOI\b)"),
     ("long_short_ratio", _LONG_SHORT_RATIO_TERM),
-    ("liquidity", r"(?:流動性|成交量|交易量|quote[\s_-]*volume|\bvolume\b|liquidity)"),
+    ("liquidity", r"(?:流動性|成交量|交易量|成交額|交易額|quote[\s_-]*volume|\b(?:volume|turnover)\b|liquidity)"),
     ("price_change", r"(?:漲幅|跌幅|漲最多|跌最多|price[\s_-]*change|gainers?|losers?)"),
 )
 _FUNDING_TERM = r"(?:資金費率|funding(?:\s*rate)?)"
@@ -499,7 +523,7 @@ _SELECTION_VERB = (r"(?:選|挑|篩|找|列出|推薦|"
 #: same positive tokens in :class:`IntentDecision` as ``使用 RSI`` / ``做多``.
 #: The reconciler then rejected the faithful YAML and accepted the forbidden one.
 _NEGATED_TERM_PREFIX = re.compile(
-    r"(?:不要|不用|不准|不準|不可|不能|不允許|不允许|禁止|避免|避開|避开|"
+    r"(?:不要|不用|不使用|不採用|不采用|不准|不準|不可|不能|不允許|不允许|禁止|避免|避開|避开|"
     r"排除|剔除|去掉|扣掉|不含|勿|別|别|除了|"
     r"\b(?:do\s+not|don't|never|without|exclude|excluding|avoid|avoiding|"
     r"except|skip|no)\b)"
@@ -583,14 +607,42 @@ _EXPLICIT_NEWS_SOURCE = re.compile(
     re.IGNORECASE,
 )
 _VOLUME_RANKING = re.compile(
-    r"(?:by\s+(?:quote[\s_-]*)?volume|(?:依|按|根據).{0,16}(?:成交量|交易量|流動性)|"
-    r"(?:成交量|交易量|流動性).{0,12}(?:最大|最高|排行|排名|top))",
+    r"(?:by\s+(?:quote[\s_-]*)?(?:volume|turnover)|"
+    r"(?:依|按|根據).{0,16}(?:成交量|交易量|成交額|交易額|流動性)|"
+    r"(?:成交量|交易量|成交額|交易額|流動性).{0,12}(?:最大|最高|排行|排名|top))",
     re.IGNORECASE,
 )
 _UNSUPPORTED_DISCOVERY = re.compile(
     r"(?:少見|冷門|未被.{0,8}發現|沒人.{0,8}發現|尚未.{0,8}發現|"
     r"undiscovered|under[- ]the[- ]radar|havent\s+(?:find|found)|haven't\s+(?:find|found))",
     re.IGNORECASE,
+)
+# These names intentionally mirror the closed capability table in
+# ``tools.nl2yaml.capability``.  The demo must refuse the named request before
+# an LLM can substitute a correlated metric (for example turnover for market
+# cap) or pretend a side effect was scheduled.  Keep the patterns narrow: they
+# identify explicit unsupported requirements, not vague domain discussion.
+_NAMED_UNSUPPORTED_GAPS = (
+    ("GAP-MARKET-CAP", re.compile(r"(?:市值|market\s*cap|\bmcap\b)", re.IGNORECASE)),
+    ("GAP-ONCHAIN-CONCENTRATION", re.compile(
+        r"(?:鏈上.{0,20}(?:持幣|持有人|集中)|on[\s_-]*chain.{0,24}"
+        r"(?:holder|concentration)|holder\s+concentration)", re.IGNORECASE)),
+    ("GAP-ALERT-NOTIFY", re.compile(
+        r"(?:Telegram|電報通知|推播|通知我|提醒我|webhook|alert\s+me|notify\s+me)",
+        re.IGNORECASE)),
+    ("GAP-ACCOUNT-OPS", re.compile(
+        # A naked ``2x`` is not enough: it can be the multiplier in an ATR
+        # trailing stop. Require an execution/account context around the
+        # multiplier so the unsupported-account gate cannot shadow a fully
+        # specified, runnable risk.exit contract.
+        r"(?:槓桿|leverage|(?<![A-Za-z0-9])\d+(?:\.\d+)?\s*x\s*"
+        r"(?:槓桿|leverage|(?:open|enter)\s+(?:a\s+)?(?:position|trade)|"
+        r"(?:開倉|开仓|進場|进场))|限價(?:單|進場)?|限价(?:单|进场)?|"
+        r"\blimit\s+(?:entry|order)\b|\bstop\s+order\b)",
+        re.IGNORECASE)),
+)
+_CROSS_SECTION_LIQUIDATION = re.compile(
+    r"(?:清算|爆倉|爆仓|liquidations?)", re.IGNORECASE,
 )
 _FULL_SYMBOL = re.compile(
     r"\b[A-Z0-9]{2,12}(?:USDT|USDC|BUSD|FDUSD|USD|BTC|ETH)\b",
@@ -611,7 +663,7 @@ _SYMBOL_STOPWORDS = {
 #: between the two symbols.  Consequently ``排除 BTC, ETH`` propagates the
 #: exclusion, while ``排除 BTC, 選 ETH`` does not cross the new selection clause.
 _SYMBOL_LIST_SEPARATOR = re.compile(
-    r"\s*(?:(?:[/／|、,，&]|與|和|及|\b(?:and|or)\b)\s*)+",
+    r"\s*(?:(?:[/／|、,，&]|以及|與|和|及|或(?:者)?|\b(?:and|or)\b)\s*)+",
     re.IGNORECASE,
 )
 _EXECUTION_ACTION = re.compile(
@@ -636,10 +688,18 @@ _CANDIDATE_TRADE_POINT = re.compile(
     re.IGNORECASE,
 )
 _CANDIDATE_BUY_POINT = re.compile(
-    r"(?:(?:技術分析.{0,12})?買點|\bbuy\s+points?\b)", re.IGNORECASE,
+    r"(?:(?:技術分析.{0,12})?買點|\bbuy\s+points?\b|"
+    r"RSI(?:\s*[-_]?\s*\d{1,4})?.{0,24}?"
+    r"(?:低於|小於|低于|below|under)\s*\d+(?:\.\d+)?"
+    r"(?:\s*(?:時|就))?\s*(?:買(?:進|入)?|\bbuy\b))",
+    re.IGNORECASE,
 )
 _CANDIDATE_SELL_POINT = re.compile(
-    r"(?:(?:技術分析.{0,12})?賣點|\bsell\s+points?\b)", re.IGNORECASE,
+    r"(?:(?:技術分析.{0,12})?賣點|\bsell\s+points?\b|"
+    r"RSI(?:\s*[-_]?\s*\d{1,4})?.{0,24}?"
+    r"(?:高於|大於|高于|above|over)\s*\d+(?:\.\d+)?"
+    r"(?:\s*(?:時|就))?\s*(?:賣(?:出|掉)?|\bsell\b))",
+    re.IGNORECASE,
 )
 _BIDIRECTIONAL_TRADE_POINT = re.compile(
     r"(?:(?:技術分析.{0,12})?買賣點|買點.{0,12}賣點|賣點.{0,12}買點|"
@@ -656,12 +716,23 @@ _PREFIX_INTERVAL = re.compile(
     r"(?<![A-Za-z0-9])([mhdw])\s*(\d{1,4})(?![A-Za-z0-9])",
     re.IGNORECASE,
 )
+# Binance's universe ticker exposes a rolling 24-hour quote turnover.  It is a
+# *metric window*, not a candles timeframe.  Without this distinction a request
+# such as ``依 24 小時成交額排名`` asks the model for quoteVolume and then the
+# reconciliation layer incorrectly demands ``data.primary.interval: 24h``.
+_TURNOVER_METRIC_WINDOW = re.compile(
+    r"(?:24\s*(?:小時|小时|h(?:ours?)?)\s*(?:的\s*)?"
+    r"(?:成交量|交易量|成交額|交易額|(?:quote[\s_-]*)?(?:volume|turnover))|"
+    r"(?:成交量|交易量|成交額|交易額|(?:quote[\s_-]*)?(?:volume|turnover))\s*"
+    r"(?:的\s*)?24\s*(?:小時|小时|h(?:ours?)?))",
+    re.IGNORECASE,
+)
 _TECHNICAL_PERIOD = re.compile(
     r"(?<![A-Za-z])(EMA|SMA|RSI|ADX)\s*[-_]?\s*(\d{1,4})(?!\d)",
     re.IGNORECASE,
 )
 _TECHNICAL_NAME = re.compile(
-    r"(?<![A-Za-z])(EMA|SMA|RSI|ADX|MACD|SUPERTREND)(?![A-Za-z])",
+    r"(?<![A-Za-z])(EMA|SMA|RSI|ADX|MACD|SUPERTREND|VWAP)(?![A-Za-z])",
     re.IGNORECASE,
 )
 _SUPERTREND_PARAMETERS = re.compile(
@@ -680,15 +751,55 @@ _RSI_THRESHOLD = re.compile(
 #: from being relabelled as an RSI threshold merely because RSI appeared earlier.
 _RSI_FOLLOWUP_THRESHOLD = re.compile(
     r"\s*(?:時|就)?\s*"
-    r"(?:做多|做空|買進|買入|賣出|賣掉|買點|賣點|"
+    r"(?:做多|做空|買進|買入|賣出|賣掉|買|賣|買點|賣點|"
     r"\b(?:long|short|buy|sell)\b)?\s*"
-    r"(?:[,，、;；/]|且|並且|而|同時|\b(?:and|then)\b)+\s*"
+    r"(?:[,，、;；/]|且|並且|而|同時|和|與|及|以及|或(?:者)?|\b(?:and|or|then)\b)+\s*"
     r"(低於|小於|低于|below|under|高於|大於|高于|above|over)\s*"
     r"(\d+(?:\.\d+)?)",
     re.IGNORECASE,
 )
 _LONG_DIRECTION = re.compile(r"(?:買進|買入|做多|多方|\b(?:buy|long)\b)", re.IGNORECASE)
 _SHORT_DIRECTION = re.compile(r"(?:做空|空方|\bshort\b)", re.IGNORECASE)
+# A bare ``賣出`` / ``sell`` is not an entry-side declaration.  In a
+# single-instrument strategy it can mean either "close my long" or "open a
+# short"; treating it as the latter changes both required capability and the
+# emitted intent.  Candidate-trade selection has a separately documented,
+# confirmation-only sell-point convention, so this guard is applied only to a
+# top-level trade below.
+_BARE_SELL_ACTION = re.compile(r"(?:賣出|賣掉|\bsell\b)", re.IGNORECASE)
+_ATR_TERM = (
+    r"(?:(?<![A-Za-z0-9])ATR(?:\s*\(\s*\d{1,3}\s*\)|\s*\d{1,3})?"
+    r"(?![A-Za-z0-9])|平均真實波幅)"
+)
+_TRAILING_TERM = r"(?:追蹤|跟蹤|移動|trailing)"
+_STOP_TERM = r"(?:停損|止損|stop(?:[- ]?loss)?)"
+# All spellings require ATR + trailing + stop. A request to inspect an ATR
+# indicator must not become permission to invent an ATR-based exit.
+_ATR_TRAILING_STOP = re.compile(
+    rf"(?:{_ATR_TERM}.{{0,40}}?{_TRAILING_TERM}.{{0,24}}?{_STOP_TERM}|"
+    rf"{_TRAILING_TERM}.{{0,24}}?{_STOP_TERM}.{{0,40}}?{_ATR_TERM}|"
+    rf"{_TRAILING_TERM}.{{0,24}}?{_ATR_TERM}.{{0,24}}?{_STOP_TERM}|"
+    rf"{_STOP_TERM}.{{0,24}}?{_TRAILING_TERM}.{{0,24}}?{_ATR_TERM})",
+    re.IGNORECASE,
+)
+_ATR_PERIOD = re.compile(
+    r"(?<![A-Za-z0-9])ATR\s*(?:\(\s*(?P<paren>\d{1,3})\s*\)|"
+    r"(?:period\s*[-_:：=]?\s*)?(?P<plain>\d{1,3})"
+    r"(?![\d.]|\s*(?:x|倍)))",
+    re.IGNORECASE,
+)
+_ATR_TRAIL_MULTIPLIER = re.compile(
+    r"(?:(?<![A-Za-z0-9])(?P<before>\d+(?:\.\d+)?)\s*(?:x|倍)\s*"
+    r"(?:[- ]?\s*)?ATR(?:\s*\(\s*\d{1,3}\s*\)|\s*\d{1,3})?"
+    r"(?![A-Za-z0-9])|(?<![A-Za-z0-9])ATR(?:\s*\(\s*\d{1,3}\s*\)|"
+    r"\s*\d{1,3})?(?![A-Za-z0-9])[^,，。;；\n]{0,16}?"
+    r"(?P<after>\d+(?:\.\d+)?)\s*(?:x|倍))",
+    re.IGNORECASE,
+)
+_CONDITION_OR = re.compile(r"(?:\b(?:or|either)\b|或(?:者)?|任一)", re.IGNORECASE)
+_CONDITION_AND = re.compile(
+    r"(?:\b(?:and|then)\b|且|並且|同時|而|和|與|及|以及)", re.IGNORECASE,
+)
 _TRIGGER_RULES = _rules(
     ("cross_above", r"(?:上穿|黃金交叉|golden[\s_-]*cross|cross(?:es|ing)?\s+above)"),
     ("cross_below", r"(?:下穿|死亡交叉|death[\s_-]*cross|cross(?:es|ing)?\s+below)"),
@@ -753,7 +864,7 @@ def _symbol_mentions(text: str) -> tuple[tuple[str, bool], ...]:
             symbol = match.group(0).upper()
             if pattern is _BARE_UPPER_SYMBOL and (
                 symbol in _SYMBOL_STOPWORDS
-                or re.fullmatch(r"(?:EMA|SMA|RSI|ADX|MACD|SUPERTREND)\d*", symbol)
+            or re.fullmatch(r"(?:EMA|SMA|RSI|ADX|ATR|MACD|SUPERTREND)\d*", symbol)
                 # H4/H1/M15 are ordinary chart intervals, not ticker symbols.
                 # Keeping them in ``named_symbols`` caused an MTF request to
                 # become an accidental universe allowlist downstream.
@@ -796,6 +907,50 @@ def _symbol_mentions(text: str) -> tuple[tuple[str, bool], ...]:
     return tuple(ordered)
 
 
+def _source_mentions(text: str) -> tuple[tuple[str, bool], ...]:
+    """Return source names with their local positive/negative polarity.
+
+    Source lists follow the same grammar as symbol lists: a negative clause
+    covering news or funding negates both items, while a later independent
+    clause starts a new positive request. Treating the second list item as
+    positive is dangerous because reconciliation would require data the user
+    expressly forbade.
+    """
+    found = []
+    for name, rule in _SOURCE_RULES:
+        for match in rule.finditer(text):
+            found.append((match.start(), match.end(), name, match))
+
+    mentions = []
+    seen_spans = set()
+    for start, end, name, match in sorted(found, key=lambda item: item[:3]):
+        key = (start, end, name)
+        if key not in seen_spans:
+            seen_spans.add(key)
+            mentions.append((start, end, name, match))
+
+    classified = []
+    previous_end = None
+    previous_excluded = False
+    for start, end, name, match in mentions:
+        excluded = _is_excluded_match(text, match)
+        if not excluded and previous_excluded and previous_end is not None:
+            separator = text[previous_end:start]
+            excluded = bool(_SYMBOL_LIST_SEPARATOR.fullmatch(separator))
+        classified.append((name, excluded))
+        previous_end = end
+        previous_excluded = excluded
+
+    ordered = []
+    seen = set()
+    for name, excluded in classified:
+        key = (name, excluded)
+        if key not in seen:
+            seen.add(key)
+            ordered.append(key)
+    return tuple(ordered)
+
+
 def _named_symbols(text: str) -> tuple[str, ...]:
     return tuple(dict.fromkeys(symbol for symbol, _excluded in _symbol_mentions(text)))
 
@@ -809,8 +964,14 @@ def _requested_intervals(text: str) -> tuple[str, ...]:
         "d": "d", "day": "d", "days": "d", "天": "d", "日": "d",
         "w": "w", "week": "w", "weeks": "w", "週": "w", "周": "w",
     }
+    turnover_windows = [match.span() for match in _TURNOVER_METRIC_WINDOW.finditer(text)]
     values = []
     for match in _INTERVAL.finditer(text):
+        # Do not turn the rolling universe metric's ``24h`` into a bar
+        # timeframe.  Other intervals in the same request remain meaningful,
+        # for example "24h turnover plus an H1 EMA filter".
+        if any(start <= match.start() < end for start, end in turnover_windows):
+            continue
         unit = unit_map[match.group(2).lower()]
         values.append((match.start(), "%d%s" % (int(match.group(1)), unit)))
     # Chart users commonly spell timeframes as H4/H1/M15 rather than 4h/1h/15m.
@@ -973,12 +1134,167 @@ def _requested_rsi_thresholds(text: str) -> tuple[tuple[str, float], ...]:
     return tuple(dict.fromkeys(thresholds))
 
 
+_ENTRY_JOIN_DISQUALIFIER = re.compile(
+    r"(?:停損|止損|停利|止盈|風控|风险|risk|stop(?:[- ]?loss)?|"
+    r"take[- ]?profit|倉位|仓位|size|position)",
+    re.IGNORECASE,
+)
+
+
+def _entry_condition_join(
+        text: str,
+        triggers: tuple[str, ...],
+        rsi_thresholds: tuple[tuple[str, float], ...],
+) -> str | None:
+    """Infer AND/OR only when the connector joins recognised entry predicates.
+
+    A global search for an OR word turns phrases such as stop loss or take
+    profit into an OR entry rule. We inspect only gaps between recognised
+    positive entry predicates: trigger↔RSI as well as RSI↔RSI.  The latter is
+    necessary for ``RSI14 below 30 or above 70``; otherwise its second threshold
+    is silently dropped from the boolean contract.  Risk/sizing clauses remain
+    excluded from this inference.
+    """
+    if not rsi_thresholds:
+        return None
+
+    spans = []
+    for name, rule in _TRIGGER_RULES:
+        if name not in triggers:
+            continue
+        for match in rule.finditer(text):
+            if not _is_excluded_match(text, match):
+                spans.append((match.start(), match.end(), "trigger"))
+    for match in _RSI_THRESHOLD.finditer(text):
+        if not _is_excluded_match(text, match):
+            spans.append((match.start(), match.end(), "rsi"))
+            cursor = match.end()
+            while True:
+                inherited = _RSI_FOLLOWUP_THRESHOLD.match(text, cursor)
+                if inherited is None or _is_excluded_match(text, inherited):
+                    break
+                # Only the comparison itself is an entry predicate.  The
+                # connector before it is precisely the gap we need to read.
+                spans.append((inherited.start(1), inherited.end(2), "rsi"))
+                cursor = inherited.end()
+
+    ordered = sorted(spans)
+    if len(ordered) < 2:
+        return None
+    joins = []
+    for (_left_start, left_end, left_kind), (right_start, _right_end, right_kind) in zip(
+            ordered, ordered[1:]):
+        gap = text[left_end:right_start]
+        if _ENTRY_JOIN_DISQUALIFIER.search(gap):
+            continue
+        if _CONDITION_OR.search(gap):
+            joins.append("any_of")
+            continue
+        # Two RSI comparisons only get an AND meaning when the connector
+        # explicitly says so.  A comma alone may delimit separate long/short
+        # clauses and must not be made into an impossible conjunctive entry.
+        if _CONDITION_AND.search(gap):
+            joins.append("all_of")
+    if len(set(joins)) > 1:
+        # A scalar ``condition_join`` can faithfully represent one connector
+        # across all recognised leaves, but not e.g. EMA AND (RSI<30 OR
+        # RSI>70).  Do not flatten that into an arbitrary any_of/all_of tree;
+        # the preflight caller will ask for a form the current IR can prove.
+        return "mixed"
+    if joins:
+        return joins[0]
+    # Trigger + RSI historically has an AND default: it is one ordinary entry
+    # sentence with two predicates. Preserve that narrow default; a pair of RSI
+    # comparisons without an explicit connector remains unspecified instead.
+    return "all_of" if triggers and rsi_thresholds else None
+
+
 def _requested_market_type(text: str) -> str | None:
     if re.search(r"(?:現貨|\bspot\b)", text, re.IGNORECASE):
         return "spot"
     if re.search(r"(?:永續|合約|期貨|\b(?:futures?|perpetuals?)\b)", text, re.IGNORECASE):
         return "futures"
     return None
+
+
+def _atr_trailing_matches(text: str, *, excluded: bool | None = None) -> tuple[re.Match, ...]:
+    """Return ATR trailing-stop spans with their request-local polarity."""
+
+    matches = []
+    for match in _ATR_TRAILING_STOP.finditer(text):
+        is_excluded = _is_excluded_match(text, match)
+        if excluded is None or is_excluded == excluded:
+            matches.append(match)
+    return tuple(matches)
+
+
+def _requested_atr_trailing_exit(text: str) -> tuple[str | None, int | None, float | None]:
+    """Extract the fully-specified ATR trailing-stop contract when requested.
+
+    ``atr_trailing_stop`` has two load-bearing parameters.  Treating a vague
+    mention as a permission to apply the generic 2% stop is exactly the silent
+    substitution this front door is meant to prevent, so a present-but-partial
+    request intentionally returns ``(type, None, None)`` for the caller to
+    clarify before generation.
+    """
+    matches = _atr_trailing_matches(text, excluded=False)
+    if not matches:
+        return None, None, None
+    if len(matches) != 1:
+        # One risk.exit can only carry one trailing configuration.  Taking the
+        # first of several positive requests silently discards the rest, so use
+        # the existing deterministic preflight to request a single plan.
+        return "atr_trailing_stop", None, None
+    # Bind parameters to the positive trailing-stop phrase rather than scanning
+    # the whole request.  In "do not use ATR14 2x ...; use ATR10 1.5x ..." the
+    # prohibited values must not become the live exit plan.  A multiplier can
+    # begin just before ATR (``2x ATR14``), so overlap rather than containment
+    # is the correct relation.
+    match = matches[0]
+    def overlaps(candidate: re.Match) -> bool:
+        return candidate.start() < match.end() and match.start() < candidate.end()
+
+    period_match = next(
+        (candidate for candidate in _ATR_PERIOD.finditer(text) if overlaps(candidate)), None,
+    )
+    multiplier_match = next(
+        (candidate for candidate in _ATR_TRAIL_MULTIPLIER.finditer(text) if overlaps(candidate)),
+        None,
+    )
+    multiplier = None
+    if multiplier_match is not None:
+        value = multiplier_match.group("before") or multiplier_match.group("after")
+        try:
+            multiplier = float(value)
+        except (TypeError, ValueError):
+            multiplier = None
+    period = None
+    if period_match is not None:
+        value = period_match.group("paren") or period_match.group("plain")
+        try:
+            period = int(value)
+        except (TypeError, ValueError):
+            period = None
+    return (
+        "atr_trailing_stop",
+        period,
+        multiplier,
+    )
+
+
+def _excluded_exit_types(text: str) -> tuple[str, ...]:
+    """Return explicit exit mechanisms the user forbade, never silently omit."""
+
+    # A later explicit positive ATR plan can qualify a preceding prohibition
+    # ("not ATR14/2x; use ATR20/3x"). This coarse field records mechanism-level
+    # exclusions, not parameter-level blacklists, so do not turn that explicit
+    # replacement into an impossible request.
+    return (
+        ("atr_trailing_stop",)
+        if (_atr_trailing_matches(text, excluded=True)
+            and not _atr_trailing_matches(text, excluded=False))
+        else ()
+    )
 
 
 def classify_request(nl: str) -> IntentDecision:
@@ -996,9 +1312,13 @@ def classify_request(nl: str) -> IntentDecision:
     selection = [name for name, rule in _SELECTION_RULES if rule.search(text)]
     trade = [name for name, rule in _TRADE_RULES if positive_matches(rule)]
     plural_scope = bool(_PLURAL_SCOPE.search(text))
+    rsi_thresholds = _requested_rsi_thresholds(text)
+    exit_type, exit_atr_period, exit_trail_mult = _requested_atr_trailing_exit(text)
+    excluded_exit_types = _excluded_exit_types(text)
     buy_point = bool(positive_matches(_CANDIDATE_BUY_POINT))
     sell_point = bool(positive_matches(_CANDIDATE_SELL_POINT))
-    bidirectional_point = bool(positive_matches(_BIDIRECTIONAL_TRADE_POINT))
+    bidirectional_point = bool(positive_matches(_BIDIRECTIONAL_TRADE_POINT)) \
+        or (buy_point and sell_point)
     has_rsi = bool(positive_matches(re.compile(
         r"(?<![A-Za-z])RSI(?:\s*[-_]?\s*\d{1,4})?", re.IGNORECASE)))
     named_candidate_indicators = {
@@ -1020,8 +1340,8 @@ def classify_request(nl: str) -> IntentDecision:
     compound_execution = bool(
         positive_matches(_EXECUTION_ACTION)
         or (
-            positive_matches(_CANDIDATE_DIRECTION_ACTION)
-            and positive_matches(_RSI_THRESHOLD)
+            (positive_matches(_CANDIDATE_DIRECTION_ACTION) or buy_point or sell_point)
+            and rsi_thresholds
         )
     )
     # ``selection.candidate_trade`` can express an entry plan driven by the
@@ -1030,12 +1350,11 @@ def classify_request(nl: str) -> IntentDecision:
     # closed instead of being upgraded merely because an indicator name appears.
     candidate_trade_requested = bool(
         selection
-        and trade
         and compound_execution
         and (
             (_CANDIDATE_TRADE_POINT.search(text)
              and has_rsi)
-            or positive_matches(_RSI_THRESHOLD)
+            or rsi_thresholds
             or generic_point_is_supported
         )
     )
@@ -1046,7 +1365,7 @@ def classify_request(nl: str) -> IntentDecision:
             and (sell_point or bidirectional_point or explicit_short):
         candidate_trade_requested = False
 
-    if selection and trade and compound_execution:
+    if selection and compound_execution:
         if candidate_trade_requested:
             kind = "selection"
             extra = ["compound_select_then_trade"]
@@ -1080,16 +1399,32 @@ def classify_request(nl: str) -> IntentDecision:
         kind = "ambiguous"
         evidence = ()
 
+    # Keep this fact in the independently-derived intent so every caller of
+    # ``reconcile_intent`` can refuse a model that smuggles the down-cross into
+    # a long entry.  The demo front door also sees it before sending any text to
+    # an external model.
+    if kind == "trade" and positive_matches(_BARE_SELL_ACTION) and not explicit_short:
+        evidence = tuple((*evidence, "bare_sell_direction_ambiguous"))
+
     unsupported = []
     if _UNSUPPORTED_DISCOVERY.search(text):
         unsupported.append("under_discovered")
+    unsupported.extend(
+        "gap:%s" % gap_id
+        for gap_id, pattern in _NAMED_UNSUPPORTED_GAPS
+        if pattern.search(text)
+    )
+    if kind == "selection" and _CROSS_SECTION_LIQUIDATION.search(text):
+        unsupported.append("gap:GAP-LIQUIDATION-CROSS-SECTION")
     # A request such as "排除 TradFi / 股票代幣 / 穩定幣" is not safely
     # equivalent to an arbitrary string comparison.  Retain the category so the
     # front door can stop before an LLM invents a mapping to exchange metadata.
     unsupported.extend(
         "category_exclusion:%s" % name for name in _category_exclusions(text)
     )
-    sources = {name for name, rule in _SOURCE_RULES if rule.search(text)}
+    source_mentions = _source_mentions(text)
+    sources = {name for name, excluded in source_mentions if not excluded}
+    excluded_sources = {name for name, excluded in source_mentions if excluded}
     if _VOLUME_RANKING.search(text):
         ranking_metric = "liquidity"
         # In "hot coins by volume", hot means high activity; it is not enough
@@ -1103,11 +1438,18 @@ def classify_request(nl: str) -> IntentDecision:
     else:
         ranking_metric = None
     sources = frozenset(sources)
+    excluded_sources = frozenset(excluded_sources)
 
     technical_periods = []
     excluded_technical_periods = []
     for match in _TECHNICAL_PERIOD.finditer(text):
         item = (match.group(1).lower(), int(match.group(2)))
+        # ``ATR14 2x trailing stop`` configures the exit engine, whose plugin
+        # computes ATR itself.  It is not a request to add a separate ATR entry
+        # indicator, and treating it as one made a faithful trailing-stop YAML
+        # fail reconciliation for omitting an unused indicator.
+        if exit_type == "atr_trailing_stop" and item == ("atr", exit_atr_period):
+            continue
         target = excluded_technical_periods if _is_excluded_match(text, match) \
             else technical_periods
         if item not in target:
@@ -1117,6 +1459,8 @@ def classify_request(nl: str) -> IntentDecision:
     excluded_indicator_names = []
     for match in _TECHNICAL_NAME.finditer(text):
         name = match.group(1).lower()
+        if exit_type == "atr_trailing_stop" and name == "atr":
+            continue
         target = excluded_indicator_names if _is_excluded_match(text, match) \
             else indicator_names
         if name not in target:
@@ -1154,7 +1498,6 @@ def classify_request(nl: str) -> IntentDecision:
         news_metrics.append("mentions")
     if "news" in sources and _NEWS_SENTIMENT_METRIC.search(text):
         news_metrics.append("sentiment")
-    rsi_thresholds = _requested_rsi_thresholds(text)
     # One unambiguous direction phrase, or none at all. "最低與最高 funding" and
     # "漲幅或跌幅" match two rules that contradict each other; guessing one would
     # invent a preference the user never stated, and the downstream check would
@@ -1165,11 +1508,25 @@ def classify_request(nl: str) -> IntentDecision:
         ordered = set()
     score_order_metric, score_order = ordered.pop() if len(ordered) == 1 else (None, None)
     long_short_requirement = _long_short_min_account_requirement(text)
+    triggers = tuple(
+        name for name, rule in _TRIGGER_RULES
+        if any(not _is_excluded_match(text, match) for match in rule.finditer(text))
+    )
+    # A request that names a temporal trigger and a threshold states two entry
+    # predicates.  In ordinary strategy wording their default composition is
+    # AND; the only supported opposite reading must be spelled with an OR term.
+    # Recording this before YAML generation lets reconciliation prove that an
+    # ``any_of`` did not turn an AND strategy into two independent entries.
+    condition_join = (
+        _entry_condition_join(text, triggers, rsi_thresholds)
+        if kind == "trade" else None
+    )
     return IntentDecision(
         kind=kind,
         evidence=evidence,
         requested_count=_requested_count(text),
         sources=sources,
+        excluded_sources=excluded_sources,
         bullish_preference=_generic_bullish_preference(text),
         unsupported_preferences=tuple(unsupported),
         candidate_trade_requested=candidate_trade_requested,
@@ -1191,13 +1548,18 @@ def classify_request(nl: str) -> IntentDecision:
         directions=directions,
         excluded_directions=excluded_directions,
         news_metrics=news_metrics,
-        triggers=[name for name, rule in _TRIGGER_RULES if rule.search(text)],
+        triggers=triggers,
+        condition_join=condition_join,
         indicator_names=indicator_names,
         excluded_indicator_names=excluded_indicator_names,
         rsi_thresholds=rsi_thresholds,
         ranking_metric=ranking_metric,
         score_order=score_order,
         score_order_metric=score_order_metric,
+        exit_type=exit_type,
+        exit_atr_period=exit_atr_period,
+        exit_trail_mult=exit_trail_mult,
+        excluded_exit_types=excluded_exit_types,
     )
 
 
@@ -1434,6 +1796,81 @@ def _condition_leaves(node):
                 yield from _condition_leaves(value)
 
 
+def _condition_required_on_every_path(node, predicate) -> bool:
+    """Whether a leaf matching *predicate* is necessary for every true path.
+
+    This is the Boolean dual of a flat leaf search.  ``all_of`` needs every
+    child, so a match in any required child is mandatory; ``any_of`` offers
+    alternate true paths, so every branch must itself require the match.  It is
+    deliberately conservative for negation/exclusion trees: those forms may be
+    valid YAML, but they cannot prove that a positively requested condition is
+    always enforced.
+    """
+    if not isinstance(node, dict):
+        return False
+    if "cond" in node:
+        return bool(predicate(node))
+    if "all_of" in node:
+        children = node.get("all_of")
+        return (isinstance(children, list) and bool(children)
+                and any(_condition_required_on_every_path(child, predicate)
+                        for child in children))
+    if "any_of" in node:
+        children = node.get("any_of")
+        return (isinstance(children, list) and bool(children)
+                and all(_condition_required_on_every_path(child, predicate)
+                        for child in children))
+    return False
+
+
+def _condition_requested_paths(node, predicates):
+    """Return the requested-predicate set for every satisfiable AST branch.
+
+    The result is a small symbolic proof, not an evaluation over market data.
+    A leaf contributes the requested predicates it fulfils; all_of unions its
+    child requirements and any_of keeps alternatives separate. Negation and
+    exclusion forms are deliberately unprovable for a positive user request.
+    """
+    if not isinstance(node, dict):
+        return None
+    if "cond" in node:
+        return {frozenset(
+            name for name, matcher in predicates if matcher(node)
+        )}
+    if "all_of" in node:
+        children = node.get("all_of")
+        if not isinstance(children, list) or not children:
+            return None
+        paths = {frozenset()}
+        for child in children:
+            child_paths = _condition_requested_paths(child, predicates)
+            if child_paths is None:
+                return None
+            paths = {
+                left | right for left in paths for right in child_paths
+            }
+            # An adversarially huge expression is not a semantic proof. The
+            # YAML grammar normally has only a handful of predicates, so this
+            # bound is never reached by ordinary strategies.
+            if len(paths) > 128:
+                return None
+        return paths
+    if "any_of" in node:
+        children = node.get("any_of")
+        if not isinstance(children, list) or not children:
+            return None
+        paths = set()
+        for child in children:
+            child_paths = _condition_requested_paths(child, predicates)
+            if child_paths is None:
+                return None
+            paths.update(child_paths)
+            if len(paths) > 128:
+                return None
+        return paths
+    return None
+
+
 def _indicator_aliases(indicators: dict, name: str, period=None) -> set[str]:
     out = set()
     expected_block = "indicators.%s" % name
@@ -1458,6 +1895,18 @@ def _reconcile_trade(intent: IntentDecision, spec: dict) -> list[str]:
     errors: list[str] = []
     data = spec.get("data") or {}
     actual_symbol = str(data.get("symbol") or "").upper()
+
+    if intent.condition_join == "mixed":
+        errors.append(
+            "需求的 entry 條件混合了 AND 與 OR；目前扁平 intent 無法證明其巢狀分組，"
+            "拒絕將它降格為任一 all_of/any_of 規則"
+        )
+
+    if "bare_sell_direction_ambiguous" in intent.evidence:
+        errors.append(
+            "需求中的『賣出/sell』可能是平多或開空；請明確指定 close_long 或 open_short，"
+            "系統不會把下穿條件偷偷併入開多 entry"
+        )
 
     if intent.included_symbols:
         requested_bases = {_base_asset(item) for item in intent.included_symbols}
@@ -1562,6 +2011,13 @@ def _reconcile_trade(intent: IntentDecision, spec: dict) -> list[str]:
     requested_nodes = [entry.get(side) for side in intent.directions if entry.get(side)]
     if not requested_nodes:
         requested_nodes = [value for value in entry.values() if isinstance(value, dict)]
+
+    def required_on_every_entry_path(predicate) -> bool:
+        return bool(requested_nodes) and all(
+            _condition_required_on_every_path(node, predicate)
+            for node in requested_nodes
+        )
+
     leaves = [leaf for node in requested_nodes for leaf in _condition_leaves(node)]
     condition_refs = {str(leaf.get("cond")) for leaf in leaves}
     used_args = {
@@ -1585,6 +2041,7 @@ def _reconcile_trade(intent: IntentDecision, spec: dict) -> list[str]:
             )
 
     requested_indicators = {name for name, _period in intent.technical_periods}
+    or_predicates = []
     for trigger in intent.triggers:
         if trigger == "cross_above":
             accepted = (
@@ -1602,10 +2059,32 @@ def _reconcile_trade(intent: IntentDecision, spec: dict) -> list[str]:
             accepted = {"conditions.breakout_high"}
         else:
             accepted = {"conditions.breakout_low"}
+        if trigger in {"cross_above", "cross_below"} and "vwap" in intent.indicator_names:
+            # ``close_above`` / ``close_below`` describe a persistent state,
+            # not an edge.  Treating either as an 上穿/下穿 lets a strategy
+            # enter repeatedly long after the crossing bar.  The generic MA
+            # cross block accepts close and VWAP series, and the range-based
+            # block is a legitimate intrabar touch/cross reading when its
+            # direction is explicit.
+            accepted = set(accepted) | {
+                "conditions.ma_cross_above" if trigger == "cross_above"
+                else "conditions.ma_cross_below",
+                "conditions.price_touch_or_cross",
+            }
+        trigger_matcher = (
+            lambda leaf, accepted=frozenset(accepted): leaf.get("cond") in accepted
+        )
+        or_predicates.append(("trigger:%s" % trigger, trigger_matcher))
         if not accepted.intersection(condition_refs):
             errors.append(
                 "需求指定 %s,但 YAML entry 沒有使用對應條件 Block (%s)"
                 % (trigger, ", ".join(sorted(accepted)))
+            )
+        elif intent.condition_join == "all_of" and not required_on_every_entry_path(
+                trigger_matcher):
+            errors.append(
+                "需求以 AND 同時要求 %s,但 YAML 的 any_of/分支可在沒有該條件時進場"
+                % trigger
             )
 
         ma_periods = [
@@ -1663,6 +2142,48 @@ def _reconcile_trade(intent: IntentDecision, spec: dict) -> list[str]:
                     % trigger
                 )
 
+        if trigger in {"cross_above", "cross_below"} and "vwap" in intent.indicator_names:
+            vwap_aliases = _indicator_aliases(indicators, "vwap")
+            crossover_condition = (
+                "conditions.ma_cross_above" if trigger == "cross_above"
+                else "conditions.ma_cross_below"
+            )
+            touch_direction = "up" if trigger == "cross_above" else "down"
+
+            def vwap_matcher(
+                    leaf, aliases=frozenset(vwap_aliases),
+                    crossover_condition=crossover_condition, touch_direction=touch_direction,
+            ):
+                args = leaf.get("args")
+                if (not isinstance(args, (list, tuple)) or len(args) < 2
+                        or str(args[1]) not in aliases):
+                    return False
+                if (leaf.get("cond") == crossover_condition
+                        and str(args[0]) == "close"):
+                    return True
+                return (
+                    leaf.get("cond") == "conditions.price_touch_or_cross"
+                    and str(args[0]) == "df"
+                    and str((leaf.get("params") or {}).get("direction") or "").lower()
+                    == touch_direction
+                )
+
+            if not any(vwap_matcher(leaf) for leaf in leaves):
+                errors.append(
+                    "需求指定價格 %s VWAP,但 entry 必須以 conditions.%s(close, vwap)"
+                    " 或 conditions.price_touch_or_cross(df, vwap, direction=%s)"
+                    % ("上穿" if trigger == "cross_above" else "下穿",
+                       crossover_condition.rsplit(".", 1)[1], touch_direction)
+                )
+            elif intent.condition_join == "all_of" and not required_on_every_entry_path(
+                    vwap_matcher):
+                errors.append(
+                    "需求以 AND 同時要求價格 %s VWAP,但 YAML 的 any_of/分支可繞過 VWAP"
+                    % ("上穿" if trigger == "cross_above" else "下穿")
+                )
+            if intent.condition_join == "any_of":
+                or_predicates[-1] = ("trigger:%s" % trigger, vwap_matcher)
+
     rsi_periods = [period for name, period in intent.technical_periods if name == "rsi"]
     rsi_aliases = set()
     for period in rsi_periods or [None]:
@@ -1673,21 +2194,72 @@ def _reconcile_trade(intent: IntentDecision, spec: dict) -> list[str]:
             if relation == "below"
             else {"conditions.rsi_overbought", "conditions.value_above"}
         )
-        wired = any(
-            leaf.get("cond") in acceptable
-            and isinstance(leaf.get("args"), (list, tuple))
-            and leaf["args"]
-            and str(leaf["args"][0]) in rsi_aliases
-            and _close_enough(_leaf_threshold(leaf), value)
-            for leaf in leaves
+        rsi_matcher = (
+            lambda leaf, acceptable=frozenset(acceptable), aliases=frozenset(rsi_aliases),
+            value=value: (
+                leaf.get("cond") in acceptable
+                and isinstance(leaf.get("args"), (list, tuple))
+                and bool(leaf.get("args"))
+                and str(leaf["args"][0]) in aliases
+                and _close_enough(_leaf_threshold(leaf), value)
+            )
         )
+        or_predicates.append((
+            "rsi:%s:%.12g" % (relation, value), rsi_matcher,
+        ))
+        wired = any(rsi_matcher(leaf) for leaf in leaves)
         if not wired:
             errors.append(
                 "需求指定 RSI %s %.4g,但 entry 沒有以該 RSI 與門檻建立條件"
                 % (relation, value)
             )
+        elif intent.condition_join == "all_of" and not required_on_every_entry_path(
+                rsi_matcher):
+            errors.append(
+                "需求以 AND 同時要求 RSI %s %.4g,但 YAML 的 any_of/分支可繞過該門檻"
+                % (relation, value)
+            )
+
+    if intent.condition_join == "any_of":
+        for node in requested_nodes:
+            paths = _condition_requested_paths(node, or_predicates)
+            independent = (
+                paths is not None
+                and all(paths)
+                and all(
+                    any(path == frozenset({name}) for path in paths)
+                    for name, _matcher in or_predicates
+                )
+            )
+            if not independent:
+                errors.append(
+                    "需求以 OR 要求每個 entry 條件可各自成立,但 YAML 沒有兩條"
+                    "獨立且無可繞過分支的進場路徑"
+                )
+                break
 
     exit_cfg = (spec.get("risk") or {}).get("exit") or {}
+    if intent.exit_type == "atr_trailing_stop":
+        if exit_cfg.get("type") != "atr_trailing_stop":
+            errors.append(
+                "使用者要求 ATR 追蹤停損,但 YAML risk.exit.type 必須是 atr_trailing_stop"
+            )
+        if not _close_enough(exit_cfg.get("atr_period"), intent.exit_atr_period):
+            errors.append(
+                "使用者指定 ATR period=%r,但 YAML risk.exit.atr_period=%r"
+                % (intent.exit_atr_period, exit_cfg.get("atr_period"))
+            )
+        if not _close_enough(exit_cfg.get("trail_mult"), intent.exit_trail_mult):
+            errors.append(
+                "使用者指定 ATR trail_mult=%r,但 YAML risk.exit.trail_mult=%r"
+                % (intent.exit_trail_mult, exit_cfg.get("trail_mult"))
+            )
+    if (intent.stop_pct is not None or intent.tp_pct is not None) \
+            and exit_cfg.get("type") != "pct_stop_tp":
+        errors.append(
+            "使用者指定百分比停損/停利時 risk.exit.type 必須是 pct_stop_tp，"
+            "其他 exit type 不會套用 stop_pct/tp_pct"
+        )
     for label, expected, key in (
         ("停損", intent.stop_pct, "stop_pct"),
         ("停利", intent.tp_pct, "tp_pct"),
@@ -1706,6 +2278,21 @@ def _reconcile_trade(intent: IntentDecision, spec: dict) -> list[str]:
             )
 
     functional_tokens = set(_iter_strings(signals))
+    source_is_used = {
+        "funding": any("funding" in item for item in functional_tokens),
+        "open_interest": any(
+            "open_interest" in item or "oi_" in item for item in functional_tokens),
+        "liquidity": any(
+            "quote_volume" in item or "liquidity" in item or "volume" in item
+            for item in functional_tokens),
+        "news": any("news_" in item for item in functional_tokens),
+    }
+    for source in sorted(intent.excluded_sources):
+        if source_is_used.get(source, False):
+            errors.append(
+                "使用者明確要求不要使用 %s,但 YAML 仍宣告或讀取該資料來源"
+                % source
+            )
     if "funding" in intent.sources and not any("funding_rate" in item for item in functional_tokens):
         errors.append("需求指定 funding rate,但交易規則沒有實際讀取 funding_rate 欄位")
     if "open_interest" in intent.sources and not any(
@@ -1716,6 +2303,20 @@ def _reconcile_trade(intent: IntentDecision, spec: dict) -> list[str]:
         "quote_volume" in item or "liquidity" in item for item in functional_tokens
     ):
         errors.append("需求指定成交量/流動性,但交易規則沒有實際讀取對應欄位或 Block")
+    return errors
+
+
+def _reconcile_excluded_exit_types(intent: IntentDecision, spec: dict) -> list[str]:
+    """Reject an execution mechanism the user explicitly ruled out."""
+
+    actual_type = ((spec.get("risk") or {}).get("exit") or {}).get("type")
+    errors = []
+    if "atr_trailing_stop" in intent.excluded_exit_types \
+            and actual_type == "atr_trailing_stop":
+        errors.append(
+            "使用者明確要求不要使用 ATR 追蹤停損,但 YAML risk.exit.type 是 "
+            "atr_trailing_stop"
+        )
     return errors
 
 
@@ -1739,14 +2340,70 @@ def reconcile_intent(intent: IntentDecision, spec: dict) -> tuple[list[str], lis
                 "拒絕用 EMA/RSI 等技術指標冒充新聞交易條件"
             )
         errors.extend(_reconcile_trade(intent, spec))
+        errors.extend(_reconcile_excluded_exit_types(intent, spec))
         return errors, warnings
 
     if intent.kind != "selection":
         return errors, warnings
 
+    errors.extend(_reconcile_excluded_exit_types(intent, spec))
+
     selection = spec["selection"]
     steps, blocks, score_dependencies, direction_dependencies = _selection_usage(selection)
     functional_dependencies = score_dependencies | direction_dependencies
+
+    # Positive-source checks below prove a requested source reaches ranking or
+    # direction. The inverse is equally important: a model must not sneak a
+    # forbidden source into an otherwise plausible selector, even as an unused
+    # universe augmentation that makes future edits accidentally depend on it.
+    source_is_used = {
+        "news": (
+            "universe.augment_with_news" in blocks
+            or bool({"universe.filter_sentiment", "universe.top_mentioned",
+                     "universe.top_bullish"}.intersection(blocks))
+            or any(item.startswith("news_") for item in functional_dependencies)
+        ),
+        "funding": (
+            "universe.augment_with_funding" in blocks
+            or "universe.filter_funding_rate" in blocks
+            or any("funding" in item.lower() for item in functional_dependencies)
+        ),
+        "open_interest": (
+            bool({"universe.augment_with_open_interest", "universe.augment_with_oi_change",
+                  "universe.filter_open_interest", "universe.filter_oi_change"}
+                 .intersection(blocks))
+            or any(
+                "open_interest" in item.lower() or item.lower().startswith("oi_")
+                for item in functional_dependencies
+            )
+        ),
+        "long_short_ratio": (
+            bool({"universe.augment_with_long_short_ratio",
+                  "universe.filter_long_short_ratio"}.intersection(blocks))
+            or any(
+                "long_short" in item.lower() or "longaccount" in item.lower()
+                or "shortaccount" in item.lower()
+                for item in functional_dependencies
+            )
+        ),
+        "liquidity": (
+            "universe.filter_quote_volume" in blocks
+            or bool({"quoteVolume", "quote_volume"}.intersection(functional_dependencies))
+        ),
+        "price_change": (
+            bool({"universe.top_gainers", "universe.top_losers",
+                  "universe.filter_change_pct"}.intersection(blocks))
+            or bool({"priceChangePercent", "price_change_pct"}
+                    .intersection(functional_dependencies))
+        ),
+    }
+    for source in sorted(intent.excluded_sources):
+        if source_is_used.get(source, False):
+            errors.append(
+                "使用者明確要求不要使用 %s,但 YAML 的 selection 仍宣告或讀取該資料來源"
+                % source
+            )
+
     selection_indicators = _selection_indicator_specs(steps)
     candidate_trade = selection.get("candidate_trade")
     candidate_plan = (
@@ -1797,6 +2454,11 @@ def reconcile_intent(intent: IntentDecision, spec: dict) -> tuple[list[str], lis
                 % (candidate_plan["size"], actual_size)
             )
         actual_exit = (spec.get("risk") or {}).get("exit") or {}
+        if actual_exit.get("type") != "pct_stop_tp":
+            errors.append(
+                "逐候選交易的百分比停損/停利必須使用 risk.exit.type=pct_stop_tp，"
+                "其他 exit type 不會套用 stop_pct/tp_pct"
+            )
         for label, key in (("停損", "stop_pct"), ("停利", "tp_pct")):
             expected = candidate_plan[key]
             if not _close_enough(actual_exit.get(key), expected):

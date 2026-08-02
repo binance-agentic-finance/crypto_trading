@@ -89,6 +89,22 @@ VALID_EXIT_TYPES = {
     "ma_cross_exit",
     "opposite_signal",
 }
+# A key can be valid for one exit engine and a silent no-op for another.  Keep
+# this mapping alongside the aggregate list above so the validator refuses a
+# seemingly complete ``time_only + stop_pct`` plan before a runner drops the
+# percentage fields.
+EXIT_KEYS_BY_TYPE = {
+    "time_only": frozenset({"type", "max_bars"}),
+    "pct_stop_tp": frozenset({"type", "max_bars", "stop_pct", "tp_pct"}),
+    "atr_stop_tp": frozenset({
+        "type", "max_bars", "atr_period", "stop_mult", "tp_mult",
+    }),
+    "atr_trailing_stop": frozenset({
+        "type", "max_bars", "atr_period", "trail_mult",
+    }),
+    "ma_cross_exit": frozenset({"type", "max_bars", "period", "ma_type"}),
+    "opposite_signal": frozenset({"type", "max_bars"}),
+}
 
 
 # ---------------------------------------------------------------------------
@@ -1278,7 +1294,10 @@ def validate_spec(spec: Dict[str, Any]) -> Tuple[List[str], List[str]]:
     entry = _as_mapping(signals.get("entry"), "signals.entry", err)
     _refuse_unknown_keys(entry, ENTRY_KEYS, "signals.entry", err)
     selection = spec.get("selection")
-    if selection is not None and signals:
+    # Presence matters here, not truthiness: an empty signals mapping still
+    # declares the trade dialect alongside selection and used to pass static
+    # validation only to be rejected much later by a different layer.
+    if selection is not None and "signals" in spec:
         err("a spec is either a trade strategy (signals:) or a selection "
             "strategy (selection:), not both — they emit different signal kinds")
     # ``isinstance``, matching every other selection check in this file. Using
@@ -1294,6 +1313,10 @@ def validate_spec(spec: Dict[str, Any]) -> Tuple[List[str], List[str]]:
         err("selection: must be a mapping, got %s — a scalar here is usually a "
             "mis-indented block, and it would otherwise be registered as a trade "
             "strategy that can never fire" % type(selection).__name__)
+    if str(data.get("market_type") or "futures").lower() == "spot" \
+            and entry.get("short") is not None:
+        err("signals.entry.short is not allowed with data.market_type=spot; "
+            "spot cannot open a short position")
 
     # ---- exit / risk ----
     risk = _as_mapping(spec.get("risk"), "risk", err)
@@ -1308,12 +1331,20 @@ def validate_spec(spec: Dict[str, Any]) -> Tuple[List[str], List[str]]:
         if etype not in VALID_EXIT_TYPES:
             err(f"risk.exit.type must be one of {sorted(VALID_EXIT_TYPES)}, got {etype!r}")
         if isinstance(exit_cfg, dict):
-            for key in sorted(set(exit_cfg) - EXIT_KEYS):
-                err(
-                    "unknown risk.exit.%s — the engines read only %s, so this key "
-                    "would be dropped and the exit would fall back to its default"
-                    % (key, sorted(EXIT_KEYS))
-                )
+            allowed = EXIT_KEYS_BY_TYPE.get(etype, EXIT_KEYS)
+            for key in sorted(set(exit_cfg) - allowed):
+                if key not in EXIT_KEYS:
+                    err(
+                        "unknown risk.exit.%s — the engines read only %s, so this key "
+                        "would be dropped and the exit would fall back to its default"
+                        % (key, sorted(EXIT_KEYS))
+                    )
+                else:
+                    err(
+                        "risk.exit.%s is not used by type=%s; allowed keys are %s, so "
+                        "this field would otherwise be silently dropped"
+                        % (key, etype, sorted(allowed))
+                    )
 
     # ---- sizing ----
     sizing = _as_mapping(spec.get("sizing"), "sizing", err)

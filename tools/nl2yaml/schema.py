@@ -80,11 +80,14 @@ __all__ = [
     "new_case_id", "case_id_for", "hmac_pseudonym", "internal_root", "error_signature_for",
     "verbatim_ngrams", "verbatim_overlap", "NO_SOURCE_TEXT",
     "FORBIDDEN_PUBLIC_KEYS", "FORBIDDEN_PUBLIC_KEY_PREFIXES",
+    "MEASURE_GAP_FILE_SCHEMA", "MEASURE_GAP_RECORD_SCHEMA",
     # io
     "validate_record", "write_case", "write_case_internal", "write_case_pair",
     "write_attempt", "write_gap", "write_run",
     "read_cases", "read_attempts", "read_gaps", "read_runs",
     "read_cases_internal", "read_internal_text",
+    "discover_case_internal_paths", "audit_public_private_case_links",
+    "write_measure_gaps", "read_measure_gaps",
     "validate_attempt_chain",
 ]
 
@@ -95,6 +98,14 @@ SCHEMA_DIR = Path(__file__).resolve().parent / "schemas"
 #: so pointing it at a tracked directory fails loudly instead of leaking.
 INTERNAL_ROOT_ENV = "NL2YAML_INTERNAL_ROOT"
 DEFAULT_INTERNAL_ROOT = Path.home() / "nl2yaml_internal"
+
+# ``dataset/gaps.jsonl`` is the aggregate output of Gate0 measurement, not the
+# per-case :class:`GapRecord` ledger.  The two used to share a filename while
+# carrying unrelated shapes, so code that happened to call ``read_gaps()``
+# received a raw jsonschema traceback (or, more often, never checked it at all).
+# Keep both contracts, but make the measurement stream explicit and versioned.
+MEASURE_GAP_FILE_SCHEMA = "cyqnt.nl2yaml.gate0-gaps/v1"
+MEASURE_GAP_RECORD_SCHEMA = "cyqnt.nl2yaml.gate0-gap/v1"
 
 
 class RecordError(ValueError):
@@ -1784,6 +1795,8 @@ KIND_SCHEMA_FILES = {
     "gap": "gap.schema.json",
     "run": "run.schema.json",
     "case_internal": "case_internal.schema.json",
+    "measure_gap_header": "measure_gap_header.schema.json",
+    "measure_gap": "measure_gap.schema.json",
 }
 _READERS = {
     "case": CaseRecord,
@@ -2077,6 +2090,233 @@ def write_case_pair(public_path: Union[str, Path], internal_path: Union[str, Pat
          for i, g in enumerate(case.gold_specs)], internal.user_text_raw)
     write_case_internal(internal_path, internal)
     write_case(public_path, case, source_text=internal.user_text_raw)
+
+
+# ---------------------------------------------------------------------------
+# public/private pairing audit
+# ---------------------------------------------------------------------------
+
+# ``mine.py`` owns ``cases_internal.jsonl`` and deliberately uses a different,
+# pre-dataset record shape.  Case-record shards use a descriptive middle token
+# instead (the demo's default is ``cases_demo_internal.jsonl``).  Keeping the
+# discovery rule here prevents a privacy audit from accidentally reading the
+# miner's incompatible store, while still discovering every typed case shard.
+_CASE_INTERNAL_GLOB = "cases_*_internal.jsonl"
+
+
+def discover_case_internal_paths(root: Optional[Union[str, Path]] = None) -> Tuple[Path, ...]:
+    """Return typed private case shards beneath ``root`` without reading them.
+
+    ``cases_internal.jsonl`` is intentionally excluded: it is the mining store,
+    not an :class:`InternalCaseRecord` stream.  A caller that uses a custom
+    filename can pass it explicitly to :func:`audit_public_private_case_links`.
+    The default root is the privacy-checked :func:`internal_root`.
+    """
+    base = internal_root() if root is None else Path(root).expanduser().absolute()
+    if not base.exists():
+        return ()
+    return tuple(sorted(path for path in base.glob(_CASE_INTERNAL_GLOB)
+                        if path.is_file()))
+
+
+def _case_link_error(reason: str, case_ids: Sequence[str]) -> RecordError:
+    """Build an audit error that never copies private text or hash values.
+
+    These errors are intentionally suitable for CI logs.  Case IDs are public
+    opaque identifiers; raw text, pseudonyms, source paths, and even the hash
+    values themselves are omitted so a broken audit cannot become a disclosure
+    channel.
+    """
+    ids = sorted(set(case_ids))
+    preview = ",".join(ids[:5]) or "none"
+    return RecordError(
+        "public/private case-link audit failed: %s (case_ids=%s; count=%d)"
+        % (reason, preview, len(ids)))
+
+
+def audit_public_private_case_links(
+        public_path: Union[str, Path],
+        internal_paths: Sequence[Union[str, Path]],
+) -> Dict[str, str]:
+    """Return raw text keyed by case id only after a strict private-link audit.
+
+    Every public non-synthetic case must have exactly one typed internal record
+    with the same ``case_id``, ``pseudonym_id``, raw-text SHA-256 and canonical
+    SHA-256.  The returned text is deliberately available only after those
+    checks: a caller that performs a verbatim-leakage scan cannot accidentally
+    compare a public record with the wrong private conversation.
+
+    Error messages contain only public case IDs and counts.  In particular they
+    never echo a raw text, a pseudonym, a path, or a hash value.
+    """
+    try:
+        public_cases = list(read_cases(public_path))
+    except Exception:
+        raise _case_link_error("unreadable public case record", ()) from None
+
+    public_by_id: Dict[str, CaseRecord] = {}
+    duplicate_public_ids: List[str] = []
+    for case in public_cases:
+        if case.case_id in public_by_id:
+            duplicate_public_ids.append(case.case_id)
+        else:
+            public_by_id[case.case_id] = case
+    if duplicate_public_ids:
+        raise _case_link_error("duplicate public case id", duplicate_public_ids)
+
+    internal_by_id: Dict[str, List[InternalCaseRecord]] = {}
+    for raw_path in internal_paths:
+        # A deleted/missing shard is semantically a missing private half.  Let
+        # the later public-side check name the affected opaque case ids instead
+        # of failing first with an unreadable-path error that gives an operator
+        # no way to repair the pairing.
+        if not Path(raw_path).exists():
+            continue
+        try:
+            records = list(read_cases_internal(raw_path))
+        except Exception:
+            # Parsing details could include an internal record in a jsonschema
+            # exception.  Keep the audit failure safe for normal test/CI logs.
+            raise _case_link_error("unreadable private case record", ()) from None
+        for record in records:
+            internal_by_id.setdefault(record.case_id, []).append(record)
+
+    non_synthetic = [case for case in public_cases
+                     if case.text_provenance is not TextProvenance.SYNTHETIC]
+    missing = [case.case_id for case in non_synthetic
+               if not internal_by_id.get(case.case_id)]
+    if missing:
+        raise _case_link_error("missing private record", missing)
+
+    duplicate_private = [case.case_id for case in non_synthetic
+                         if len(internal_by_id.get(case.case_id, ())) != 1]
+    if duplicate_private:
+        raise _case_link_error("private record is not unique", duplicate_private)
+
+    mismatched: List[str] = []
+    source_by_case: Dict[str, str] = {}
+    for case in non_synthetic:
+        internal = internal_by_id[case.case_id][0]
+        if (case.pseudonym_id != internal.pseudonym_id
+                or sha256_hex(internal.user_text_raw) != case.text_sha256
+                or canon_sha256_of(internal.user_text_raw) != case.canon_sha256):
+            mismatched.append(case.case_id)
+            continue
+        source_by_case[case.case_id] = internal.user_text_raw
+    if mismatched:
+        raise _case_link_error("private record does not match public id/hash", mismatched)
+
+    # A synthetic public case is defined to have no private half.  Treating an
+    # accidental private record as harmless would retain raw text for no reason
+    # and make a later caller believe the record was real.
+    synthetic_with_private = [case.case_id for case in public_cases
+                              if case.text_provenance is TextProvenance.SYNTHETIC
+                              and internal_by_id.get(case.case_id)]
+    if synthetic_with_private:
+        raise _case_link_error("synthetic public case has a private record",
+                               synthetic_with_private)
+    return source_by_case
+
+
+# ---------------------------------------------------------------------------
+# Gate0 measurement gaps: a separate, versioned aggregate artifact
+# ---------------------------------------------------------------------------
+
+def _validate_measure_gap_payload(payload: Any, kind: str, *, path: Path,
+                                  lineno: int) -> Dict[str, Any]:
+    if not isinstance(payload, Mapping):
+        raise RecordError("%s:%d measurement-gap entry must be an object"
+                          % (path, lineno))
+    try:
+        _validator(kind).validate(payload)
+        _assert_no_private_keys(payload)
+    except PrivacyError:
+        raise
+    except Exception:
+        # jsonschema's diagnostic may include a whole record.  This aggregate
+        # file must remain safe to validate in CI, so report location/type only.
+        raise RecordError("%s:%d invalid %s" % (path, lineno, kind)) from None
+    return dict(payload)
+
+
+def _all_strings_ascii(value: Any) -> bool:
+    """True only when the *pre-serialization* payload is ASCII-only.
+
+    Checking ``json.dumps(..., ensure_ascii=True)`` is not enough: that encoder
+    turns copied non-ASCII user text into an ASCII ``\\u`` escape first.  The
+    aggregate Gate0 artifact has no legitimate non-ASCII vocabulary, so check
+    the original strings before any escaping can hide a boundary breach.
+    """
+    if isinstance(value, str):
+        return value.isascii()
+    if isinstance(value, Mapping):
+        return all(_all_strings_ascii(key) and _all_strings_ascii(item)
+                   for key, item in value.items())
+    if isinstance(value, (list, tuple)):
+        return all(_all_strings_ascii(item) for item in value)
+    return True
+
+
+def write_measure_gaps(path: Union[str, Path], gaps: Sequence[Mapping[str, Any]]) -> None:
+    """Overwrite a Gate0 gap stream with an explicit v1 header and validated rows.
+
+    This is intentionally not :func:`write_gap`: ``GapRecord`` is a per-case
+    capability ledger, whereas Gate0 emits aggregate counts and blocking-source
+    statistics.  A file-level header makes that distinction machine-readable.
+    """
+    target = Path(path)
+    header = {
+        "schema": MEASURE_GAP_FILE_SCHEMA,
+        "record_schema": MEASURE_GAP_RECORD_SCHEMA,
+    }
+    rows = [_validate_measure_gap_payload(row, "measure_gap", path=target,
+                                          lineno=index + 2)
+            for index, row in enumerate(gaps)]
+    _validate_measure_gap_payload(header, "measure_gap_header", path=target, lineno=1)
+    # A measurement artifact has only closed vocabulary/static prose.  Reject
+    # non-ASCII before writing rather than hiding a copied user phrase behind
+    # JSON ``\\u`` escapes (which ``ensure_ascii`` would otherwise do).
+    if not _all_strings_ascii(header) or not all(_all_strings_ascii(row) for row in rows):
+        raise PrivacyError("measurement-gap artifact contains non-ASCII text")
+    encoded = [json.dumps(header, ensure_ascii=True, sort_keys=True)]
+    encoded.extend(json.dumps(row, ensure_ascii=True, sort_keys=True) for row in rows)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("\n".join(encoded) + "\n", encoding="ascii")
+
+
+def read_measure_gaps(path: Union[str, Path]) -> Iterator[Dict[str, Any]]:
+    """Yield validated v1 Gate0 aggregate-gap rows.
+
+    A missing or wrong header is a deterministic schema-drift error, rather
+    than a later, misleading attempt to parse the file as :class:`GapRecord`.
+    """
+    target = Path(path)
+    try:
+        lines = list(target.open("r", encoding="ascii"))
+    except (OSError, UnicodeDecodeError):
+        raise RecordError("measurement-gap artifact is unreadable (count=1)") from None
+    nonempty = [(lineno, line.strip()) for lineno, line in enumerate(lines, start=1)
+                if line.strip()]
+    if not nonempty:
+        raise RecordError("measurement-gap artifact has no header (count=0)")
+    header_lineno, header_line = nonempty[0]
+    try:
+        header = json.loads(header_line)
+    except json.JSONDecodeError:
+        raise RecordError("measurement-gap artifact has invalid header (count=1)") from None
+    if not _all_strings_ascii(header):
+        raise PrivacyError("measurement-gap artifact contains non-ASCII text")
+    _validate_measure_gap_payload(header, "measure_gap_header", path=target,
+                                  lineno=header_lineno)
+    for lineno, line in nonempty[1:]:
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            raise RecordError("%s:%d measurement-gap row is not JSON" % (target, lineno)) from None
+        if not _all_strings_ascii(payload):
+            raise PrivacyError("measurement-gap artifact contains non-ASCII text")
+        yield _validate_measure_gap_payload(payload, "measure_gap", path=target,
+                                            lineno=lineno)
 
 
 # ---------------------------------------------------------------------------

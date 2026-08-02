@@ -66,6 +66,7 @@ from typing import Any, Iterable
 
 from tools.nl2yaml import capability as cap
 from tools.nl2yaml import mine
+from tools.nl2yaml import schema as ledger_schema
 
 MEASURE_VERSION = "gate0-measure/1"
 
@@ -992,17 +993,22 @@ def build_gaps(kept: list[dict], verdicts: dict[int, RowVerdict]) -> list[dict]:
     for gap, rows in per_gap_rows.items():
         group_sizes = Counter(r["split_group_key"] for r in rows)
         largest, largest_rows = group_sizes.most_common(1)[0]
+        largest_kind = ("preset" if str(largest).startswith("preset:")
+                        else "duplicate_cluster")
         gaps.append({
             "gap_id": gap,
             "detectable_by_this_pass": True,
-            "undetectable_reason": None,
+            # Keep the public JSONL aggregate structural.  The human-readable
+            # explanation lives in the generated markdown/report vocabulary;
+            # a free-text field here could carry an English user phrase.
+            "undetectable_reason_code": None,
             "dup_weighted_count": len(rows),
             "distinct_requests": len(group_sizes),
             "unique_canon": len({r["canon_sha256"] for r in rows}),
             "rows_unlocked_if_closed": unlocked[gap],
             "distinct_requests_unlocked_if_closed": len(unlocked_groups[gap]),
             "largest_group_share": round(largest_rows / len(rows), 4),
-            "largest_split_group_key": largest,
+            "largest_split_group_kind": largest_kind,
             "tier_rows": {t: sum(1 for r in rows if r["tier"] == t) for t in TIERS},
             "shape_rows": {s: sum(1 for r in rows if r["spec_shape"] == s)
                            for s in SHAPES},
@@ -1022,15 +1028,15 @@ def build_gaps(kept: list[dict], verdicts: dict[int, RowVerdict]) -> list[dict]:
         gaps.append({
             "gap_id": gap,
             "detectable_by_this_pass": False,
-            "undetectable_reason": UNDETECTABLE_GAPS.get(
-                gap, "reachable from the proxy map but zero rows hit it"),
+            "undetectable_reason_code": (
+                "no_detector" if gap in UNDETECTABLE_GAPS else "no_observed_hits"),
             "dup_weighted_count": 0,
             "distinct_requests": 0,
             "unique_canon": 0,
             "rows_unlocked_if_closed": 0,
             "distinct_requests_unlocked_if_closed": 0,
             "largest_group_share": 0.0,
-            "largest_split_group_key": None,
+            "largest_split_group_kind": None,
             "tier_rows": {t: 0 for t in TIERS},
             "shape_rows": {s: 0 for s in SHAPES},
             "blocking_sources": {},
@@ -1523,10 +1529,7 @@ def render_markdown(report: dict, funnel: dict) -> str:
 def write_outputs(report: dict, funnel: dict, out_dir: Path) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     gaps_path = out_dir / "gaps.jsonl"
-    with gaps_path.open("w", encoding="ascii") as handle:
-        for gap in report["gaps"]:
-            payload = json.dumps(gap, ensure_ascii=True, sort_keys=True)
-            handle.write(payload + "\n")
+    ledger_schema.write_measure_gaps(gaps_path, report["gaps"])
 
     markdown = render_markdown(report, funnel)
     # The report is statistics only. An ascii-only write is the last line of

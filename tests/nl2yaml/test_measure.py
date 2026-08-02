@@ -22,6 +22,7 @@ import pytest
 
 from tools.nl2yaml import capability as cap
 from tools.nl2yaml import measure, mine
+from tools.nl2yaml import schema as S
 
 
 # ---------------------------------------------------------------------------
@@ -190,7 +191,8 @@ def test_gaps_jsonl_lists_every_gap_id():
     assert [g["gap_id"] for g in ranked] == ["GAP-MARKET-CAP"]
     for gap in gaps:
         if not gap["detectable_by_this_pass"]:
-            assert gap["undetectable_reason"]
+            assert gap["undetectable_reason_code"] in {
+                "no_detector", "no_observed_hits"}
             assert gap["dup_weighted_count"] == 0
 
 
@@ -524,6 +526,18 @@ def test_report_json_is_serialisable_and_ascii():
     _rows, report = _small_report()
     payload = json.dumps(report, ensure_ascii=True, sort_keys=True, default=str)
     assert payload.isascii()
+
+
+def test_write_outputs_uses_the_versioned_measurement_gap_contract(tmp_path):
+    rows, report = _small_report()
+    measure.write_outputs(report, mine.build_report(rows), tmp_path)
+
+    lines = (tmp_path / "gaps.jsonl").read_text("ascii").splitlines()
+    assert json.loads(lines[0]) == {
+        "record_schema": S.MEASURE_GAP_RECORD_SCHEMA,
+        "schema": S.MEASURE_GAP_FILE_SCHEMA,
+    }
+    assert list(S.read_measure_gaps(tmp_path / "gaps.jsonl")) == report["gaps"]
 
 
 def test_gap_ranking_is_sorted_by_dup_weighted_count():

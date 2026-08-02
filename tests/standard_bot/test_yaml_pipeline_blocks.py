@@ -265,6 +265,23 @@ def test_a_derived_column_needs_its_source_declared():
     assert any("derivatives" in e and "does not declare" in e for e in errors), errors
 
 
+def test_selection_cannot_hide_an_empty_signals_mapping():
+    """Dialect mixing is invalid even when the redundant mapping is empty."""
+    spec = _spec()
+    spec["signals"] = {}
+    spec["selection"] = {
+        "universe": [{"block": "universe.filter_quote_volume",
+                      "params": {"min_quote_volume": 1}}],
+        "score": "quoteVolume",
+        "top_k": 5,
+        "dedupe_by": "base_asset",
+    }
+
+    errors, _ = validate_spec(spec)
+
+    assert any("either a trade strategy" in error for error in errors), errors
+
+
 def test_declaring_the_source_makes_the_column_available_to_the_dry_run():
     spec = _spec()
     spec["data"]["derivatives"] = {"dir": "data/derivatives_mvp_30d"}
@@ -304,6 +321,9 @@ def test_a_declared_section_without_a_dir_is_refused():
      "unknown risk.feees"),
     (lambda s: s.__setitem__("risk", {"exit": {"type": "pct_stop_tp", "stop_pctt": 0.02}}),
      "unknown risk.exit.stop_pctt"),
+    (lambda s: s.__setitem__("risk", {"exit": {
+        "type": "time_only", "max_bars": 3, "stop_pct": 0.02, "tp_pct": 0.04,
+    }}), "risk.exit.stop_pct is not used by type=time_only"),
     (lambda s: s.__setitem__("backtest", {"execution_modell": "next_bar_open"}),
      "unknown backtest.execution_modell"),
 ])

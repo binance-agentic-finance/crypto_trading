@@ -25,6 +25,7 @@ from cyqnt_trd.standard_bot.data.input_bundle import (
     write_input_bundle)
 from cyqnt_trd.standard_bot.data.internal_slots import INTERNAL_SLOTS
 from cyqnt_trd.standard_bot.core import Bar, MarketBundle
+from cyqnt_trd.standard_bot.core.input_contract import FrameValidationError
 
 HOUR = 3_600_000
 DT = 100 * HOUR
@@ -167,12 +168,113 @@ def test_serialized_read_and_write_boundaries_refuse_a_future_row(tmp_path):
         read_input_bundle(str(path))
 
 
+def test_serialized_event_after_availability_is_rejected_at_every_ingress(tmp_path):
+    """A hand-edited optional RankFrame event clock cannot claim precognition."""
+    bundle = _build(universe_frame=pd.DataFrame({
+        "instrument_id": ["BTCUSDT"], "event_time": [DT],
+        "available_time": [DT], "quote_volume": [5e8],
+    }))
+    bundle["frames"]["universe"]["rows"][0]["event_time"] = DT + 1
+    message = r"frame 'universe' has rows whose event_time is AFTER available_time"
+    path = tmp_path / "event-after-availability.json"
+
+    # ``RankFrame.event_time`` is optional, so this specifically proves that a
+    # present value is checked rather than merely that required MetricFrames are.
+    with pytest.raises(FrameValidationError, match=message):
+        load_input_bundle(bundle)
+    with pytest.raises(FrameValidationError, match=message):
+        write_input_bundle(bundle, str(path))
+    assert not path.exists(), "invalid data must not be persisted"
+
+    path.write_text(json.dumps(bundle), encoding="utf-8")
+    with pytest.raises(FrameValidationError, match=message):
+        read_input_bundle(str(path))
+
+
+def test_serialized_bar_close_after_availability_is_rejected_at_every_ingress(tmp_path):
+    """A bar's optional event_time cannot make its future close knowable early."""
+    bundle = _build(bars=_bars(1))
+    row = bundle["frames"]["klines"]["rows"][0]
+    row["available_time"] = int(row["close_time"]) - 1
+    message = r"frame 'klines' has rows whose close_time is AFTER available_time"
+    path = tmp_path / "close-after-availability.json"
+
+    with pytest.raises(FrameValidationError, match=message):
+        load_input_bundle(bundle)
+    with pytest.raises(FrameValidationError, match=message):
+        write_input_bundle(bundle, str(path))
+    assert not path.exists(), "invalid bar data must not be persisted"
+
+    path.write_text(json.dumps(bundle), encoding="utf-8")
+    with pytest.raises(FrameValidationError, match=message):
+        read_input_bundle(str(path))
+
+
+def test_raw_serialized_rows_share_the_canonical_event_availability_gate():
+    """Opaque extensions lack required fields, not the global clock invariant."""
+    bundle = _build(extra_frames={"opaque_extension": pd.DataFrame({
+        "event_time": [DT + 1], "available_time": [DT], "payload": ["x"],
+    })})
+
+    with pytest.raises(
+        FrameValidationError,
+        match=r"frame 'opaque_extension' has rows whose event_time is AFTER available_time",
+    ):
+        load_input_bundle(bundle)
+
+
+def test_known_serialized_node_cannot_downgrade_its_declared_shape(tmp_path):
+    """Known nodes may not evade their typed contract through RawFrame."""
+    bundle = _build(universe_frame=pd.DataFrame({
+        "instrument_id": ["BTCUSDT"], "available_time": [DT],
+        "quote_volume": [5e8],
+    }))
+    frame = bundle["frames"]["universe"]
+    frame["shape"] = "RawFrame@1.0"
+    frame["rows"][0].pop("instrument_id")
+    message = r"frame 'universe' must declare canonical shape RankFrame@1.0"
+    path = tmp_path / "downgraded-universe.json"
+
+    with pytest.raises(ValueError, match=message):
+        load_input_bundle(bundle)
+    with pytest.raises(ValueError, match=message):
+        write_input_bundle(bundle, str(path))
+    assert not path.exists(), "a shape-downgraded contract must not be persisted"
+
+    path.write_text(json.dumps(bundle), encoding="utf-8")
+    with pytest.raises(ValueError, match=message):
+        read_input_bundle(str(path))
+
+
+def test_serialized_required_fields_are_present_on_every_row(tmp_path):
+    """A DataFrame column existing in one row cannot repair another wire row."""
+    bundle = _build(universe_frame=pd.DataFrame({
+        "instrument_id": ["BTCUSDT", "ETHUSDT"],
+        "available_time": [DT, DT],
+        "quote_volume": [5e8, 4e8],
+    }))
+    bundle["frames"]["universe"]["rows"][1].pop("instrument_id")
+    message = r"frame 'universe' row 1 is missing required instrument_id for RankFrame@1.0"
+    path = tmp_path / "partial-rank-row.json"
+
+    with pytest.raises(FrameValidationError, match=message):
+        load_input_bundle(bundle)
+    with pytest.raises(FrameValidationError, match=message):
+        write_input_bundle(bundle, str(path))
+    assert not path.exists(), "a partial canonical row must not be persisted"
+
+    path.write_text(json.dumps(bundle), encoding="utf-8")
+    with pytest.raises(FrameValidationError, match=message):
+        read_input_bundle(str(path))
+
+
 def test_serialized_kline_preserves_a_zero_available_time():
-    """A valid epoch zero must not be silently replaced with its close time."""
+    """A valid epoch-zero close must not be silently replaced with another time."""
     bundle = _build(bars=_bars(1))
     row = bundle["frames"]["klines"]["rows"][0]
     row["available_time"] = 0
     row["open_time"] = 0
+    row["close_time"] = 0
 
     snapshot = load_input_bundle(bundle)
     bar = next(iter(snapshot.require_market().bars.values()))[0]
