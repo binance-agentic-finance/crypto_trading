@@ -969,7 +969,8 @@ class SelectionStrategyPlugin:
             time_horizon="swing",
             valid_until=decision_as_of,
             payload=self._v2_payload(
-                candidates, as_of=as_of, universe_size=universe_size, snapshot=snapshot),
+                candidates, as_of=as_of, universe_size=universe_size, snapshot=snapshot,
+                market_type=self._resolve_market_type(config)),
             provenance=SignalProvenance(
                 plugin_id=self.plugin_id,
                 plugin_version=self.plugin_version,
@@ -979,7 +980,7 @@ class SelectionStrategyPlugin:
         )
 
     def _v2_payload(self, candidates: List[Dict], *, as_of: int,
-                    universe_size: int, snapshot) -> Dict:
+                    universe_size: int, snapshot, market_type: str = "futures") -> Dict:
         """The ranked basket as ``cyqnt.signal/v2``.
 
         This used to be a three-key dict (``candidates`` / ``as_of`` /
@@ -996,7 +997,7 @@ class SelectionStrategyPlugin:
         """
         from ..standard_bot.core import (  # type: ignore
             DataQuality, Direction, MarketScope, PositionIntent, Provenance,
-            SelectionCandidate, StandardSignal,
+            SelectionCandidate, StandardSignal, TimeHorizon,
         )
 
         # The pool the basket was actually drawn from, carried on the candidate
@@ -1053,8 +1054,25 @@ class SelectionStrategyPlugin:
             bot_version=self.plugin_version,
             decision_time=int(as_of),
             market_scope=MarketScope.CROSS_SECTION,
-            intent=PositionIntent.HOLD,
+            # Both of these were left to the dataclass defaults, and both defaults
+            # were wrong for this path — the same "one object, two layers, two
+            # answers" shape as the empty-basket ``kind`` bug.
+            #
+            # product: the trade path already derives it (see build_selection_fn's
+            # sibling at the top of this module), the selection path did not. A
+            # ``market_type: spot`` spec therefore published product
+            # "usd_m_perpetual", and product is what an executor ROUTES on — a
+            # spot basket would be handed to the perpetual venue. Nothing in the
+            # output contradicted it, because every other field was right.
+            product="spot" if str(market_type).lower() == "spot" else "usd_m_perpetual",
+            # time_horizon: the envelope around this payload says "swing" (see
+            # _build_envelope), the payload said "intraday". A cross-sectional
+            # screen is one decision at one instant and carries no holding period
+            # at all, so neither is a measurement — but they must not disagree,
+            # and SWING is the one the envelope already published.
+            time_horizon=TimeHorizon.SWING,
             direction=Direction.NEUTRAL,
+            intent=PositionIntent.HOLD,
             candidates=tuple(rows),
             universe_size=int(universe_size),
             # v2 bounds score to 0-100; a selection score is an unbounded factor
