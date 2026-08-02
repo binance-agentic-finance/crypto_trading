@@ -192,6 +192,125 @@ def test_g1e_catches_a_threshold_violation_that_every_other_gate_waves_through()
     assert "quoteVolume" in violated[0].detail
 
 
+def test_an_undeclared_reading_fails_g1e_even_when_every_predicate_holds():
+    """The defect no predicate can see, because the predicate agrees.
+
+    "成交量一千萬" is 1e7 of turnover or 1e7 coins, and there is no block that
+    decides which. Under the turnover reading the spec is flawless: G1a-G1d
+    green, and G1e's own threshold predicate reports ``satisfied``, because it
+    is checking the reading the spec chose against the basket the spec chose it
+    for. The check is circular by construction, and the only way out is to
+    require the reading to be stated.
+
+    So the ambiguity is a property of the CONDITION, the declaration is a
+    property of the SPEC, and G1e cross-references them. Nothing about the
+    output participates — which is why this catches the case the reviewer in the
+    first demo missed on all three specs it appeared in.
+    """
+    conditions = [dict(item) for item in USER_CHAT_CONDITIONS]
+    conditions[0]["ambiguity_type"] = "unit"
+
+    report = gates.run_gates(_spec(SPEC_USER_CHAT), nl=NL_USER_CHAT,
+                             bundle=_bundle(), conditions=conditions)
+
+    assert report.failed_gate == "G1e"
+    assert report.status == "undisclosed_assumption"
+    assert all(result.ok for result in report.results[:4])
+
+    flagged = [item for item in report.condition_verdicts
+               if item.undisclosed_assumption]
+    assert [item.condition.id for item in flagged] == ["vol"]
+    assert flagged[0].verdict == gates.SATISFIED, (
+        "the predicate holds — that is exactly why the verdict cannot carry "
+        "this and it has to be a separate flag")
+    assert "cid: vol" in report.results[-1].errors[0], (
+        "the error has to name the cid, or the repair is a guessing game")
+
+
+def test_declaring_the_reading_clears_the_gate():
+    """The mutation side: the check must accept the spec that owns up.
+
+    Same conditions, same bundle, one section added. A gate that failed both
+    ways would look identical in the test above while making the feature
+    unusable.
+    """
+    conditions = [dict(item) for item in USER_CHAT_CONDITIONS]
+    conditions[0]["ambiguity_type"] = "unit"
+    spec = _spec(SPEC_USER_CHAT)
+    spec["strategy"]["assumptions"] = [{
+        "cid": "vol",
+        "reading": "1e7 read as 24h quote turnover in USD",
+        "alternatives": ["1e7 coins of base volume"],
+        "basis": "quoteVolume is the only turnover column on the frame",
+    }]
+
+    report = gates.run_gates(spec, nl=NL_USER_CHAT, bundle=_bundle(),
+                             conditions=conditions)
+
+    assert report.status == "passed", report.results[-1].errors
+    assert not any(item.undisclosed_assumption
+                   for item in report.condition_verdicts)
+
+
+def test_a_declaration_for_the_wrong_condition_does_not_count():
+    """cid matching, not mere presence.
+
+    A spec that declares a reading for some OTHER condition would otherwise
+    clear the gate for all of them, which turns the section into a rubber stamp
+    — one boilerplate assumption pasted into every spec.
+    """
+    conditions = [dict(item) for item in USER_CHAT_CONDITIONS]
+    conditions[0]["ambiguity_type"] = "unit"
+    spec = _spec(SPEC_USER_CHAT)
+    spec["strategy"]["assumptions"] = [
+        {"cid": "majors", "reading": "the four majors are the BTC/ETH/SOL/XRP perps"}]
+
+    report = gates.run_gates(spec, nl=NL_USER_CHAT, bundle=_bundle(),
+                             conditions=conditions)
+
+    assert report.status == "undisclosed_assumption"
+    assert [item.condition.id for item in report.condition_verdicts
+            if item.undisclosed_assumption] == ["vol"]
+
+
+def test_an_unstated_reading_outranks_a_violated_threshold():
+    """Order of report, and it is not arbitrary.
+
+    A violated predicate is a wrong answer to the right question; an undeclared
+    reading means the question itself was never settled. Reported the other way
+    round, the repair loop is handed a threshold to nudge and will produce a
+    spec that passes while still never saying which reading it took.
+    """
+    conditions = [dict(item) for item in USER_CHAT_CONDITIONS]
+    conditions[0]["ambiguity_type"] = "unit"
+    spec = _spec(SPEC_USER_CHAT)
+    spec["strategy"]["id"] = "ambiguous_and_violating"
+    for step in spec["selection"]["universe"]:
+        if step["block"] == "universe.filter_quote_volume":
+            step["params"]["min_quote_volume"] = 1_000
+    spec["selection"]["max_score"] = 1_500_000
+
+    report = gates.run_gates(spec, nl=NL_USER_CHAT, bundle=_bundle(),
+                             conditions=conditions)
+
+    assert report.status == "undisclosed_assumption"
+    assert any(item.verdict == gates.VIOLATED
+               for item in report.condition_verdicts), (
+        "the threshold really is violated too; the point is which one is "
+        "reported first")
+
+
+def test_the_ambiguity_vocabulary_is_closed():
+    """An unknown value must raise rather than be carried as an opaque string.
+
+    ``ambiguity_type`` gates a hard failure, so a typo that silently reads as
+    "no ambiguity" turns the check off for that condition without saying so.
+    """
+    with pytest.raises(ValueError, match="ambiguity_type must be one of"):
+        cap.Condition(subject="quote_volume_24h", operator="compare",
+                      ambiguity_type="units", id="vol")
+
+
 def test_a_forgotten_condition_is_not_reported_satisfied_by_a_lucky_basket():
     """Vacuous expression, closed.
 

@@ -95,6 +95,12 @@ STATUSES = (
     "run_error",           # G1d, the model's fault
     "bundle_insufficient",  # G1d, NOT the model's fault
     "condition_violated",  # G1e
+    # G1e, and a separate stop from condition_violated on purpose: the spec may
+    # well satisfy every predicate it was given — under a reading of the request
+    # that it chose and never stated. "Right answer to a question nobody asked"
+    # is not a violated condition, and folding the two together would let a
+    # silent reading be repaired by touching a threshold.
+    "undisclosed_assumption",
     # Belongs to the retry loop, not to any single gate: one union so a caller
     # tabulating outcomes has one vocabulary to switch on.
     "stuck",
@@ -182,6 +188,13 @@ class ConditionVerdict:
     #: nowhere. Tracked separately from ``verdict`` because it is orthogonal: a
     #: proxied condition can look perfectly ``satisfied`` on the proxy's own terms.
     silently_proxied: bool = False
+    #: The condition had more than one reading, the spec picked one, and
+    #: ``strategy.assumptions[]`` carries no entry for it. Orthogonal for the
+    #: same reason as ``silently_proxied`` and one step worse: a proxy at least
+    #: leaves a different block name in the spec to notice, whereas a chosen
+    #: reading leaves a spec that looks exactly like the one a reader would have
+    #: written for the OTHER reading.
+    undisclosed_assumption: bool = False
     detail: str = ""
     #: candidate symbols that break the condition, for a violated verdict.
     offenders: Tuple[str, ...] = ()
@@ -812,10 +825,12 @@ def evaluate_conditions(
     opened = set(allow_proxy_for)
     candidates = selection_candidates(batch)
     spec_tokens = _spec_tokens(spec)
+    declared = _declared_assumption_cids(spec)
     verdicts: List[ConditionVerdict] = []
 
     for raw in conditions:
         cond = normalize_condition(raw)
+        undisclosed = bool(cond.ambiguity_type) and cond.id not in declared
         row = cond.capability
         proxy_tokens = tuple(row.proxy_block_refs) + ((row.gap_id,) if row.gap_id else ())
 
@@ -823,6 +838,7 @@ def evaluate_conditions(
                 row.verdict == PROXY_ONLY and cond.id not in opened):
             verdicts.append(ConditionVerdict(
                 condition=cond, verdict=NOT_EXPRESSED,
+                undisclosed_assumption=undisclosed,
                 silently_proxied=not _output_admits(batch, proxy_tokens),
                 detail="capability verdict %s (%s); the condition never reached "
                        "the converter" % (row.verdict, row.gap_id)))
@@ -831,6 +847,7 @@ def evaluate_conditions(
         if row.verdict not in (EXPRESSIBLE, PROXY_ONLY):
             verdicts.append(ConditionVerdict(
                 condition=cond, verdict=UNVERIFIABLE,
+                undisclosed_assumption=undisclosed,
                 detail="capability verdict %s; nobody has ruled on this subject "
                        "yet, so the case should have been shelved" % row.verdict))
             continue
@@ -854,6 +871,7 @@ def evaluate_conditions(
         if required and not (set(required) & spec_tokens):
             verdicts.append(ConditionVerdict(
                 condition=cond, verdict=NOT_EXPRESSED,
+                undisclosed_assumption=undisclosed,
                 silently_proxied=not _output_admits(batch, proxy_tokens),
                 detail="the spec names none of %s" % list(required)))
             continue
@@ -862,6 +880,7 @@ def evaluate_conditions(
         if predicate is None:
             verdicts.append(ConditionVerdict(
                 condition=cond, verdict=UNVERIFIABLE,
+                undisclosed_assumption=undisclosed,
                 detail="no predicate registered for subject %r; report it as "
                        "unverifiable rather than assume it held" % cond.subject))
             continue
@@ -869,6 +888,7 @@ def evaluate_conditions(
         verdict, detail, offenders = predicate(candidates, cond)
         verdicts.append(ConditionVerdict(
             condition=cond, verdict=verdict, detail=detail, offenders=offenders,
+            undisclosed_assumption=undisclosed,
             silently_proxied=(row.verdict == PROXY_ONLY
                               and not _output_admits(batch, proxy_tokens))))
     return tuple(verdicts)
@@ -962,15 +982,43 @@ def _gate_d(spec: Dict[str, Any],
                                 len(selection_candidates(batch)))), batch
 
 
+def _declared_assumption_cids(spec: Mapping[str, Any]) -> set:
+    """The condition ids ``strategy.assumptions[]`` claims a reading for.
+
+    Read straight off the spec rather than off the emitted signal: the signal
+    renders them into prose for a human, and re-parsing that prose to check a
+    machine invariant would make the invariant depend on the wording.
+    """
+    items = ((spec.get("strategy") or {}).get("assumptions") or [])
+    return {str(item.get("cid")) for item in items
+            if isinstance(item, dict) and item.get("cid")}
+
+
 def _gate_e(batch: Mapping[str, Any], spec: Mapping[str, Any],
             conditions: Sequence[Any],
             allow_proxy_for: Sequence[str]) -> Tuple[GateResult, Tuple[ConditionVerdict, ...]]:
     verdicts = evaluate_conditions(batch, spec, conditions,
                                    allow_proxy_for=allow_proxy_for)
     violated = [item for item in verdicts if item.verdict == VIOLATED]
+    undisclosed = [item for item in verdicts if item.undisclosed_assumption]
     notes = ["%s: %s / %s" % (item.condition.id or item.subject, item.verdict,
                               item.detail)
              for item in verdicts if item.verdict != SATISFIED]
+    # Checked BEFORE the violated branch. An undisclosed reading is the more
+    # fundamental defect — a violated predicate is a wrong answer to the right
+    # question, while this is an unstated question — and reporting the
+    # threshold slip first would send the repair loop off adjusting numbers.
+    if undisclosed:
+        return GateResult(
+            "G1e", "undisclosed_assumption",
+            errors=tuple(
+                "%s (%s): the request is %s-ambiguous here and the spec picked a "
+                "reading without declaring it. Add strategy.assumptions[] with "
+                "cid: %s, the reading taken, and the alternatives given up."
+                % (item.condition.id or item.subject, item.subject,
+                   item.condition.ambiguity_type, item.condition.id or "<cid>")
+                for item in undisclosed),
+            warnings=tuple(notes)), verdicts
     if violated:
         return GateResult(
             "G1e", "condition_violated",

@@ -18,6 +18,18 @@ target: standard_bot                  # 固定
 strategy:
   id: <str>                           # 策略唯一 ID(→ --strategy)
   description: <str>?
+  assumptions:                        # ? spec 承認自己替使用者選了哪一邊
+    # 有些需求本身就兩種讀法,而且**沒有任何 block 能替它決定** ——「成交量一千萬」
+    # 是 1e7 美元成交額還是 1e7 顆幣?兩種讀法篩出不同名單。系統的預設是宣告而不是
+    # 阻斷:取比較可能的讀法、然後說出來。但寫在 YAML 註解裡不算數 —— 註解在 load
+    # 的時候就被丟掉,拿到籃子的人看不到。寫在這裡才會跟著訊號的 warnings 一起出去,
+    # 並讓 reason_codes 多一個 assumption_declared 供程式判斷。
+    #
+    # 這跟「做不到」是兩件事:缺 block 是補 block 就能解,讀法歧義補再多 block 都沒用。
+    - cid: <str>                      # 對應的需求條件 id;一個條件只能有一則
+      reading: <str>                  # 採用的讀法
+      alternatives: [<str>, ...]?     # 沒有採用的讀法 —— 讀者要看得到放棄了什麼
+      basis: <str>?                   # 為什麼這樣選
 
 # --- 真實交易 / paper trade ----------------------------------------------------
 run:                                  # 真实交易 / paper trade

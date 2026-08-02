@@ -1015,6 +1015,93 @@ def _condition_refs(node: Any, acc: List[str] | None = None) -> List[str]:
     return acc
 
 
+#: Keys one declared assumption may carry. Closed, because the point of the
+#: block is to be machine-checkable: a reading recorded under a misspelled key
+#: is a silent choice again, which is the thing it exists to stop.
+ASSUMPTION_KEYS = frozenset({"cid", "reading", "alternatives", "basis"})
+
+
+def _validate_assumptions(strategy: dict, err) -> None:
+    """Check ``strategy.assumptions[]`` — where a spec admits it guessed.
+
+    A request can be ambiguous in ways no block can resolve: "成交量一千萬" is
+    either 1e7 USD of turnover or 1e7 coins, and the two answers differ by
+    whichever symbols sit between the readings. The product default is to
+    declare rather than block — pick the likelier reading and say so — but a
+    declaration only counts if it travels with the artifact. Written as a YAML
+    comment it is stripped by the loader and never reaches the person holding
+    the basket, which is what happened in every case of the first end-to-end
+    demo: the admissions were all in comments and the emitted JSON disclosed
+    nothing.
+
+    So it is a spec key, validated here and surfaced in the signal's
+    ``warnings`` at run time. ``cid`` points at the mined condition the reading
+    resolves, which is what lets a dataset gate assert that every ambiguous
+    condition has a matching declaration instead of trusting a reviewer to
+    notice its absence.
+    """
+    if "assumptions" not in strategy:
+        return
+    items = strategy.get("assumptions")
+    if not isinstance(items, list) or not items:
+        err("strategy.assumptions must be a non-empty list when present; drop "
+            "the key entirely if the request had no ambiguity to resolve")
+        return
+    seen: set[str] = set()
+    for position, item in enumerate(items):
+        where = "strategy.assumptions[%d]" % position
+        if not isinstance(item, dict):
+            err("%s must be a mapping with 'cid' and 'reading'" % where)
+            continue
+        for key in sorted(set(item) - ASSUMPTION_KEYS):
+            err("unknown %s.%s; allowed: %s" % (where, key, sorted(ASSUMPTION_KEYS)))
+        for key in ("cid", "reading"):
+            value = item.get(key)
+            if not isinstance(value, str) or not value.strip():
+                err("%s.%s is required and must be a non-empty string" % (where, key))
+        cid = item.get("cid")
+        if isinstance(cid, str) and cid.strip():
+            if cid in seen:
+                err("%s repeats cid %r; one condition gets one reading, and two "
+                    "readings of the same condition is a conflict to resolve, "
+                    "not an assumption to declare" % (where, cid))
+            seen.add(cid)
+        alternatives = item.get("alternatives")
+        if alternatives is not None and (
+                not isinstance(alternatives, list)
+                or not all(isinstance(a, str) and a.strip() for a in alternatives)):
+            err("%s.alternatives must be a list of non-empty strings — the "
+                "readings NOT taken, so the reader can see what was given up"
+                % where)
+        basis = item.get("basis")
+        if basis is not None and (not isinstance(basis, str) or not basis.strip()):
+            err("%s.basis must be a non-empty string when present" % where)
+
+
+def assumption_warnings(spec: dict) -> tuple:
+    """``strategy.assumptions[]`` as the lines that ride out with the signal.
+
+    ``warnings`` rather than ``evidence``: evidence means "an observation that
+    supports this signal", and a consumer rendering an unstated reading under
+    that heading would show the reader the opposite of the truth. A warning is
+    already "something that could make this wrong", which is exactly what an
+    assumption is.
+    """
+    items = ((spec.get("strategy") or {}).get("assumptions") or [])
+    lines = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        line = "assumption (%s): %s" % (item.get("cid", "?"), item.get("reading", ""))
+        alternatives = [a for a in (item.get("alternatives") or []) if a]
+        if alternatives:
+            line += " — not: %s" % "; ".join(alternatives)
+        if item.get("basis"):
+            line += " [%s]" % item["basis"]
+        lines.append(line)
+    return tuple(lines)
+
+
 def validate_spec(spec: Dict[str, Any]) -> Tuple[List[str], List[str]]:
     """Return ``(errors, warnings)``. Empty ``errors`` ⇒ spec is runnable."""
     errors: List[str] = []
@@ -1030,6 +1117,7 @@ def validate_spec(spec: Dict[str, Any]) -> Tuple[List[str], List[str]]:
     strategy = spec.get("strategy") or {}
     if not strategy.get("id"):
         err("strategy.id is required")
+    _validate_assumptions(strategy, err)
 
     run = spec.get("run") or {}
     mode = run.get("mode")
@@ -1269,6 +1357,7 @@ def register_from_yaml(path: str) -> Dict[str, Any]:
             spec["strategy"]["id"],
             build_selection_fn(spec),
             market_type=(spec.get("data") or {}).get("market_type", "futures"),
+            assumptions=assumption_warnings(spec),
         )
         return spec
 

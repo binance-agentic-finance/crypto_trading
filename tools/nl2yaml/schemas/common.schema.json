@@ -325,7 +325,8 @@
         "dry_run_failed",
         "bundle_insufficient",
         "execution_error",
-        "intent_mismatch"
+        "intent_mismatch",
+        "undisclosed_assumption"
       ],
       "description": "Where the attempt stopped."
     },

@@ -553,6 +553,10 @@ class Gate(str, Enum):
     BUNDLE_INSUFFICIENT = "bundle_insufficient"
     EXECUTION_ERROR = "execution_error"
     INTENT_MISMATCH = "intent_mismatch"
+    #: every predicate held, under a reading of the request the spec chose and
+    #: never stated. A valid DPO negative: declaring the reading is squarely the
+    #: model's job, and the fix is a section it can write.
+    UNDISCLOSED_ASSUMPTION = "undisclosed_assumption"
 
 
 class DefectClass(str, Enum):

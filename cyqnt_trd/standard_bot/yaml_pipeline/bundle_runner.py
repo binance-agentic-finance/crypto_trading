@@ -27,7 +27,7 @@ from ..adapter import batch_to_signals
 from ..core import StandardSignal
 from ..data import load_input_bundle
 from .interpreter import SpecError, build_make_signals, build_selection_fn
-from .spec import load_spec, validate_spec
+from .spec import assumption_warnings, load_spec, validate_spec
 
 SIGNAL_BATCH_SCHEMA_VERSION = "cyqnt.signal-batch/v1"
 
@@ -158,10 +158,16 @@ def _build_plugin(spec: Mapping[str, Any]):
     strategy_id = str((spec.get("strategy") or {})["id"])
     data = spec.get("data") or {}
     if isinstance(spec.get("selection"), dict):
+        # Both construction sites pass assumptions. They are the same spec run
+        # two ways, and a declared reading that survives one path and not the
+        # other is worse than none: the reader cannot tell which they got.
+        # test_declared_assumptions.py asserts parity so a third site cannot
+        # quietly drop it.
         return blocks_strategy.build_selection_plugin(
             strategy_id,
             build_selection_fn(dict(spec)),
             market_type=str(data.get("market_type") or "futures"),
+            assumptions=assumption_warnings(dict(spec)),
         )
     htf_specs = [
         (item["interval"], int(item["sma_period"]))

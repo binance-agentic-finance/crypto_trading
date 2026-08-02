@@ -735,6 +735,13 @@ def build_selection_fn(spec: Dict[str, Any]) -> Callable[..., List[Dict[str, Any
             ranked = ranked.drop(columns=["__turnover__"], errors="ignore")
         else:
             ranked = ranked.sort_values("score", ascending=score_ascending)
+        # The pool the basket is drawn from: rows that survived the universe
+        # steps, produced a usable score, and cleared the absolute bounds —
+        # counted BEFORE head(top_k), which is the cut, not the pool. Reported
+        # so the signal can say "top 5 of 41" instead of naming the whole
+        # market, which it did and which overstated the screen ninety-fold on
+        # the first demo.
+        scored_pool = int(len(ranked))
         ranked = ranked.head(top_k)
 
         feature_columns = [c for c in frame.columns if c not in (symbol_col,)]
@@ -782,6 +789,7 @@ def build_selection_fn(spec: Dict[str, Any]) -> Callable[..., List[Dict[str, Any
         out: List[Dict[str, Any]] = []
         for position, candidate in enumerate(kept, start=1):
             out.append({**candidate, "rank": position,
+                        "scored_pool": scored_pool,
                         "reason": "%s=%.4g, rank %d of %d, %s"
                                   % (score_ref, candidate["score"], position,
                                      len(kept), order_note)})

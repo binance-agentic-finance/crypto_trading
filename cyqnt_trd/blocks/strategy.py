@@ -67,7 +67,7 @@ The signal function must return either:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional, Tuple, Union
+from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 import pandas as pd
 
@@ -193,12 +193,30 @@ def build_plugin(
     )
 
 
+def _selection_summary(basket: int, scored_pool: int | None, universe_size: int) -> str:
+    """"top 5 of N" where N is the pool that was ranked, not the market.
+
+    This said "top 5 of 727" — the size of the universe frame handed to the
+    selection function, before any of its own filters ran. On the first
+    end-to-end demo the pool that reached the scoring step was 8, so the
+    sentence overstated the breadth of the screen by ninety times, in the one
+    line a reader skims. Both numbers are worth having, so both are stated and
+    the ranked one comes first; ``universe_size`` keeps its old meaning as a
+    field for consumers that key on it.
+    """
+    if scored_pool is None or scored_pool >= universe_size:
+        return "top %d of %d by the declared score" % (basket, universe_size)
+    return ("top %d of %d that passed the screen, by the declared score "
+            "(universe %d)" % (basket, scored_pool, universe_size))
+
+
 def register_selection(
     strategy_id: str,
     selection_fn: SelectionFn,
     *,
     version: str = "selection/v1",
     market_type: str = "futures",
+    assumptions: Sequence[str] = (),
 ) -> None:
     """Register a cross-sectional SELECTION strategy.
 
@@ -218,7 +236,8 @@ def register_selection(
     Extra keyword args it does not use should be absorbed with ``**_``.
     """
     plugin = build_selection_plugin(
-        strategy_id, selection_fn, version=version, market_type=market_type
+        strategy_id, selection_fn, version=version, market_type=market_type,
+        assumptions=assumptions,
     )
     factory = _make_config_factory(plugin.plugin_id)
     _register_selection_with_global(plugin, factory)
@@ -230,6 +249,7 @@ def build_selection_plugin(
     *,
     version: str = "selection/v1",
     market_type: str = "futures",
+    assumptions: Sequence[str] = (),
 ) -> "SelectionStrategyPlugin":
     """Construct (without registering) a SELECTION SignalPlugin."""
     if not strategy_id or not isinstance(strategy_id, str):
@@ -241,6 +261,7 @@ def build_selection_plugin(
         plugin_version=version,
         selection_fn=selection_fn,
         market_type=market_type,
+        assumptions=tuple(assumptions),
     )
 
 
@@ -764,6 +785,11 @@ class SelectionStrategyPlugin:
     plugin_version: str
     selection_fn: SelectionFn
     market_type: str = "futures"
+    #: Readings this spec chose where the request was ambiguous, already
+    #: formatted by ``spec.assumption_warnings``. They ride out in the signal's
+    #: ``warnings`` because a declaration the caller never sees is the same
+    #: thing as a silent choice.
+    assumptions: Tuple[str, ...] = ()
 
     # ---- SignalPlugin protocol ----
 
@@ -873,6 +899,13 @@ class SelectionStrategyPlugin:
             SelectionCandidate, StandardSignal,
         )
 
+        # The pool the basket was actually drawn from, carried on the candidate
+        # rows because ``_build_envelope`` copies the list and a function
+        # attribute would not survive that. Absent (a non-YAML selection_fn) it
+        # falls back to the universe, which is the old behaviour.
+        scored_pool = next((int(row["scored_pool"]) for row in candidates
+                            if row.get("scored_pool") is not None), None)
+
         rows = []
         for position, row in enumerate(candidates, start=1):
             raw = str(row.get("side") or row.get("direction") or "neutral").lower()
@@ -915,14 +948,16 @@ class SelectionStrategyPlugin:
             # v2 bounds score to 0-100; a selection score is an unbounded factor
             # value, so it is clamped here rather than raising inside the contract.
             score=min(100.0, max(0.0, float(rows[0].score))) if rows else 0.0,
-            summary=("top %d of %d by the declared score" % (len(rows), universe_size)
+            summary=(_selection_summary(len(rows), scored_pool, universe_size)
                      if rows else
                      "no name passed the declared filters (universe=%d)" % universe_size),
-            reason_codes=(("cross_sectional_ranking",) if rows
-                          else ("empty_basket", "no_candidate_qualified")),
+            reason_codes=((("cross_sectional_ranking",) if rows
+                           else ("empty_basket", "no_candidate_qualified"))
+                          + (("assumption_declared",) if self.assumptions else ())),
             data_quality=quality,
             source_status=statuses,
-            warnings=tuple(getattr(meta, "warnings", []) or []),
+            warnings=(tuple(getattr(meta, "warnings", []) or [])
+                      + tuple(self.assumptions)),
             provenance=Provenance(
                 strategy_id=self.plugin_id,
                 strategy_version=self.plugin_version,

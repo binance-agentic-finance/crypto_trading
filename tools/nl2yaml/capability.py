@@ -110,6 +110,13 @@ SCOPES = frozenset({
     "account", "side_channel", "*",
 })
 
+#: Closed. Each names a reason two readings of one sentence give two answers,
+#: and none of them is closed by adding a block — the only resolutions are to
+#: declare the reading taken or to ask. Kept apart from GAP_IDS for exactly that
+#: reason: mixing them trains a model to ask when it should refuse and refuse
+#: when it should ask.
+AMBIGUITY_TYPES = ("unit", "conflict", "undefined")
+
 #: What the user is doing to the subject. Closed so that a case's conditions can
 #: be keyed on it; ``*`` is the wildcard row used when the verdict does not
 #: depend on the operator (nothing in this repo can rank on market cap, filter on
@@ -1062,6 +1069,14 @@ class Condition:
     #: True when the condition has a checkable number or member list, i.e. when
     #: G1e is obliged to register a predicate for it.
     quantified: bool = False
+    #: Set when the request admits more than one reading and no block can
+    #: decide between them: ``unit`` ("成交量一千萬" — USD or coins?),
+    #: ``conflict`` (two conditions that cannot both hold), ``undefined`` (a
+    #: criterion with no computable meaning, "強勢"). Distinct from a capability
+    #: gap: adding a block closes a gap and can never close this one. A
+    #: condition carrying it obliges the spec to declare which reading it took,
+    #: which G1e checks.
+    ambiguity_type: Optional[str] = None
     id: str = ""
 
     def __post_init__(self) -> None:
@@ -1069,6 +1084,9 @@ class Condition:
             raise ValueError("a condition needs a subject")
         if self.polarity not in ("require", "exclude"):
             raise ValueError("polarity must be require|exclude, got %r" % (self.polarity,))
+        if self.ambiguity_type is not None and self.ambiguity_type not in AMBIGUITY_TYPES:
+            raise ValueError("ambiguity_type must be one of %s or None, got %r"
+                             % (sorted(AMBIGUITY_TYPES), self.ambiguity_type))
         if self.operator not in OPERATORS:
             raise ValueError("operator must be one of %s, got %r"
                              % (sorted(OPERATORS), self.operator))
@@ -1106,7 +1124,8 @@ def normalize_condition(cond: Any) -> Condition:
             "condition carries %s. Verbatim user text and user ids stay outside "
             "the repo (see the corpus privacy rule); only the structured "
             "subject/operator/value may travel." % leaked)
-    allowed = {"subject", "operator", "scope", "value", "polarity", "quantified", "id"}
+    allowed = {"subject", "operator", "scope", "value", "polarity", "quantified",
+               "ambiguity_type", "id"}
     unknown = sorted(set(cond) - allowed)
     if unknown:
         raise ValueError(
