@@ -63,10 +63,18 @@ def test_an_augment_step_must_be_given_its_source():
         return {"selection": {"universe": [step], "score": "news_mention_count"}}
 
     universe = pd.DataFrame({"symbol": ["BTCUSDT"], "quoteVolume": [1e9]})
+    # A non-empty rank frame, because this test is about DECLARING the source —
+    # an empty one now raises for a different and unrelated reason (a missing
+    # buzz reading is refused rather than joined as NaN, so the news gate cannot
+    # fail open). Passing an empty frame here would make this test pass or fail
+    # on that guard instead of on the `with:` requirement it exists to check.
+    rank = pd.DataFrame({"ticker": ["BTC"], "mention_count": [42],
+                         "unique_authors": [7], "bullish_count": [5],
+                         "bearish_count": [1], "neutral_count": [2]})
     with pytest.raises(SpecError, match="Declare the source"):
-        build_selection_fn(spec(None))(universe, pd.DataFrame())
+        build_selection_fn(spec(None))(universe, rank)
     # supplied explicitly -> allowed
-    build_selection_fn(spec(["ticker_rank"]))(universe, pd.DataFrame())
+    build_selection_fn(spec(["ticker_rank"]))(universe, rank)
 
 
 # --------------------------------------------------------------------------- #

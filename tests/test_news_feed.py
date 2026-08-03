@@ -473,10 +473,41 @@ def test_universe_news_helpers():
     assert kept == {"ETHUSDT"}
 
 
-def test_universe_augment_empty_rank_gives_nan():
+def test_universe_augment_refuses_an_empty_rank_instead_of_filling_nan():
+    """An absent buzz source is refused, not joined as NaN.
+
+    This test used to assert the opposite — it was named
+    ``..._empty_rank_gives_nan`` and checked that the column came back NaN. That
+    behaviour made the news RISK GATE fail OPEN, which is the one direction a
+    risk gate must never fail: ``NaN > 0`` is ``False``, so a condition meaning
+    "exclude anything with negative buzz" evaluated to "nothing has negative
+    buzz" and passed the whole universe. No raise, no warning, and a basket that
+    looked completely normal.
+
+    A spec only reaches this block by naming ``augment_with_news`` and
+    ``with: [ticker_rank]``, so an empty source is not "the caller does not
+    care" — it is "the caller asked and we have nothing". Zero rows is also not a
+    market state worth serving: the ranking is whole-market.
+    """
     tickers = pd.DataFrame({"symbol": ["BTCUSDT"]})
-    aug = universe.augment_with_news(tickers, pd.DataFrame())
-    assert np.isnan(aug["news_mention_count"].iloc[0])
+    with pytest.raises(ValueError) as excinfo:
+        universe.augment_with_news(tickers, pd.DataFrame())
+    message = str(excinfo.value)
+    assert "source_status" in message, "the caller has to be told where to look"
+    assert "drop the augment_with_news step" in message.lower(), (
+        "and how to say 'trade anyway' explicitly, so the choice lands in the "
+        "artifact instead of hiding in a NaN")
+
+
+def test_a_rank_frame_with_rows_still_joins():
+    """The mutation side: a guard that refused every frame would pass the test
+    above while making the block unusable."""
+    tickers = pd.DataFrame({"symbol": ["BTCUSDT"]})
+    rank = pd.DataFrame({"ticker": ["BTC"], "mention_count": [42],
+                         "unique_authors": [7], "bullish_count": [5],
+                         "bearish_count": [1], "neutral_count": [2]})
+    aug = universe.augment_with_news(tickers, rank)
+    assert aug["news_mention_count"].iloc[0] == 42
 
 
 def test_universe_fluent_builder():
