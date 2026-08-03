@@ -802,9 +802,40 @@ def augment_with_news(
         ticker_rank_df = fetch_ticker_rank(window=window, limit=limit, env=env)
 
     if ticker_rank_df is None or ticker_rank_df.empty:
-        for col in _NEWS_COLS:
-            tickers[col] = float("nan")
-        return tickers
+        # Refused, not filled. A spec only reaches this block by naming
+        # ``augment_with_news`` and ``with: [ticker_rank]``, so an absent source
+        # is not "the caller does not care" — it is "the caller asked and we have
+        # nothing".
+        #
+        # Filling NaN here made the news RISK GATE fail OPEN, which is the one
+        # direction a risk gate must never fail. Measured: an empty frame gave
+        # every instrument NaN, and ``NaN > 0`` is ``False``, so a condition
+        # meant to read "exclude anything with negative buzz" evaluated to
+        # "nothing has negative buzz" and passed the whole universe. No raise, no
+        # warning, and a basket that looks completely normal.
+        #
+        # That is also the exact failure the complex-case spec calls out by name:
+        # "when the news service is unavailable, stop automatic buying by
+        # default — do not treat 'we did not get the news' as 'there is no bad
+        # news'". The moment the feed breaks is the moment least safe to trade.
+        #
+        # Zero rows is not a market state worth serving: the ranking is
+        # whole-market, and Binance Square always ranks something. So an empty
+        # frame means the read failed, and the honest answer is to say so and
+        # let the caller decide — degrade to no-trade, or fall back to a
+        # last-good snapshot — rather than to answer a question we cannot answer.
+        raise ValueError(
+            "augment_with_news was given an empty ticker_rank frame, so there is "
+            "no buzz reading for any of the %d instrument(s) being screened. "
+            "This is refused rather than joined as NaN: a NaN buzz column reads "
+            "as 'this coin has no negative news' in every threshold below it, so "
+            "filling it in would turn a news RISK GATE into an unconditional "
+            "pass at exactly the moment the feed is broken. Check the bundle's "
+            "source_status for the news/ticker_rank node. If the intent really is "
+            "'trade anyway when buzz is unknown', that has to be said in the "
+            "spec — drop the augment_with_news step — so the choice is visible "
+            "in the artifact instead of hidden in a NaN."
+            % len(tickers))
 
     rank = ticker_rank_df.copy()
     # Square's raw frame keys on ``ticker`` (a base token, "BTC"); a bundle's

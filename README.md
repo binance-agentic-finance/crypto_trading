@@ -10,9 +10,41 @@
 - a comprehensive indicator library (traditional TA + TradingView essentials + SMC)
 - backward compatibility with the legacy `atomic_strategy_lib` namespace
 
-The current recommended path is:
+### The shape of the system
 
-`historical parquet → local resample → standard_bot signal → NumbaBacktestRunner | PythonEngine`
+Everything funnels through **one input format and one output format**:
+
+```
+data sources ──►  cyqnt.input/v1  ──►  blocks  ──►  cyqnt.signal/v2  ──►  consumers
+  klines            (a JSON             (146          kind=trade          backtest
+  funding / OI       snapshot of         composable    kind=selection      paper
+  order book         one instant)        functions)    kind=alert          live
+  news / buzz
+  contract meta
+```
+
+Two consequences worth knowing before you read further:
+
+**`cyqnt.input/v1` is captured, not streamed.** A snapshot of one decision instant can be
+written to a file and replayed. Backtest, paper and live therefore run *the same code* —
+only the origin of the snapshot differs. That makes a run byte-for-byte reproducible
+(`signal_id` is a `uuid5` of the content, never a clock).
+
+**`cyqnt.signal/v2` has one field a consumer switches on.** `kind` is *derived* from the
+payload, not declared by the producer, so it cannot disagree with the fields it labels:
+
+| `kind` | axis | filled with |
+|---|---|---|
+| `trade` | time — one instrument, bar by bar | `entry` / `exit_plan` / `size` |
+| `selection` | cross-section — every instrument, one instant | `candidates` / `universe_size` |
+| `alert` | neither — a notification | `advisory_action` / `summary` |
+
+Two recommended paths, depending on which axis you are on:
+
+```
+trade      historical parquet → local resample → standard_bot signal → Numba | Python engine
+selection  live or frozen cyqnt.input/v1 → universe pipeline → ranked basket
+```
 
 ---
 
@@ -313,6 +345,102 @@ hand-written block strategies. Entry rules nest arbitrarily
 (`all_of` / `any_of` / `not`); long-only is expressed by simply omitting
 `entry.short`. See `docs/strategy_yaml_spec/` for the schema, runnable
 examples, and a natural-language → YAML → backtest demo.
+
+## Selection: screening the whole cross-section
+
+The `trade` axis walks time for one instrument. The `selection` axis walks *instruments* at
+one instant. Same expression language, same output contract, different axis — a column is a
+column, so `conditions.value_above` does not care which.
+
+```bash
+# capture a snapshot for THIS spec (it resolves only the sections the spec needs)
+python -m cyqnt_trd.standard_bot.entrypoints.mvp_input_bundle \
+    --strategy-yaml docs/strategy_yaml_spec/example_open_interest_screen.yaml \
+    --out bundle.json
+
+# replay it offline — no network, byte-for-byte reproducible
+python -m cyqnt_trd.standard_bot.yaml_pipeline run <spec>.yaml --input-json bundle.json
+
+# or omit --input-json to fetch live
+python -m cyqnt_trd.standard_bot.yaml_pipeline run <spec>.yaml
+```
+
+A `selection:` section is an ordered pipeline; each step takes the previous step's frame:
+
+```yaml
+selection:
+  universe:
+    - { block: universe.augment_with_contract_meta, with: [contract_meta] }
+    - { block: universe.filter_crypto_only }
+    - { block: universe.filter_quote_volume, params: { min_quote_volume: 2.0e+7 } }
+    - { block: universe.augment_with_indicator, with: [universe_bars],
+        params: { indicator: rsi, timeframe: "1h", period: 14, as: rsi14 } }
+  score: rsi14
+  order: asc          # asc | desc
+  max_score: 45       # absolute ceiling, never flipped by `order`
+  top_k: 5
+  dedupe_by: base_asset
+  long_when: { cond: conditions.value_below, args: [rsi14, 45] }
+```
+
+**29 `universe.*` blocks**, and the naming is a contract three other places parse:
+
+| prefix | guarantee | examples |
+|---|---|---|
+| `augment_with_*` (8) | joins columns, **same rows** | `contract_meta`, `funding`, `open_interest`, `oi_change`, `long_short_ratio`, `spread`, `news`, `indicator` |
+| `filter_*` (13) | drops rows, **same columns** | `crypto_only`, `underlying_type`, `sub_type`, `quote_volume`, `quote_suffix`, `spread`, `top_of_book`, `open_interest`, `oi_change`, `long_short_ratio`, `funding_rate`, `change_pct`, `sentiment` |
+| `top_*` / `only_*` / `exclude_*` | drops rows | `top_gainers`, `top_losers`, `top_mentioned`, `only_symbols`, `exclude_symbols` |
+
+### Step order is semantics, not style
+
+Four of those sources have **no whole-market endpoint** — one HTTP request per surviving
+symbol. So they must come *after* something that narrows:
+
+```
+augment_with_open_interest   augment_with_oi_change
+augment_with_long_short_ratio   augment_with_indicator
+```
+
+Measured: narrow to 41 names first → 123 requests. The other way round, 727 × 3 = 2181
+requests, which blows the rate budget. `validate` checks this ordering **statically** — it is
+the one check that looks at a step's position relative to others, because the coverage
+arithmetic downstream only catches one of the four, and only by coincidence.
+
+### Declaring what the spec guessed
+
+Some requests have two readable meanings and no block can settle them — "volume over ten
+million" is either 1e7 of turnover or 1e7 coins, and the two select different names. The
+product default is to declare rather than block:
+
+```yaml
+strategy:
+  assumptions:
+    - cid: c3
+      reading: "read as 24h quote turnover, 1e7 USD"
+      alternatives: ["1e7 coins of base volume"]
+      basis: "quoteVolume is the only turnover column on the frame"
+```
+
+A YAML comment does **not** count — comments are dropped at load, so the person holding the
+basket never sees them. Declared here, each one rides out in the signal's `warnings` and adds
+`assumption_declared` to `reason_codes`. The key set is closed; a misspelt key is an error
+rather than an ignored field, because a choice recorded under the wrong key is a silent
+choice again.
+
+### Tokenised equities are real products
+
+`NVDAUSDT`, `TSLAUSDT`, `AAPLUSDT`, `QQQUSDT` and ~130 others are live USDⓈ-M perpetuals
+(`underlyingType=EQUITY`, `contractType=TRADIFI_PERPETUAL`). So "exclude US stocks" and
+"screen US stocks" are *both* real requests, and neither is the default:
+
+```yaml
+- { block: universe.filter_crypto_only }                                # exclude them
+- { block: universe.filter_underlying_type, params: { include: [EQUITY] } }  # screen them
+```
+
+They are not index futures, though. `QQQUSDT` carries funding (~+1.9% annualised measured),
+trades at a premium to its index, and **keeps moving while the US market is shut** — so a
+threshold written for NQ does not transfer.
 
 ## Backtest Engines
 

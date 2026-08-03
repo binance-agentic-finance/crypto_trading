@@ -210,6 +210,120 @@ PYTHONPATH=<repo> <repo>/.venv-standard-bot/bin/python \
 
 ---
 
+---
+
+## 取數:live 與重播是同一段程式碼,兩個輸入來源
+
+這是整個架構的樞紐,而先前的版本沒有寫。
+
+```
+live   ── mvp_input_bundle 現在去抓 ──┐
+                                     ├─► cyqnt.input/v1 ─► 同一條 pipeline ─► cyqnt.signal/v2
+凍結    ── 之前抓下來的那個檔案 ──────┘
+```
+
+```bash
+# 抓一份現在的快照(--strategy-yaml 會照 spec 解出它需要的 section,不多抓)
+python -m cyqnt_trd.standard_bot.entrypoints.mvp_input_bundle \
+    --strategy-yaml docs/strategy_yaml_spec/example_open_interest_screen.yaml \
+    --out /tmp/bundle.json
+
+# 餵回去 = 離線重播,零網路,結果逐位元可重現
+python -m cyqnt_trd.standard_bot.yaml_pipeline run <spec>.yaml --input-json /tmp/bundle.json
+
+# 不給 --input-json = 現在去抓(平台走這條)
+python -m cyqnt_trd.standard_bot.yaml_pipeline run <spec>.yaml
+```
+
+**為什麼重要**:回測、paper、live 走同一段程式碼,差別只在快照來自歷史還是現在。所以
+「回測會過、實盤不會過」這類問題在這個架構裡不該存在 —— 如果出現了,那是有人繞過了 bundle。
+
+**判斷你在哪條路上**:輸出的 `warnings` 會出現
+`available_time taken from the fetch time` 這類句子時,你在 live 那條;那是正常的,不是錯誤。
+它在說「這個來源是快照、沒有逐列事件時間,所以不能拿去做逐根回測」。
+
+### `--sections` 與 `--strategy-yaml` 的差別會咬人
+
+`--sections` 那條路**無條件多抓一次 `klines`**(`live_snapshot.py` 寫死 `wanted = {"klines"}`),
+即使你的 spec 是純選幣、一根 K 都不看。`--strategy-yaml` 那條會照 spec 解,不會多抓。
+量測 API 成本時別把兩者混在一起。
+
+---
+
+## 選幣層:29 個 universe block,而命名是機器讀的契約
+
+`selection:` 段是一條**依序套用**的 pipeline,每一步吃上一步的表:
+
+```yaml
+selection:
+  universe:
+    - { block: universe.augment_with_contract_meta, with: [contract_meta] }   # 加欄位
+    - { block: universe.filter_crypto_only }                                   # 減列
+    - { block: universe.filter_quote_volume, params: { min_quote_volume: 2.0e+7 } }
+    - { block: universe.augment_with_indicator, with: [universe_bars],
+        params: { indicator: rsi, timeframe: "1h", period: 14, as: rsi14 } }
+  score: rsi14
+  order: asc          # asc | desc
+  max_score: 45       # 絕對上界,**不隨 order 翻轉**
+  top_k: 5
+  dedupe_by: base_asset
+  long_when: { cond: conditions.value_below, args: [rsi14, 45] }
+```
+
+**`augment_*` 加欄位、`filter_*` 減列 —— 這不是風格,是三處程式碼直接解析的契約。**
+`interpreter.narrows_the_universe()` 只看函式名前綴來判斷「這一步會不會減少列數」,
+`spec.validate_spec` 用它做靜態順序檢查,兩段式 capture 用它決定 fan-out 名單。
+
+### 順序是語意的一部分,不是風格
+
+四個 block 的來源**沒有全市場端點**,只能逐幣抓(一檔一個 request):
+
+```
+universe.augment_with_open_interest / augment_with_oi_change
+universe.augment_with_long_short_ratio / augment_with_indicator
+```
+
+它們**必須排在收窄步驟之後**。實測:先收窄到 41 檔再抓是 123 次呼叫;反過來 727 × 3 =
+2181 次,直接超出額度被 ban。`validate` 會靜態擋下錯誤順序(這是它唯一一個看步驟**相對位置**
+的檢查),因為靠覆蓋率算術只抓得到四個裡的一個,而且是巧合。
+
+### 兩個 K 線 frame 不要搞混
+
+| frame | 是什麼 | 給誰 |
+|---|---|---|
+| `klines` | 單一標的(`data.symbol`)的主序列 | `signals:` 那條路 |
+| `universe_bars` | 多標的多時框 | `selection` 的 `augment_with_indicator` |
+
+`augment_with_indicator` 的 join 覆蓋率門檻是 **100%** —— 而 bars 的名單是從你自己 pipeline
+的倖存前綴推導的。所以「拿別人的 fixture 來跑自己的 spec」通常會被拒絕,而那是對的:
+缺口不是市場事實,是被篩選的 frame 和當初規劃捕捉時的 frame 不是同一個。
+
+---
+
+## `strategy.assumptions[]`:spec 要說出自己替使用者選了哪一邊
+
+有些需求本身就兩種讀法而沒有任何 block 能決定 —— 「成交量一千萬」是 1e7 美元成交額還是
+1e7 顆幣?兩種讀法篩出不同名單。
+
+```yaml
+strategy:
+  id: ...
+  assumptions:
+    - cid: c3                                      # 對應的需求條件編號
+      reading: "「成交量一千萬」讀作 24h 成交額 1e7 USD"
+      alternatives: ["1e7 顆幣"]                    # 沒採用的讀法,讀者要看得到放棄了什麼
+      basis: "quoteVolume 是 universe frame 唯一的成交量欄位"
+```
+
+**寫在 YAML 註解裡不算數** —— 註解在 load 時被丟掉,拿到籃子的人一個字都看不到。寫在這裡
+才會併入訊號的 `warnings` 並讓 `reason_codes` 多一個 `assumption_declared`。
+
+放 `warnings` 不放 `evidence` 是刻意的:`evidence` 的語意是「支持這個訊號的觀察」,把未宣告
+的讀法擺在那個標題下會讓讀者看到相反的意思。
+
+key 是封閉集合(`cid` / `reading` / `alternatives` / `basis`),拼錯的 key 是**錯誤**不是被
+忽略的欄位 —— 因為把選擇記在拼錯的 key 底下,等於又回到「靜默選一邊」。
+
 ## 兩個核心不變量(改動時不要破壞)
 
 ### `event_time` vs `available_time`
