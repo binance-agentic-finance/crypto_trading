@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cyqnt-trd"
-version = "0.1.11"
+version = "0.1.12"
 description = "A cryptocurrency trading toolkit centered on the standard_bot backtesting, paper signal, and execution workflow"
 readme = "README.md"
 license = "MIT"
@@ -73,11 +73,17 @@ namespaces = false
 
 [tool.black]
 line-length = 100
-target-version = "0.1.11"
+# The PYTHON target, not the package version. This read "0.1.11" — collateral
+# damage from a global version find-replace. black/ruff take py38..py312 here, so
+# the value was silently meaningless: both tools fell back to guessing from the
+# syntax they saw, which is not the same as the floor requires-python declares.
+target-version = ["py38"]
 
 [tool.ruff]
 line-length = 100
-target-version = "0.1.11"
+# Same collateral damage, same fix. Kept in step with requires-python's floor
+# (>=3.8) so a lint run cannot bless syntax the declared floor rejects.
+target-version = "py38"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W"]

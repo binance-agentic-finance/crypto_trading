@@ -11,7 +11,14 @@ Cyqnt Trading Package
 - compat: atomic_strategy_lib backward-compatible dataclass shim (Candle, Signal, Verdict, ...)
 """
 
-__version__ = "0.1.9.dev2"
+#: Single source of truth for the installed version.
+#:
+#: This said ``0.1.9.dev2`` while pyproject said ``0.1.11`` — four releases of
+#: drift, and nothing caught it because nothing compared them. A consumer doing
+#: ``cyqnt_trd.__version__`` got a number that had not existed on PyPI for
+#: months, which is worse than no number at all: it looks authoritative.
+#: tests/test_version_is_single_sourced.py now asserts the two agree.
+__version__ = "0.1.12"
 
 _OPTIONAL_IMPORT_ERRORS = {}
 
