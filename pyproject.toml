@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cyqnt-trd"
-version = "0.1.13"
+version = "0.1.14"
 description = "A cryptocurrency trading toolkit centered on the standard_bot backtesting, paper signal, and execution workflow"
 readme = "README.md"
 license = "MIT"
@@ -21,12 +21,29 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Office/Business :: Financial :: Investment",
 ]
-requires-python = ">=3.8,<3.13"
+requires-python = ">=3.8,<3.14"
 dependencies = [
     "pandas>=2.0.0,<3.0",
-    "numpy>=1.24.0,<2.0",
+    # numpy 按 Python 版本分岔,而不是一条 `>=1.24,<3.0` 打通 —— 这是刻意的。
+    #
+    # 3.13 上**装不了 numpy 1.x**:1.26.4 是 1.x 最后一版,官方 wheel 只到 cp312
+    # (实测 `--only-binary=:all:` 在 3.13 上解 `numpy<2.0` 直接 No matching distribution,
+    # 能装上的最早是 2.1.0)。所以原来那条 `<2.0` 会让「宣稱支援 3.13」變成裝不上,
+    # 跟宣告一個不存在的版本是同一類錯 —— 只改 requires-python 是不夠的。
+    #
+    # 那為什麼不乾脆一條 `<3.0` 通吃?因為那會讓現有 3.8–3.12 的環境在下一次
+    # `pip install -U` 時**靜默跨一個 numpy 大版本**(1.26 → 2.x)。numpy 2 改了純量
+    # 型別晉升與 repr,對這個庫是會動到**數字**的:AGENTS.md 開頭那條「錯誤幾乎不會崩潰,
+    # 而是產出看起來合理的錯答案」正是在說這種事。所以現有版本維持 1.x 不動,
+    # 3.13 才走 2.x,支援矩陣寫明、兩邊都跑過測試。
+    #
+    # 程式碼本身對兩個大版本都乾淨:全庫沒有用到任何 numpy 2 移除的 API
+    # (np.float_ / np.NaN / np.in1d / np.trapz / np.product … 掃過為零)。
+    "numpy>=1.24.0,<2.0; python_version < '3.13'",
+    "numpy>=2.1.0,<3.0; python_version >= '3.13'",
     "polars>=1.0.0,<2.0",
     "numba>=0.60.0,<0.70",
     "pyarrow>=14.0.0,<25.0",
@@ -46,6 +63,12 @@ dev = [
     "pytest-cov>=4.0.0,<5.0.0",
     "black>=22.0.0,<24.0.0",
     "ruff>=0.1.0,<0.2.0",
+    # 測試自己要用的兩個,原本沒宣告 —— 在乾淨環境裡 `pip install -e ".[dev]"` 之後
+    # 跑 pytest 會有 11 個模組直接 collection error(ModuleNotFoundError: yaml /
+    # jsonschema),看起來像「這個 Python 版本不支援」,其實只是缺測試依賴。
+    # 之所以一直沒人踩到:大家的環境裡早就因為別的東西裝過它們了。
+    "pyyaml>=6.0",
+    "jsonschema>=4.0",
 ]
 market-data = [
     "yfinance>=0.2.38",
