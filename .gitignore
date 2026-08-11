@@ -94,3 +94,6 @@ tools/nl2yaml/dataset/candidates.jsonl
 # 內部頁面/採購編號,而這個 repo 的兩個 remote 都是公開的 —— 程式碼可以公開,
 # 未發布的產品規劃不見得。報告本身留在本機,結論以人工方式貼回 Confluence。
 docs/capability_audit_*.md
+
+# PyPI API token handed over for the 0.1.13 release —— 不要提交
+token.md
