@@ -1135,13 +1135,26 @@ _NODES: List[DataNodeSpec] = [
     ),
     DataNodeSpec(
         name="circulating_supply_snapshot",
-        emits=FrameKind.METRIC,
+        # RANK, not METRIC, and the distinction is load-bearing rather than
+        # cosmetic: a METRIC node is melted to a long ``metric``/``value`` frame
+        # by input_contract.normalize_frame, and universe.augment_with_market_cap
+        # reads named columns. Declared METRIC it validated green — the dry-run
+        # stand-in is a wide frame — and then raised on every bundle, live or
+        # replayed. The three sibling fan-out snapshots joined by a universe
+        # block (open_interest_snapshot / long_short_ratio_snapshot /
+        # book_ticker) are all RANK for this reason. `oi_change_snapshot` is the
+        # one METRIC of the family because its consumer carries an explicit
+        # long-to-wide step (universe._oi_history_series); this node has none.
+        emits=FrameKind.RANK,
         column_map={
             "symbol": "instrument_id",
             "supply_time": "event_time",
         },
-        constants={"source_id": "binance.cmc_circulating_supply",
-                   "unit": "coins"},
+        # Deliberately no `unit`, for the reason `oi_change_snapshot` gives: the
+        # two value columns are in DIFFERENT units (a coin count and a count of
+        # periods), so one frame-wide unit would mislabel whichever it did not
+        # describe.
+        constants={"source_id": "binance.cmc_circulating_supply"},
         value_columns=("circulating_supply", "supply_unchanged_periods"),
         description=(
             "Circulating supply for a NAMED ROSTER of perpetuals — the missing "
@@ -1195,8 +1208,12 @@ _NODES: List[DataNodeSpec] = [
             "bapi get-products endpoint: across 24 majors its median "
             "disagreement is 11.14% and it is worst where supply moves fastest "
             "(TIA +92%, OP +69%, ARB 4.21e9 against 6.68e9). A synthetic "
-            "instrument answers 0 and the fetcher turns that into NaN, because "
-            "a zero cap is dropped by a floor for being SMALL."
+            "instrument answers a literal 0, which the fetcher passes through "
+            "as the venue sent it; universe.augment_with_market_cap is where it "
+            "becomes NaN, because a zero cap is dropped by a floor for being "
+            "SMALL. Every one of the 177 non-COIN perpetuals answers 0, so "
+            "fanning out over them before filter_crypto_only buys nothing and "
+            "costs 177 requests."
         ),
     ),
     DataNodeSpec(

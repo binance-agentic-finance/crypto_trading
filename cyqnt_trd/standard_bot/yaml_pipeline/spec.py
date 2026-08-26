@@ -688,8 +688,12 @@ def _synthetic_circulating_supply(universe):
 
     Binance's own spelling ``CMCCirculatingSupply``, because a bundle delivers
     the node's renamed ``circulating_supply`` — a stand-in in vendor spelling
-    proves ``augment_with_market_cap``'s alias table works from the Python side
-    while the frozen-fixture path proves the canonical one.
+    exercises ``augment_with_market_cap``'s alias table, which the canonical
+    spelling would not. The canonical side is covered by
+    ``tests/standard_bot/test_universe_market_cap.py``, which pushes a frame
+    through ``get_node("circulating_supply_snapshot").normalize()`` before the
+    block; there is no frozen fixture carrying this node yet, and this docstring
+    claimed there was.
 
     Two properties are load-bearing:
 

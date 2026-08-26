@@ -80,6 +80,7 @@ FETCHES_WITHOUT_SOURCE = {
     "universe.augment_with_oi_change": "oi_change_snapshot",
     "universe.augment_with_long_short_ratio": "long_short_ratio_snapshot",
     "universe.augment_with_spread": "book_ticker",
+    "universe.augment_with_market_cap": "circulating_supply_snapshot",
     "universe.augment_with_indicator": "universe_bars",
 }
 
@@ -99,13 +100,18 @@ BARS_BLOCK = "universe.augment_with_indicator"
 #:
 #: Both of those are runtime failures. The ordering itself is a structural
 #: property of the spec, so :func:`spec.validate_spec` checks it statically —
-#: relying on the dry-run's coverage arithmetic caught only one of these four,
+#: relying on the dry-run's coverage arithmetic caught only one of these five,
 #: and only because the synthetic roster happened to land at 87%: below the
 #: open-interest join's 95% floor, above the 50% floor the other two use.
+#: ``augment_with_market_cap`` is the reason that sentence now says five: it
+#: shipped relying on exactly that arithmetic (87% against its own 90% floor, a
+#: three-point margin), and adding seven coins to the synthetic universe was
+#: enough to take a mis-ordered spec green.
 FAN_OUT_AUGMENTS = frozenset({
     "universe.augment_with_open_interest",
     "universe.augment_with_oi_change",
     "universe.augment_with_long_short_ratio",
+    "universe.augment_with_market_cap",
     BARS_BLOCK,
 })
 

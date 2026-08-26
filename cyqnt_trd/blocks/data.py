@@ -1077,7 +1077,7 @@ def fetch_oi_history_cross_section(
 #: row of a multi-day series, so carrying it there costs a column of duplicates
 #: on the frame that ``augment_with_oi_change`` reads, and the two are wanted at
 #: different shapes — open interest as a series, supply as one current reading.
-_SUPPLY_HIST_FIELDS = ("symbol", "CMCCirculatingSupply", "timestamp")
+_SUPPLY_HIST_FIELDS = ("CMCCirculatingSupply", "timestamp")
 
 
 def fetch_circulating_supply_cross_section(
@@ -1128,6 +1128,16 @@ def fetch_circulating_supply_cross_section(
     reading for a fully-distributed token with no emission and no burn. Raising
     on it would refuse the honest case and the stalled case with one message.
 
+    A supply of zero is passed through
+    ----------------------------------
+    Every synthetic instrument answers 0 — all 177 non-COIN perpetuals do, index
+    and commodity alike — because there is no token behind them. This function
+    copies that through as 0 rather than reading it as unknown, so a recorded
+    frame keeps the difference between "the venue said zero" and "the field was
+    absent". :func:`cyqnt_trd.blocks.universe.augment_with_market_cap` is where
+    the 0 becomes NaN, because that is where it meets a price and turns into a
+    market cap of zero that a floor would drop for being SMALL.
+
     ``limit`` sets how far back the staleness is measured, not how much history
     is returned — only the latest reading per instrument is emitted. The public
     endpoint keeps roughly 30 days. One request per instrument; see
@@ -1152,8 +1162,7 @@ def fetch_circulating_supply_cross_section(
             # listed perpetual has no series yet. Absent, not failed.
             continue
         for entry in payload:
-            missing = [name for name in _SUPPLY_HIST_FIELDS
-                       if name not in entry and name != "symbol"]
+            missing = [name for name in _SUPPLY_HIST_FIELDS if name not in entry]
             if missing:
                 raise RuntimeError(
                     "%s: an openInterestHist(%s) row is missing %s; it carries "
@@ -1177,13 +1186,15 @@ def fetch_circulating_supply_cross_section(
             # The request is the authority on what was asked for, matching
             # fetch_oi_history_cross_section.
             "symbol": symbol,
-            # A synthetic instrument has no token supply and the venue says so
-            # with a literal 0: BTCDOMUSDT, ALLUSDT and XAUUSDT all answer 0 on
-            # a live read. That is a market state, not a failed capture, but a 0
-            # multiplied by a price is a market cap of zero — a number a
-            # ``min_usd`` floor drops for being SMALL. NaN keeps it unknown, so
-            # ``filter_market_cap`` drops it as unknown and says how many.
-            "circulating_supply": latest_supply if latest_supply > 0 else float("nan"),
+            # Passed through exactly as the venue sent it, including the literal
+            # 0 that every synthetic instrument answers (BTCDOMUSDT, ALLUSDT,
+            # XAUUSDT, and all 177 non-COIN perpetuals). Turning it into NaN
+            # here would destroy the distinction between "the venue said zero"
+            # and "the field was absent" for anything that records this frame,
+            # and this module's job is to copy the venue — the reading of a 0 as
+            # unknown belongs to universe.augment_with_market_cap, which is
+            # where a supply meets a price and the zero becomes misleading.
+            "circulating_supply": latest_supply,
             "supply_time": latest_time,
             "supply_unchanged_periods": unchanged,
         })

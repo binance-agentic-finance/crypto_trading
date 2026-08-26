@@ -77,18 +77,35 @@ def test_a_moving_supply_reports_zero_unchanged_periods(monkeypatch):
     assert frame["supply_unchanged_periods"].tolist() == [0]
 
 
-def test_the_venues_literal_zero_becomes_unknown_rather_than_a_zero_cap(monkeypatch):
-    """BTCDOMUSDT / ALLUSDT / XAUUSDT answer 0 because they have no token.
+def test_the_fetcher_passes_the_venues_literal_zero_through(monkeypatch):
+    """All 177 non-COIN perpetuals answer 0 because they have no token.
 
-    Kept as 0 it prices them at a market cap of zero, which ``min_usd`` drops
-    for being SMALL — the instrument then looks screened rather than absent.
+    This module copies the venue, so the 0 survives here: a recorded frame that
+    turned it into NaN could no longer tell "the venue said zero" apart from
+    "the field was absent". Reading it as unknown is the join's job — see the
+    next test.
     """
     monkeypatch.setattr(blocks_data, "_request_json",
                         lambda url, params: _supply_payload([0, 0, 0]))
 
     frame = blocks_data.fetch_circulating_supply_cross_section(["BTCDOMUSDT"])
 
-    assert frame["circulating_supply"].isna().all()
+    assert frame["circulating_supply"].tolist() == [0.0]
+
+
+def test_the_join_turns_that_zero_into_unknown_rather_than_a_zero_cap():
+    """Kept as 0 it prices a synthetic instrument at a market cap of zero, which
+    ``min_usd`` drops for being SMALL — so it looks screened rather than absent.
+    """
+    supply = pd.DataFrame({"symbol": ["AAAUSDT", "BTCDOMUSDT"],
+                           "circulating_supply": [1_000.0, 0.0]})
+
+    joined = ub.augment_with_market_cap(_universe(["AAAUSDT", "BTCDOMUSDT"]),
+                                        supply)
+
+    caps = dict(zip(joined["symbol"], joined["market_cap_usd"]))
+    assert caps["AAAUSDT"] == 2_000.0
+    assert pd.isna(caps["BTCDOMUSDT"])
 
 
 def test_an_instrument_with_no_readings_is_left_out_without_failing(monkeypatch):
@@ -213,20 +230,123 @@ def test_a_ranking_excludes_unknowns_rather_than_padding_its_tail_with_them():
     assert ub.top_market_cap(frame, 4)["symbol"].tolist() == ["AAA", "BBB"]
 
 
-def test_screening_the_crypto_first_is_what_changes_the_head_of_the_ranking():
-    """Binance lists tokenised equities and they are enormous: on a 2026-08-26
-    snapshot NVDAB, AAPLB, MSFT, AMZN, SPCX, META and AVGO all outrank BTC.
-    Nothing in the emitted basket says the top of it is not crypto.
-    """
-    frame = pd.DataFrame({
-        "symbol": ["NVDABUSDT", "AAPLBUSDT", "BTCUSDT", "ETHUSDT"],
-        "market_cap_usd": [5.136e12, 4.545e12, 1.566e12, 2.97e11],
-        "underlying_type": ["EQUITY", "EQUITY", "COIN", "COIN"],
-    })
+def test_a_non_coin_instrument_cannot_reach_the_ranking_even_unfiltered():
+    """The reason ``filter_crypto_only`` is advised is COST, not correctness.
 
-    assert ub.top_market_cap(frame, 2)["symbol"].tolist() == ["NVDABUSDT", "AAPLBUSDT"]
-    crypto = ub.filter_crypto_only(frame)
-    assert ub.top_market_cap(crypto, 2)["symbol"].tolist() == ["BTCUSDT", "ETHUSDT"]
+    An earlier version of this file claimed tokenised equities would top the
+    ranking and pinned that with invented symbols. Measured on the venue, every
+    one of the 177 non-COIN perpetuals answers a circulating supply of 0, so the
+    join makes them NaN and :func:`top_market_cap` leaves them out — rank the
+    whole venue with no narrowing and BTCUSDT is still first. What narrowing
+    buys is not a different order, it is 177 fan-out requests not spent.
+    """
+    supply = pd.DataFrame({
+        "symbol": ["XAUUSDT", "ALLUSDT", "BTCUSDT"],
+        "circulating_supply": [0.0, 0.0, 20_000_000.0],
+    })
+    universe = pd.DataFrame({"symbol": ["XAUUSDT", "ALLUSDT", "BTCUSDT"],
+                             "lastPrice": [3_500.0, 900.0, 79_000.0],
+                             "quoteVolume": [1e9] * 3})
+
+    joined = ub.augment_with_market_cap(universe, supply)
+
+    assert ub.top_market_cap(joined, 3)["symbol"].tolist() == ["BTCUSDT"]
+
+
+def test_the_canonical_bundle_frame_is_readable_by_the_block():
+    """The path the dry-run does NOT cover, and the one that shipped broken.
+
+    A bundle hands the block whatever ``normalize_frame`` produced from the
+    node, not what the fetcher returned. Declared ``FrameKind.METRIC`` the node
+    was melted into a long ``metric``/``value`` frame, the block raised on every
+    replay and live run, and ``validate`` still said ``errors == []`` because
+    the dry-run stand-in is a wide frame. Nothing in the suite crossed that
+    boundary, so the whole feature was green and non-functional.
+
+    Asserting through ``normalize`` rather than against a hand-built frame is
+    the point: it fails if the node's ``emits`` or ``column_map`` drifts back.
+    """
+    from cyqnt_trd.standard_bot.data.catalog import get_node
+
+    node = get_node("circulating_supply_snapshot")
+    raw = pd.DataFrame({
+        "symbol": ["AAAUSDT", "BBBUSDT"],
+        "circulating_supply": [1_000.0, 500.0],
+        "supply_time": [1_700_000_000_000, 1_700_000_000_000],
+        "supply_unchanged_periods": [0, 4],
+    })
+    canonical, _warnings, _inferred = node.normalize(
+        raw, available_time=1_700_000_000_000)
+
+    joined = ub.augment_with_market_cap(_universe(["AAAUSDT", "BBBUSDT"], price=2.0),
+                                        canonical)
+
+    assert joined["market_cap_usd"].tolist() == [2_000.0, 1_000.0]
+    # The staleness reading survives the rename round-trip too; it is the column
+    # a caller screens on to notice a frozen upstream feed.
+    assert joined["supply_unchanged_periods"].tolist() == [0.0, 4.0]
+
+
+def test_every_step_named_in_a_remedy_message_has_a_source_to_name():
+    """``_require_derived_column`` quotes ``_AUGMENT_SOURCES[step]`` unguarded,
+    so a step missing from that dict turns the repo's standard "you forgot the
+    augment" guidance into a bare KeyError — at exactly the moment the guidance
+    was needed. Asserted over the whole dict so the next block cannot repeat it.
+    """
+    for step in ("augment_with_open_interest", "augment_with_oi_change",
+                 "augment_with_long_short_ratio", "augment_with_spread",
+                 "augment_with_market_cap"):
+        assert step in ub._AUGMENT_SOURCES
+
+    with pytest.raises(ValueError, match="circulating_supply_snapshot"):
+        ub.filter_market_cap(pd.DataFrame({"symbol": ["AAAUSDT"]}), min_usd=1)
+
+
+def test_applying_the_step_twice_does_not_lose_the_columns_it_promises():
+    """``merge`` without dropping first suffixes the collision to ``_x``/``_y``,
+    and the column the docstring and the capability table both name stops
+    existing. Drop-then-merge is what every sibling join in this module does.
+    """
+    supply = pd.DataFrame({"symbol": ["AAAUSDT"], "circulating_supply": [1_000.0]})
+    once = ub.augment_with_market_cap(_universe(["AAAUSDT"], price=2.0), supply)
+
+    twice = ub.augment_with_market_cap(once, supply)
+
+    assert [name for name in twice.columns if name.endswith(("_x", "_y"))] == []
+    assert twice["market_cap_usd"].tolist() == [2_000.0]
+
+
+def test_a_non_positive_price_is_unknown_rather_than_a_tiny_cap():
+    """The other multiplicand, held to the rule the supply is held to.
+
+    ``_bounded_filter`` reads any number as KNOWN, so a cap of 0 is dropped by a
+    floor for being SMALL rather than for being unpriced — the same misreading
+    ``augment_with_open_interest`` refuses a zero mark price over.
+    """
+    supply = pd.DataFrame({"symbol": ["AAAUSDT", "BBBUSDT"],
+                           "circulating_supply": [1_000.0, 1_000.0]})
+    universe = pd.DataFrame({"symbol": ["AAAUSDT", "BBBUSDT"],
+                             "lastPrice": [0.0, 4.0],
+                             "quoteVolume": [1e9, 1e9]})
+
+    joined = ub.augment_with_market_cap(universe, supply)
+
+    caps = dict(zip(joined["symbol"], joined["market_cap_usd"]))
+    assert pd.isna(caps["AAAUSDT"])
+    assert caps["BBBUSDT"] == 4_000.0
+
+
+def test_an_absent_optional_column_is_unknown_and_not_a_fresh_reading():
+    """0 is a REAL value for both optional columns — "it moved last period", and
+    1970-01-01 — so filling an absent column with it answers a staleness screen
+    for every row whose staleness is unknown, in the reassuring direction.
+    """
+    supply = pd.DataFrame({"symbol": ["AAAUSDT"], "circulating_supply": [1_000.0]})
+
+    joined = ub.augment_with_market_cap(_universe(["AAAUSDT"]), supply)
+
+    assert joined["supply_unchanged_periods"].isna().all()
+    assert joined["supply_time"].isna().all()
 
 
 def test_the_shipped_spec_validates_and_warns_about_nothing():
@@ -247,10 +367,13 @@ def test_the_shipped_spec_validates_and_warns_about_nothing():
 def test_the_shipped_spec_still_refuses_the_augment_placed_before_narrowing():
     """The negative half of the probe, kept next to the positive one.
 
-    Hoisting the fan-out above ``filter_crypto_only`` is the mistake the
-    ordering rule exists for, and it fails by COVERAGE rather than by anything
-    naming the order — 87 % against a 90 % floor. A regression that relaxed the
-    floor would make the shipped spec's ordering advice decorative.
+    This block shipped relying on the dry-run's coverage arithmetic to catch a
+    hoisted fan-out — 87 % against its own 90 % floor, a three-point margin that
+    seven more synthetic coins would erase. It is now in
+    ``interpreter.FAN_OUT_AUGMENTS``, so ``validate_spec`` refuses it
+    STATICALLY, by position, before any frame is built. Asserted on the
+    positional message rather than on the coverage one precisely so that a
+    regression removing the static check cannot be masked by the coincidence.
     """
     import copy
 
@@ -265,4 +388,5 @@ def test_the_shipped_spec_still_refuses_the_augment_placed_before_narrowing():
 
     errors, _spec_warnings = validate_spec(spec)
 
-    assert any("covers only" in str(error) for error in errors)
+    assert any("must come AFTER at least one step that narrows" in str(error)
+               for error in errors)

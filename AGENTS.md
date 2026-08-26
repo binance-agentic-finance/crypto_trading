@@ -276,16 +276,20 @@ selection:
 
 ### 順序是語意的一部分,不是風格
 
-四個 block 的來源**沒有全市場端點**,只能逐幣抓(一檔一個 request):
+五個 block 的來源**沒有全市場端點**,只能逐幣抓(一檔一個 request):
 
 ```
 universe.augment_with_open_interest / augment_with_oi_change
 universe.augment_with_long_short_ratio / augment_with_indicator
+universe.augment_with_market_cap
 ```
 
 它們**必須排在收窄步驟之後**。實測:先收窄到 41 檔再抓是 123 次呼叫;反過來 727 × 3 =
 2181 次,直接超出額度被 ban。`validate` 會靜態擋下錯誤順序(這是它唯一一個看步驟**相對位置**
-的檢查),因為靠覆蓋率算術只抓得到四個裡的一個,而且是巧合。
+的檢查),因為靠覆蓋率算術只抓得到五個裡的一個,而且是巧合。
+
+`universe.augment_with_market_cap` 還多一個收窄的理由:合約端 177 檔非 COIN 標的的
+流通量全部回 0,對它們 fan-out 只會拿到 177 個「未知」。把 `filter_crypto_only` 排在它前面。
 
 ### 兩個 K 線 frame 不要搞混
 

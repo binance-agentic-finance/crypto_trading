@@ -31,18 +31,18 @@
 # TIA +92%、SEI +77%、OP +69%、ARB 4.21e9 對 6.68e9;BTC 少了約 268,000 顆,
 # 大約是 600 天的發行量。它的 tags(板塊標籤)有用,cs 是過期快取。
 #
-# ★ 為什麼 filter_crypto_only 一定要排在 filter_market_cap 前面
+# ★ 為什麼 filter_crypto_only 要排在 augment_with_market_cap 前面
 # ---------------------------------------------------------------------------
-# 幣安上市代幣化美股,而它們非常大。2026-08-26 的截面上,不先收窄直接按市值排:
+# 不是因為代幣化美股會霸榜 —— 實測不會。合約端 177 檔非 COIN 標的
+# (EQUITY / COMMODITY / INDEX)的 CMCCirculatingSupply **全部是 0**,
+# 經 augment 轉成 NaN 之後,top_market_cap 會把它們排除。完全不收窄直接排,
+# 第一名還是 BTCUSDT。
 #
-#     NVDABUSDT  5,136B     SPCXBUSDT  1,813B
-#     AAPLBUSDT  4,545B     METABUSDT  1,715B
-#     MSFTBUSDT  3,673B     AVGOBUSDT  1,706B
-#     AMZNBUSDT  2,807B     BTCUSDT    1,566B   ← 第十名才是 BTC
+# 真正的理由是成本。這一步是 fan-out,一檔一個 request,那 177 檔只會回 177 個
+# 「未知」—— 花掉五分之一的請求額度換不到任何資訊。所以先收窄。
 #
-# 「市值前 100 的幣」這樣回答,得到的是一份美國企業清單,而籃子裡沒有任何一欄
-# 會告訴你這件事。block 沒有把排除內建進去,因為 filter_crypto_only 已經擁有
-# 這個決定,同一個決定有兩種寫法就是兩種寫法遲早分岔的開始。
+# block 沒有把排除內建進去,因為 filter_crypto_only 已經擁有這個決定,
+# 同一個決定有兩種寫法就是兩種寫法遲早分岔的開始。
 #
 # ★ 順序的第二個理由:供給量是 fan-out
 # ---------------------------------------------------------------------------
@@ -90,8 +90,8 @@ selection:
     - block: universe.augment_with_contract_meta
       with: [contract_meta]
 
-    # 2) 只留真的加密幣。這一步在這份 spec 裡不是可選的 ——
-    #    見上面那張表,少了它排名的前九名沒有一個是幣。
+    # 2) 只留真的加密幣。少了它排名不會錯(那 177 檔拿不到供給量,會變 NaN 被排除),
+    #    但下一步會白白對它們 fan-out 177 次。
     - block: universe.filter_crypto_only
 
     # 3) 成交額門檻。放在市值之前有兩個作用:它是免費的(欄位就在 24h ticker 上),

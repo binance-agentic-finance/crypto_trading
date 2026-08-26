@@ -649,12 +649,11 @@ CAPABILITY_TABLE: Tuple[Capability, ...] = (
          fields=("market_cap_usd", "selection.score", "selection.order"),
          requires_sources=("circulating_supply_snapshot",),
          why="score: market_cap_usd, or universe.top_market_cap for the head "
-             "of it. Rank the venue without filter_crypto_only first and the "
-             "top of the list is Nvidia, Apple and Microsoft — Binance lists "
-             "tokenised equities and on a 2026-08-26 snapshot seven of them "
-             "outranked BTC. That is a real answer to the question as asked "
-             "and never the one meant, so the crypto-only step belongs in any "
-             "spec that says 'coins'"),
+             "of it. filter_crypto_only still belongs ahead of the augment, "
+             "but for cost rather than for correctness: all 177 non-COIN "
+             "perpetuals answer a supply of 0, so they become NaN and drop out "
+             "of the ranking on their own, and fanning out over them spends a "
+             "fifth of the request budget to learn nothing"),
     _row("market_cap", "*", "*", NOT_EXPRESSIBLE,
          gap_id="GAP-MARKET-CAP",
          why="cross_section is served (see the two rows above); this catch-all "
