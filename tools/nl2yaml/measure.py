@@ -169,8 +169,16 @@ PROXY_MAP: dict[tuple[str, str], ProxySubject] = {
         "quote_volume_24h", "compare", None, "exact",
         "成交額/turnover is quoteVolume outright"),
     ("threshold", "market_cap"): ProxySubject(
-        "market_cap", "compare", "*", "exact",
-        "no Binance endpoint carries market cap; the table refuses it in every scope"),
+        "market_cap", "compare", None, "exact",
+        "scope follows the request shape, like every other threshold here. It "
+        "was pinned to '*' while the table refused market cap in every scope — "
+        "a pin that only made sense because of a refusal that turned out to "
+        "rest on a false premise (openInterestHist carries the supply and "
+        "always did). With cross_section served, '*' would keep refusing a "
+        "selection-shaped '市值 > X' that the identical universe_filter/market_cap "
+        "request now gets answered, which is the same need split across two "
+        "miner families. A trade-shaped one still lands per_symbol_series and "
+        "is still refused: a cap HISTORY has no block"),
     ("threshold", "price_change_pct"): ProxySubject(
         "price_change_24h", "compare", None, "coarse",
         "the window is assumed to be 24h because that is the only one the "
@@ -269,7 +277,13 @@ PROXY_MAP: dict[tuple[str, str], ProxySubject] = {
         "about the book: turnover was always the proxy, and reclassifying the "
         "subject would hide that the answer changed"),
     ("universe_filter", "market_cap"): ProxySubject(
-        "market_cap", "compare", CROSS, "exact", "no market-cap source"),
+        "market_cap", "compare", CROSS, "exact",
+        "市值 is a screen over the cross-section, and stays cross-sectional "
+        "inside a trade request like every other universe filter. Scored "
+        "EXPRESSIBLE since 2026-08-26: universe.augment_with_market_cap joins "
+        "the circulating supply the venue was already sending on "
+        "openInterestHist. It used to read 'no market-cap source', which was "
+        "the largest single refusal in this table"),
     ("universe_filter", "exclude"): ProxySubject(
         "symbol_blacklist", "exclude", CROSS, "coarse",
         "the miner sees 排除/剔除 but not the target. Scored expressible because "

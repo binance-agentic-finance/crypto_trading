@@ -182,8 +182,19 @@ def test_capability_table_closes_compound_selection_and_candidate_trade_plans():
     assert "sizing.size" in candidate_plan.fields
 
 
+#: The blocked condition these tests need one of. It has moved twice: it was
+#: ``universe_filter/liquidity`` until the book cross-section landed, then
+#: ``universe_filter/market_cap`` until the circulating supply landed
+#: (2026-08-26) and made every universe_filter subject expressible. What is
+#: still refused is a market cap AS A SERIES — the endpoint keeps ~30 days and
+#: no block hands a strategy a cap history — so the same subject in a
+#: TRADE-shaped request is the remaining example.
+def _blocked_condition():
+    return cond("threshold", "market_cap")
+
+
 def test_gaps_jsonl_lists_every_gap_id():
-    rows = [record([cond("universe_filter", "market_cap")], shape="selection")]
+    rows = [record([_blocked_condition()], shape="trade")]
     verdicts = {id(r): measure.plan_row(r) for r in rows}
     gaps = measure.build_gaps(rows, verdicts)
     assert {g["gap_id"] for g in gaps} == set(cap.GAP_IDS)
@@ -240,18 +251,34 @@ def test_the_series_half_of_the_indicator_gap_is_still_open():
 
 
 def test_universe_filter_keeps_its_frame_inside_a_trade_request():
-    """A universe filter is cross-sectional even when the request is a trade, so
-    'coins under $50m market cap' must not become expressible by being asked
-    about one symbol.
+    """A universe filter is cross-sectional even when the request is a trade.
 
-    The subject used to be ``liquidity``, which stopped demonstrating anything
-    when the book cross-section landed and made it expressible in BOTH frames.
-    ``market_cap`` has no source in this repo at either scope, so it is the
-    subject that still isolates the frame rule this test is about.
+    The rule used to be demonstrated by a REFUSAL: pick a subject with no
+    source, ask for it in a trade request, and check the gap came back with the
+    cross-sectional label. That needed a subject blocked in both frames, and it
+    kept running out of them — ``liquidity`` when the book cross-section
+    landed, then ``market_cap`` when the circulating supply did (2026-08-26).
+
+    So it is stated as the contrast instead, which is what the rule actually
+    says and does not decay as coverage grows. The SAME quantity, market cap,
+    in the SAME trade-shaped request:
+
+    * as a ``universe_filter`` it is a screen over the cross-section, so it
+      resolves cross_section and is expressible;
+    * as a ``threshold`` it takes the request's own frame, so it resolves
+      per_symbol_series and is refused — a cap history is the thing that does
+      not exist, and asking about one symbol is what makes it a history.
+
+    A regression that let the frame follow the request shape for universe
+    filters would collapse the two into one answer, and this asserts both.
     """
-    verdict = measure.plan_row(record([cond("universe_filter", "market_cap")],
-                                      shape="trade"))
-    assert verdict.gap_ids == ("GAP-MARKET-CAP",)
+    as_filter = measure.plan_row(record([cond("universe_filter", "market_cap")],
+                                        shape="trade"))
+    as_threshold = measure.plan_row(record([cond("threshold", "market_cap")],
+                                           shape="trade"))
+
+    assert as_filter.gap_ids == ()
+    assert as_threshold.gap_ids == ("GAP-MARKET-CAP",)
 
 
 def test_a_liquidity_filter_is_no_longer_a_gap_in_either_frame():
@@ -406,7 +433,7 @@ def test_every_mapped_condition_reaches_plan_conversion():
 def test_upper_bound_and_refusal_gold_are_mutually_exclusive():
     rows = [
         record([cond("indicator", "rsi")], shape="trade"),
-        record([cond("universe_filter", "market_cap")], shape="selection"),
+        record([_blocked_condition()], shape="trade"),
     ]
     verdicts = {id(r): measure.plan_row(r) for r in rows}
     bucket = measure._bucket(rows, verdicts)
@@ -543,7 +570,7 @@ def test_write_outputs_uses_the_versioned_measurement_gap_contract(tmp_path):
 def test_gap_ranking_is_sorted_by_dup_weighted_count():
     # Candidate entry/exit is expressible now. Use the remaining series-side
     # multi-timeframe gap as the second occupant so this still tests ordering.
-    rows = [record([cond("universe_filter", "market_cap")], shape="selection")
+    rows = [record([_blocked_condition()], shape="trade")
             for _ in range(3)]
     rows += [record([
         cond("timeframe", "interval", "eq", "1h"),
@@ -563,9 +590,9 @@ def test_gap_ranking_is_sorted_by_dup_weighted_count():
 def test_unlocked_if_closed_counts_only_sole_blockers():
     """A row blocked by two gaps is unlocked by neither on its own, and a
     frequency ranking cannot see that."""
-    single = record([cond("universe_filter", "market_cap")], shape="selection",
+    single = record([_blocked_condition()], shape="trade",
                     split_group_key="dup:1")
-    double = record([cond("universe_filter", "market_cap"),
+    double = record([_blocked_condition(),
                      cond("timeframe", "interval", "eq", "1h"),
                      cond("timeframe", "interval", "eq", "4h")], shape="trade",
                      split_group_key="dup:2")

@@ -673,8 +673,14 @@ def test_a_forgotten_condition_fails_g1e_instead_of_soft_passing():
 
 
 def test_an_impossible_condition_names_the_capability_gap():
+    # Holder concentration, not market cap: market_cap became expressible at
+    # cross_section scope on 2026-08-26 (the supply the venue was already
+    # sending got picked up), so using it here would test a subject the table
+    # can now serve — the gate would report a missing block rather than a
+    # capability gap, and the assertion below would be about the wrong thing.
     condition = {
-        "id": "cap", "subject": "market_cap", "scope": "cross_section",
+        "id": "cap", "subject": "onchain_holder_concentration",
+        "scope": "cross_section",
         "operator": "compare", "value": {"op": ">", "threshold": 1_000_000},
         "quantified": True,
     }
@@ -684,7 +690,7 @@ def test_an_impossible_condition_names_the_capability_gap():
 
     assert report.status == "condition_unresolved"
     error = report.results[-1].errors[0]
-    assert "GAP-MARKET-CAP" in error
+    assert "GAP-ONCHAIN-CONCENTRATION" in error
     assert "mark the request unsupported" in error
     assert "do not replace" in error
 
@@ -1145,8 +1151,11 @@ def test_the_retry_loop_does_not_accept_an_unresolved_first_output():
 
 
 def test_a_retried_impossible_condition_keeps_its_capability_gap_label():
+    # See test_an_impossible_condition_names_the_capability_gap on why this is
+    # no longer market_cap.
     condition = {
-        "id": "cap", "subject": "market_cap", "scope": "cross_section",
+        "id": "cap", "subject": "onchain_holder_concentration",
+        "scope": "cross_section",
         "operator": "compare", "value": {"op": ">", "threshold": 1_000_000},
         "quantified": True,
     }
@@ -1157,7 +1166,7 @@ def test_a_retried_impossible_condition_keeps_its_capability_gap_label():
 
     assert outcome.status == "stuck"
     assert outcome.attempts == 2
-    assert "GAP-MARKET-CAP" in outcome.playbook_gap
+    assert "GAP-ONCHAIN-CONCENTRATION" in outcome.playbook_gap
     assert "capability backlog" in outcome.playbook_gap
     assert "do not file a capability gap" not in outcome.playbook_gap
 

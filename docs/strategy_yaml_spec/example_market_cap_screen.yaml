@@ -1,0 +1,123 @@
+# =============================================================================
+# 範例 —— 中小市值篩選(市值 $1 億 ~ $50 億,且撐得起交易)
+# =============================================================================
+# 用戶條件                     對映                                              結果
+# ---------------------------------------------------------------------------
+# 只要加密幣                   augment_with_contract_meta + filter_crypto_only   ✅ 完全對應
+# 一天成交額 ≥ 5,000 萬美元    filter_quote_volume                               ✅ 完全對應
+# 市值 $1 億 ~ $50 億          augment_with_market_cap + filter_market_cap       ✅ 完全對應
+# 依市值排序                   score: market_cap_usd                             ✅ 完全對應
+#
+# ★ 這份 spec 存在的理由:市值曾經是這張能力表最大的一筆拒絕
+# ---------------------------------------------------------------------------
+# 2026-08-26 之前,capability 表寫著「no Binance public endpoint carries market
+# cap or circulating supply」,於是 GAP-MARKET-CAP 擋掉了語料裡 669 筆
+# universe_filter/market_cap 條件 —— 而那句話從來不是真的。
+# /futures/data/openInterestHist 一直都回一個**官方文件明載**的
+# CMCCirculatingSupply 欄位(文件寫 "circulating supply provided by CMC"),
+# 只是 fetcher 主動把它丟掉了。拒絕一個做得到的需求,是這張表自己定義的「比較糟」
+# 的那種失敗:拒絕不會被重試,案子就在沉默裡消失。
+#
+# ★ 供給量取自哪裡,以及不可以取自哪裡
+# ---------------------------------------------------------------------------
+# 用 circulating_supply_snapshot(= openInterestHist 的 CMCCirculatingSupply)。
+# 驗證方式不是讀文件而是對帳:2026-08-26 該端點的 ARB 回 6,678,075,931,
+# CoinMarketCap 頁面公布的是同一個整數;BTC 回 20,074,734,binance.com 自己的
+# 行情頁顯示 20.1M。所以這裡算出來的市值,跟用戶在產品裡看到的數字是同一個。
+#
+# **不要**改用 www.binance.com/bapi/.../asset-service/product/get-products 的 cs 欄位。
+# 它覆蓋整個現貨 universe,看起來像個涵蓋更廣的同義來源,實際不是:抽 24 檔主流幣,
+# 與 CMC 的中位數差 11.14%,而且供給量動得越快差越兇 ——
+# TIA +92%、SEI +77%、OP +69%、ARB 4.21e9 對 6.68e9;BTC 少了約 268,000 顆,
+# 大約是 600 天的發行量。它的 tags(板塊標籤)有用,cs 是過期快取。
+#
+# ★ 為什麼 filter_crypto_only 一定要排在 filter_market_cap 前面
+# ---------------------------------------------------------------------------
+# 幣安上市代幣化美股,而它們非常大。2026-08-26 的截面上,不先收窄直接按市值排:
+#
+#     NVDABUSDT  5,136B     SPCXBUSDT  1,813B
+#     AAPLBUSDT  4,545B     METABUSDT  1,715B
+#     MSFTBUSDT  3,673B     AVGOBUSDT  1,706B
+#     AMZNBUSDT  2,807B     BTCUSDT    1,566B   ← 第十名才是 BTC
+#
+# 「市值前 100 的幣」這樣回答,得到的是一份美國企業清單,而籃子裡沒有任何一欄
+# 會告訴你這件事。block 沒有把排除內建進去,因為 filter_crypto_only 已經擁有
+# 這個決定,同一個決定有兩種寫法就是兩種寫法遲早分岔的開始。
+#
+# ★ 順序的第二個理由:供給量是 fan-out
+# ---------------------------------------------------------------------------
+# 跟持倉量一樣,circulating_supply_snapshot 沒有全市場端點,一檔一個 request。
+# 所以 augment_with_market_cap **必須放在收窄步驟之後**。放到前面去實測會撞到
+# coverage 防線:把收窄後的名單 join 回完整截面只覆蓋 87%,block 直接 raise
+# 並指出是順序問題 —— 不會安靜地給你一整欄 NaN。
+#
+# ★ 兩個會靜默出錯的地方,已經被擋住了
+# ---------------------------------------------------------------------------
+# 1. 合成標的沒有代幣,交易所回的供給量是字面上的 0:BTCDOMUSDT、ALLUSDT、
+#    XAUUSDT 實測都是 0。留著 0 乘上價格會得到市值 0,而 min_usd 會把它當成
+#    「太小」濾掉 —— 看起來像被篩選,其實是資料不存在。fetcher 把 0 轉成 NaN,
+#    filter_market_cap 就會把它們當「未知」丟掉並計數。
+# 2. 上游的供給量會停滯而且不自己說。實測 BTCUSDT 在 2026-08 有六天卡在
+#    20,071,518,然後一次補上 +3,216。所以 frame 上帶著 supply_unchanged_periods,
+#    讓停滯看得見。它**不是**錯誤旗標:一個發行完畢、沒有燒毀的代幣,供給量本來
+#    就是平的,兩者從數字上分不出來,所以由讀的人決定。
+#
+# 執行:
+#   python -m cyqnt_trd.standard_bot.yaml_pipeline validate \
+#       docs/strategy_yaml_spec/example_market_cap_screen.yaml
+# =============================================================================
+
+spec_version: "1.0"
+target: standard_bot
+
+strategy:
+  id: mid_cap_liquid_screen
+  description: "中小市值篩選:加密幣、日成交額 ≥ $50m、市值 $100m ~ $5b,依市值排序"
+
+run:
+  mode: backtest        # 選幣是單一時點決策;run 會實跑一次選幣並明講「這不是回測」
+
+data:
+  symbol: BTCUSDT       # 選幣型仍需宣告代表標的(排程與計價用),不參與排名
+  market_type: futures
+  primary:
+    interval: "1h"
+
+selection:
+  universe:
+    # --- 免費的截面收窄:兩步,而且兩步都是 fan-out 的前提 -------------------
+    # 1) 先接上交易所的上架登記表,才有 underlying_type 可篩。
+    - block: universe.augment_with_contract_meta
+      with: [contract_meta]
+
+    # 2) 只留真的加密幣。這一步在這份 spec 裡不是可選的 ——
+    #    見上面那張表,少了它排名的前九名沒有一個是幣。
+    - block: universe.filter_crypto_only
+
+    # 3) 成交額門檻。放在市值之前有兩個作用:它是免費的(欄位就在 24h ticker 上),
+    #    而且它把 fan-out 要付費的名單縮短。
+    - block: universe.filter_quote_volume
+      params: { min_quote_volume: 50000000 }
+
+    # --- fan-out 從這裡開始,順序不可前移 ------------------------------------
+    # 4) 市值 = 流通量 × 價格。augment 會一併帶 market_cap_price(換算用的價格)
+    #    與 supply_unchanged_periods(停滯計數),兩者都留在 frame 上,
+    #    所以送出去的 candidate.features 裡看得到市值是怎麼算出來的。
+    - block: universe.augment_with_market_cap
+      with: [circulating_supply_snapshot]
+
+    # 5) 中小市值:下限與上限都要寫。只寫 min_usd 的「小市值篩選」會把 BTC 排在
+    #    第一個 —— 上限才是這個需求真正的那一半。
+    - block: universe.filter_market_cap
+      params: { min_usd: 100000000, max_usd: 5000000000 }
+
+  # 過了門檻之後依市值由大到小。門檻已經把「太大」與「太小」都排掉了,
+  # 所以這個排序是在剩下的區間裡先看比較站得住的那些。
+  score: market_cap_usd
+  order: desc
+  top_k: 20             # 上限而非配額:這是一份篩選結果,幾檔過就回幾檔
+
+  dedupe_by: base_asset
+
+  # 刻意沒有 long_when / short_when:這是**篩選**,不是方向。
+  # 硬掛一個方向會把「市值在這個區間」讀成「所以做多」,那是 spec 沒說的話。

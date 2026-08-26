@@ -205,7 +205,19 @@ TABLE_DERIVED_FROM: Dict[str, Any] = {
         "the comment block immediately below this dict entry. REVISED a fifth "
         "time after selection.candidate_trade landed: entry/exit plans for each "
         "selected candidate and compound select-then-trade now emit nested, "
-        "confirmation-required cyqnt.signal/v2 trades."
+        "confirmation-required cyqnt.signal/v2 trades. REVISED a sixth time on "
+        "2026-08-26, when market cap stopped being a data gap: "
+        "blocks.data.fetch_circulating_supply_cross_section + the "
+        "`circulating_supply_snapshot` node + universe.{augment_with_market_cap,"
+        "filter_market_cap,top_market_cap} landed, and market_cap flipped from "
+        "not_expressible to expressible at cross_section scope for BOTH compare "
+        "and rank, re-probed to errors == []. The old row's stated reason — no "
+        "Binance endpoint carries circulating supply — was never true: "
+        "openInterestHist has always returned a documented CMCCirculatingSupply "
+        "and the fetcher discarded it, so 669 universe_filter/market_cap cases "
+        "were refused over a field the repo was already receiving. Like the "
+        "other fan-outs the augment step must follow the narrowing steps; "
+        "probing it first reproduces the coverage guard at 87 %."
     ),
     #: The fourth revision, in full, because it is the one that retires this
     #: table's flagship example.
@@ -290,16 +302,18 @@ TABLE_DERIVED_FROM: Dict[str, Any] = {
     "universe_blocks": (
         "UniverseFilter", "augment_with_contract_meta", "augment_with_funding",
         "augment_with_indicator",
-        "augment_with_long_short_ratio", "augment_with_news",
+        "augment_with_long_short_ratio", "augment_with_market_cap",
+        "augment_with_news",
         "augment_with_oi_change", "augment_with_open_interest",
         "augment_with_spread",
         "exclude_symbols", "fetch_perpetual_universe", "filter_change_pct",
         "filter_crypto_only", "filter_funding_rate", "filter_long_short_ratio",
+        "filter_market_cap",
         "filter_oi_change", "filter_open_interest", "filter_quote_suffix",
         "filter_quote_volume", "filter_sentiment", "filter_spread",
         "filter_sub_type", "filter_top_of_book",
         "filter_underlying_type", "only_symbols", "top_bullish", "top_gainers",
-        "top_losers", "top_mentioned",
+        "top_losers", "top_market_cap", "top_mentioned",
     ),
 }
 
@@ -610,12 +624,49 @@ CAPABILITY_TABLE: Tuple[Capability, ...] = (
              "nothing to rank"),
 
     # -- market cap / on-chain ----------------------------------------------
+    _row("market_cap", "cross_section", "compare", EXPRESSIBLE,
+         block_refs=("universe.augment_with_market_cap",
+                     "universe.filter_market_cap"),
+         fields=("circulating_supply", "market_cap_price", "market_cap_usd",
+                 "supply_unchanged_periods"),
+         requires_sources=("circulating_supply_snapshot",),
+         why="probed 2026-08-26 to errors == []: augment_with_market_cap + "
+             "filter_market_cap(min_usd, max_usd) after the narrowing steps. "
+             "The row this replaced said no endpoint carries circulating "
+             "supply; that was FALSE, and a false refusal is the failure this "
+             "table calls the worse one — /futures/data/openInterestHist has "
+             "carried a documented CMCCirculatingSupply all along, the fetcher "
+             "simply dropped the field. Verified against the vendor rather "
+             "than assumed: ARB read 6,678,075,931, the same integer "
+             "CoinMarketCap publishes and consistent with what binance.com's "
+             "own price page shows, so a cap derived here agrees with the "
+             "number the product displays. NARROWED fan-out, so the augment "
+             "step must follow the narrowing steps — probing it before "
+             "filter_crypto_only reproduces the coverage guard at 87 %, the "
+             "same shape as the open-interest fan-outs"),
+    _row("market_cap", "cross_section", "rank", EXPRESSIBLE,
+         block_refs=("universe.top_market_cap",),
+         fields=("market_cap_usd", "selection.score", "selection.order"),
+         requires_sources=("circulating_supply_snapshot",),
+         why="score: market_cap_usd, or universe.top_market_cap for the head "
+             "of it. Rank the venue without filter_crypto_only first and the "
+             "top of the list is Nvidia, Apple and Microsoft — Binance lists "
+             "tokenised equities and on a 2026-08-26 snapshot seven of them "
+             "outranked BTC. That is a real answer to the question as asked "
+             "and never the one meant, so the crypto-only step belongs in any "
+             "spec that says 'coins'"),
     _row("market_cap", "*", "*", NOT_EXPRESSIBLE,
          gap_id="GAP-MARKET-CAP",
-         why="no Binance public endpoint carries market cap or circulating "
-             "supply. 24h turnover correlates with it and is the substitution "
-             "that keeps getting made — 'small caps' answered with 'thin books' "
-             "is a different screen, and the basket does not show which was run"),
+         why="cross_section is served (see the two rows above); this catch-all "
+             "now covers only the scopes that are not. A market cap AS A "
+             "SERIES per symbol is the live one: the endpoint keeps ~30 days "
+             "and the fetcher emits one current reading per instrument, so "
+             "there is no block that hands a strategy a cap history. What is "
+             "NOT the blocker any more is the data — do not restore the old "
+             "reason. A miner condition that lands here with scope '*' is a "
+             "SCOPE question (the family could not tell which reading was "
+             "meant), not a source question, and should be ruled on rather "
+             "than refused: 108 threshold/market_cap cases are waiting on it"),
     _row("onchain_holder_concentration", "*", "*", NOT_EXPRESSIBLE,
          gap_id="GAP-ONCHAIN-CONCENTRATION",
          why="chain data is not in this repo's sources at all; nothing on the "

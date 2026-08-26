@@ -307,6 +307,20 @@
     "pit_hazard": ""
   },
   {
+    "node": "circulating_supply_snapshot",
+    "emits": "metric",
+    "schema": "MetricFrame@1.0",
+    "access": "public_binance",
+    "availability": "FORWARD_ONLY",
+    "wired": true,
+    "strategy_types": [
+      "L",
+      "P",
+      "N"
+    ],
+    "pit_hazard": "Three hazards. The endpoint keeps only ~30 days, so historical market cap cannot reach further back than that. The ROSTER is point-in-time in the same way `oi_change_snapshot`'s is. And the upstream figure can STALL without saying so: BTCUSDT held at 20,071,518 for six days in 2026-08 before a single +3,216 catch-up, so a replay across those days reuses a frozen supply. `supply_unchanged_periods` is emitted so the stall is visible, but it cannot distinguish a stalled feed from a token whose supply is genuinely fixed."
+  },
+  {
     "node": "concentration",
     "emits": "metric",
     "schema": "MetricFrame@1.0",
