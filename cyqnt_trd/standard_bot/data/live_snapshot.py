@@ -73,6 +73,10 @@ SECTION_NODES: Dict[str, Tuple[str, ...]] = {
     # Whole-market in ONE request, so despite being a cross-section it is NOT a
     # fan-out section and needs no roster.
     "selection_book_ticker": ("book_ticker",),
+    # Circulating supply, joined by ``universe.augment_with_market_cap`` to turn
+    # a price into a market cap. Unlike book_ticker this IS a fan-out, so it also
+    # appears in FAN_OUT_SECTIONS below.
+    "selection_circulating_supply": ("circulating_supply_snapshot",),
     # How often each perpetual settles funding. Pointless alone and required
     # alongside ``selection_funding``: it is the divisor that turns a
     # per-settlement rate into a comparable annual one.
@@ -167,6 +171,12 @@ FAN_OUT_SECTIONS: Dict[str, Tuple[str, str, Dict[str, Any]]] = {
     "selection_long_short_ratio": ("long_short_ratio_snapshot",
                                    "long_short_ratio_snapshot",
                                    {"period": "1h", "mode": "global"}),
+    # Only the latest reading is emitted; the eight readings are what the flat-run
+    # counter measures staleness over, so the params match oi_change rather than
+    # asking for one row.
+    "selection_circulating_supply": ("circulating_supply_snapshot",
+                                     "circulating_supply_snapshot",
+                                     {"period": "1d", "limit": 8}),
 }
 
 #: The BARS fan-out: ``(section, node, bundle key)``.

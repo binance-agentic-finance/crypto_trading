@@ -54,6 +54,7 @@ __all__ = [
     "fetch_book_ticker_cross_section",
     "fetch_open_interest_cross_section",
     "fetch_oi_history_cross_section",
+    "fetch_circulating_supply_cross_section",
     "fetch_long_short_ratio_cross_section",
     "fetch_klines_cross_section",
     "kline_request_weight",
@@ -1065,6 +1066,140 @@ def fetch_oi_history_cross_section(
                 "timestamp": int(entry["timestamp"]),
             })
     return pd.DataFrame(rows, columns=list(_OI_HIST_FIELDS))
+
+
+#: Fields read from an ``openInterestHist`` row when the SUPPLY is what is
+#: wanted, rather than the open interest.
+#:
+#: This is the "fundamentals node" :data:`_OI_HIST_FIELDS` says the supply figure
+#: belongs to. It is a second pass over the same endpoint rather than an extra
+#: column on the open-interest frame, deliberately: the supply repeats on every
+#: row of a multi-day series, so carrying it there costs a column of duplicates
+#: on the frame that ``augment_with_oi_change`` reads, and the two are wanted at
+#: different shapes — open interest as a series, supply as one current reading.
+_SUPPLY_HIST_FIELDS = ("CMCCirculatingSupply", "timestamp")
+
+
+def fetch_circulating_supply_cross_section(
+    symbols: Sequence[str],
+    *,
+    period: str = "1d",
+    limit: int = 8,
+    market_type: str = "futures",
+) -> pd.DataFrame:
+    """Latest circulating supply for each named instrument, one row per symbol.
+
+    Columns: ``symbol``, ``circulating_supply``, ``supply_time`` (ms) and
+    ``supply_unchanged_periods`` — how many periods *before* the latest reading
+    carry the identical figure. Feed the frame to
+    :func:`cyqnt_trd.blocks.universe.augment_with_market_cap`, which multiplies
+    it by a price to get a market cap.
+
+    Where the number comes from
+    ---------------------------
+    ``/futures/data/openInterestHist`` carries ``CMCCirculatingSupply``, a
+    documented field ("circulating supply provided by CMC"). It is not a
+    look-alike: on 2026-08-26 the endpoint returned ``6,678,075,931`` for ARB and
+    CoinMarketCap published ``6,678,075,931`` — the same integer — while
+    binance.com's own ARB price page showed 6.7B and its BTC page 20.1M against
+    the endpoint's 20,074,734. A market cap derived here therefore agrees with
+    what a user sees in the product, which is the point of preferring it.
+
+    Do not fill this column from ``get-products``
+    ---------------------------------------------
+    ``www.binance.com/bapi/.../asset-service/product/get-products`` also carries
+    a ``cs`` field and covers the whole spot universe, which makes it look like a
+    wider-coverage alias for this one. It is not: across 24 majors its median
+    disagreement with CMC is 11.14 %, and it is worst exactly where supply moves
+    fastest — TIA +92 %, SEI +77 %, OP +69 %, ARB 4.21e9 against 6.68e9. BTC is
+    short by ~268,000 coins, about 600 days of issuance. Its ``tags`` (sector
+    labels) are useful; its ``cs`` is a stale cache, and a market-cap screen fed
+    from it ranks a different market than the one the product displays.
+
+    ``supply_unchanged_periods`` is a reading, not an error
+    ------------------------------------------------------
+    The upstream figure can stall. Observed on BTCUSDT: daily readings advanced
+    by 394–500 coins (real issuance is ~450/day) from 07-28 to 08-19, then held
+    at 20,071,518 for six days before a single +3,216 catch-up — the six frozen
+    days carry no marker of their own. So the count is exported and the caller
+    decides.
+
+    It is deliberately NOT a refusal, because a flat supply is also the correct
+    reading for a fully-distributed token with no emission and no burn. Raising
+    on it would refuse the honest case and the stalled case with one message.
+
+    A supply of zero is passed through
+    ----------------------------------
+    Every synthetic instrument answers 0 — all 177 non-COIN perpetuals do, index
+    and commodity alike — because there is no token behind them. This function
+    copies that through as 0 rather than reading it as unknown, so a recorded
+    frame keeps the difference between "the venue said zero" and "the field was
+    absent". :func:`cyqnt_trd.blocks.universe.augment_with_market_cap` is where
+    the 0 becomes NaN, because that is where it meets a price and turns into a
+    market cap of zero that a floor would drop for being SMALL.
+
+    ``limit`` sets how far back the staleness is measured, not how much history
+    is returned — only the latest reading per instrument is emitted. The public
+    endpoint keeps roughly 30 days. One request per instrument; see
+    :data:`FAN_OUT_MAX_SYMBOLS`.
+    """
+    caller = "fetch_circulating_supply_cross_section"
+    roster = _fan_out_roster(symbols, caller=caller)
+    _require_usdm(market_type, "circulating supply", caller)
+
+    rows: List[Dict[str, Any]] = []
+    for symbol in roster:
+        payload = _request_json(
+            _FAPI_OI,
+            {"symbol": symbol, "period": period, "limit": min(int(limit), 500)},
+        )
+        if not isinstance(payload, list):
+            raise RuntimeError(
+                "%s: openInterestHist(%s, period=%s) answered %r instead of a "
+                "list of readings." % (caller, symbol, period, payload))
+        if not payload:
+            # Same market state as in fetch_oi_history_cross_section: a freshly
+            # listed perpetual has no series yet. Absent, not failed.
+            continue
+        for entry in payload:
+            missing = [name for name in _SUPPLY_HIST_FIELDS if name not in entry]
+            if missing:
+                raise RuntimeError(
+                    "%s: an openInterestHist(%s) row is missing %s; it carries "
+                    "%s. Binance changed the schema — update "
+                    "_SUPPLY_HIST_FIELDS and the "
+                    "universe.augment_with_market_cap alias table together."
+                    % (caller, symbol, missing, sorted(entry)))
+
+        # Oldest first, as the venue sends it; the last row is the current one.
+        series = [(int(e["timestamp"]), float(e["CMCCirculatingSupply"]))
+                  for e in payload]
+        series.sort(key=lambda pair: pair[0])
+        latest_time, latest_supply = series[-1]
+        unchanged = 0
+        for _time, value in reversed(series[:-1]):
+            if value != latest_supply:
+                break
+            unchanged += 1
+
+        rows.append({
+            # The request is the authority on what was asked for, matching
+            # fetch_oi_history_cross_section.
+            "symbol": symbol,
+            # Passed through exactly as the venue sent it, including the literal
+            # 0 that every synthetic instrument answers (BTCDOMUSDT, ALLUSDT,
+            # XAUUSDT, and all 177 non-COIN perpetuals). Turning it into NaN
+            # here would destroy the distinction between "the venue said zero"
+            # and "the field was absent" for anything that records this frame,
+            # and this module's job is to copy the venue — the reading of a 0 as
+            # unknown belongs to universe.augment_with_market_cap, which is
+            # where a supply meets a price and the zero becomes misleading.
+            "circulating_supply": latest_supply,
+            "supply_time": latest_time,
+            "supply_unchanged_periods": unchanged,
+        })
+    return pd.DataFrame(rows, columns=["symbol", "circulating_supply",
+                                       "supply_time", "supply_unchanged_periods"])
 
 
 #: ``mode`` -> (endpoint, what the numbers are about). Same three modes as the

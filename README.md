@@ -383,28 +383,33 @@ selection:
   long_when: { cond: conditions.value_below, args: [rsi14, 45] }
 ```
 
-**29 `universe.*` blocks**, and the naming is a contract three other places parse:
+**32 `universe.*` blocks**, and the naming is a contract three other places parse:
 
 | prefix | guarantee | examples |
 |---|---|---|
-| `augment_with_*` (8) | joins columns, **same rows** | `contract_meta`, `funding`, `open_interest`, `oi_change`, `long_short_ratio`, `spread`, `news`, `indicator` |
-| `filter_*` (13) | drops rows, **same columns** | `crypto_only`, `underlying_type`, `sub_type`, `quote_volume`, `quote_suffix`, `spread`, `top_of_book`, `open_interest`, `oi_change`, `long_short_ratio`, `funding_rate`, `change_pct`, `sentiment` |
-| `top_*` / `only_*` / `exclude_*` | drops rows | `top_gainers`, `top_losers`, `top_mentioned`, `only_symbols`, `exclude_symbols` |
+| `augment_with_*` (9) | joins columns, **same rows** | `contract_meta`, `funding`, `open_interest`, `oi_change`, `long_short_ratio`, `spread`, `market_cap`, `news`, `indicator` |
+| `filter_*` (14) | drops rows, **same columns** | `crypto_only`, `underlying_type`, `sub_type`, `quote_volume`, `quote_suffix`, `spread`, `top_of_book`, `open_interest`, `oi_change`, `long_short_ratio`, `market_cap`, `funding_rate`, `change_pct`, `sentiment` |
+| `top_*` / `only_*` / `exclude_*` | drops rows | `top_gainers`, `top_losers`, `top_market_cap`, `top_mentioned`, `only_symbols`, `exclude_symbols` |
 
 ### Step order is semantics, not style
 
-Four of those sources have **no whole-market endpoint** — one HTTP request per surviving
+Five of those sources have **no whole-market endpoint** — one HTTP request per surviving
 symbol. So they must come *after* something that narrows:
 
 ```
 augment_with_open_interest   augment_with_oi_change
 augment_with_long_short_ratio   augment_with_indicator
+augment_with_market_cap
 ```
 
 Measured: narrow to 41 names first → 123 requests. The other way round, 727 × 3 = 2181
 requests, which blows the rate budget. `validate` checks this ordering **statically** — it is
 the one check that looks at a step's position relative to others, because the coverage
-arithmetic downstream only catches one of the four, and only by coincidence.
+arithmetic downstream only catches one of the five, and only by coincidence.
+
+`augment_with_market_cap` adds a second reason to narrow first: all 177 non-COIN
+perpetuals answer a circulating supply of 0, so fanning out over them can only ever
+return 177 unknowns. Put `filter_crypto_only` ahead of it.
 
 ### Declaring what the spec guessed
 

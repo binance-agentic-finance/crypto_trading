@@ -679,6 +679,60 @@ def _synthetic_open_interest(universe):
     })
 
 
+def _synthetic_circulating_supply(universe):
+    """The stand-in ``circulating_supply_snapshot`` source.
+
+    Supplied explicitly for the same reason as :func:`_synthetic_open_interest`:
+    the live fallback fans out over the frame, so a dry-run that reached it
+    would fire one request per synthetic instrument.
+
+    Binance's own spelling ``CMCCirculatingSupply``, because a bundle delivers
+    the node's renamed ``circulating_supply`` — a stand-in in vendor spelling
+    exercises ``augment_with_market_cap``'s alias table, which the canonical
+    spelling would not. The canonical side is covered by
+    ``tests/standard_bot/test_universe_market_cap.py``, which pushes a frame
+    through ``get_node("circulating_supply_snapshot").normalize()`` before the
+    block; there is no frozen fixture carrying this node yet, and this docstring
+    claimed there was.
+
+    Two properties are load-bearing:
+
+    * the supply RANK is the reverse of the market-cap rank. Supply is set from
+      a target cap divided by the instrument's own ``lastPrice``, and that price
+      climbs with position while the target cap falls, so the two orderings
+      disagree on nearly every row. A spec that screens or scores on
+      ``circulating_supply`` when it meant ``market_cap_usd`` — the same class of
+      mistake as ranking ``oi_base`` instead of ``oi_notional_usd`` — therefore
+      dry-runs to a visibly different basket rather than to a plausible one;
+    * the caps straddle BOTH ends of a band (5e7 to 2e10), so ``min_usd`` and
+      ``max_usd`` each have rows to drop. With a one-sided spread a ``max_usd``
+      typo matches everything, which is indistinguishable from the ceiling not
+      being there.
+
+    ``supply_unchanged_periods`` is carried and is non-zero on every third row,
+    so a spec screening on the staleness column meets rows on both sides of it.
+    It is NOT a reason to drop anything here — see the fetcher on why a flat
+    supply is ambiguous rather than broken.
+    """
+    import numpy as np
+    import pandas as pd
+
+    roster = _synthetic_fan_out_roster(universe)
+    prices = dict(zip(universe["instrument_id"].astype(str),
+                      pd.to_numeric(universe["lastPrice"], errors="coerce")))
+    idx = np.arange(len(roster), dtype=float)
+    # Falls with position while lastPrice rises with it: the two ranks disagree.
+    target_cap = 2.0e10 / (idx + 1.0) ** 2 + 5.0e7
+    supply = np.array([cap / float(prices.get(symbol) or 1.0)
+                       for cap, symbol in zip(target_cap, roster)])
+    return pd.DataFrame({
+        "symbol": roster,
+        "CMCCirculatingSupply": supply,
+        "supply_time": 1_700_000_000_000,
+        "supply_unchanged_periods": (idx % 3 == 0).astype(int) * 4,
+    })
+
+
 def _synthetic_oi_history(universe, *, days: int = 8):
     """The stand-in ``oi_change_snapshot`` source: a DAILY series per instrument.
 
@@ -932,6 +986,8 @@ def _dry_run_selection(spec: Dict[str, Any], errors: List[str],
                     "contract_meta": _synthetic_contract_meta(universe),
                     "open_interest_snapshot": _synthetic_open_interest(universe),
                     "oi_change_snapshot": _synthetic_oi_history(universe),
+                    "circulating_supply_snapshot":
+                        _synthetic_circulating_supply(universe),
                     "long_short_ratio_snapshot":
                         _synthetic_long_short_ratio(universe),
                     "universe_bars": bars,

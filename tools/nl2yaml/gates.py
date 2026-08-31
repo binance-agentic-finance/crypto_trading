@@ -1155,10 +1155,6 @@ def _never_verifiable(explanation: str) -> Predicate:
 #: Registered through the same door as the real predicates, so the duplicate
 #: check applies to them too.
 _UNVERIFIABLE_SUBJECTS = {
-    "market_cap":
-        "no market-cap or circulating-supply column exists anywhere in this "
-        "pipeline's output, so no basket can be shown to honour a market-cap "
-        "condition — turnover is not a stand-in",
     "long_short_ratio":
         "long_short_ratio reaches neither frame: per-symbol only at the venue, "
         "and absent from DATA_SECTIONS, so it is in no output column",

@@ -55,8 +55,11 @@ __all__ = [
     "augment_with_open_interest",
     "augment_with_oi_change",
     "augment_with_long_short_ratio",
+    "augment_with_market_cap",
     "filter_open_interest",
     "filter_oi_change",
+    "filter_market_cap",
+    "top_market_cap",
     "filter_long_short_ratio",
     "augment_with_spread",
     "filter_spread",
@@ -1863,6 +1866,233 @@ def _warn_undefined_change(caller: str, node: str, symbols: Sequence[str],
         RuntimeWarning, stacklevel=3)
 
 
+#: Column :func:`augment_with_market_cap` adds -> accepted source spellings.
+_MARKET_CAP_COLUMNS = {
+    "circulating_supply": ("circulating_supply", "CMCCirculatingSupply"),
+}
+
+#: Optional companions: present when the source came from
+#: :func:`cyqnt_trd.blocks.data.fetch_circulating_supply_cross_section`, absent
+#: when a caller supplied a bare two-column frame. Resolved separately from
+#: :data:`_MARKET_CAP_COLUMNS` because a missing supply is a refusal and a
+#: missing staleness count is not.
+#: ``event_time`` is the bundle spelling: the node's ``column_map`` renames
+#: ``supply_time`` on the way into a ``RankFrame@1.0``, so a frame read out of a
+#: bundle and one straight off the fetcher arrive under different names.
+_MARKET_CAP_OPTIONAL_COLUMNS = {
+    "supply_unchanged_periods": ("supply_unchanged_periods",),
+    "supply_time": ("supply_time", "event_time", "timestamp"),
+}
+
+#: Price columns tried, in order, to convert a supply into a market cap.
+#: ``lastPrice`` is what a 24h-ticker universe frame carries; the mark prices
+#: appear on a frame that has already been through the derivatives joins.
+_MARKET_CAP_PRICE_COLUMNS = ("lastPrice", "markPrice", "oi_mark_price", "close")
+
+#: Lower than the 0.95 the open-interest joins use, and for a reason specific to
+#: this source: ``openInterestHist`` legitimately returns NOTHING for a
+#: perpetual listed within the window, and the fetcher keeps those instruments
+#: out of the frame rather than failing (the same "read it, it was empty" market
+#: state :func:`cyqnt_trd.blocks.data.fetch_oi_history_cross_section` documents).
+#: A cross-section captured during a busy listing week can therefore miss a few
+#: names for a reason that is not a mis-ordered spec, and 0.95 would refuse it.
+#: Not lower than 0.90, because the mis-ordering this floor exists to catch
+#: lands far below that — a fan-out roster joined onto the unnarrowed venue is
+#: 17%.
+_MARKET_CAP_MIN_COVERAGE = 0.90
+
+
+def augment_with_market_cap(
+    tickers: pd.DataFrame,
+    supply_df: Optional[pd.DataFrame] = None,
+) -> pd.DataFrame:
+    """Join circulating supply and the market cap it implies.
+
+    Adds five columns:
+
+    ``circulating_supply``          coins in circulation, as CMC reports them
+    ``market_cap_price``            the price the conversion used
+    ``market_cap_usd``              ``circulating_supply * market_cap_price``
+    ``supply_unchanged_periods``    periods before the latest reading that carry
+                                    the identical supply. NaN when the source
+                                    did not carry the column; 0 is a real
+                                    reading meaning "it moved last period"
+    ``supply_time``                 when the reading was taken (ms), NaN if absent
+
+    ``supply_df`` is the replay-safe / YAML path and this function performs no
+    I/O. Omitting it fans out over *this frame's own* instruments, so the
+    fan-out ceiling applies to the frame — narrow the universe first. See
+    :data:`_STEP_ORDER_CAUSE`.
+
+    Screen the crypto before you screen the cap
+    -------------------------------------------
+    Not because tokenised equities would top the ranking — measured, they
+    cannot. All 177 non-COIN perpetuals on the venue (EQUITY, COMMODITY and
+    INDEX alike) answer ``CMCCirculatingSupply = 0``, which becomes NaN below,
+    and :func:`top_market_cap` excludes NaN. Rank the venue with no narrowing
+    at all and BTCUSDT is still first.
+
+    The reason is cost. This is a fan-out, one request per instrument, and
+    those 177 requests can only ever produce 177 unknowns — a fifth of the
+    venue's fan-out budget spent to learn nothing. So put
+    :func:`filter_crypto_only` (which needs :func:`augment_with_contract_meta`)
+    ahead of this step. The exclusion is not folded in here because
+    ``filter_crypto_only`` already owns that decision, and owning it twice is
+    how two spellings drift apart.
+
+    Why the price is carried as a column
+    ------------------------------------
+    Same reason ``oi_mark_price`` is: a cap is a product of two readings taken
+    at different instants, and a reader who can see only the product cannot tell
+    a supply change from a price move. The column also records *which* price was
+    used, since a frame late in a pipeline may carry three.
+
+    A stalled supply is reported, not refused
+    -----------------------------------------
+    ``supply_unchanged_periods`` is passed through from the fetcher, which
+    documents why a flat reading is ambiguous — a stalled upstream feed and a
+    fully-distributed token look identical. Nothing here drops those rows; a
+    caller that cares can screen on the column.
+    """
+    caller = "augment_with_market_cap"
+    node = "circulating_supply_snapshot"
+    keyed = _with_symbol_column(tickers)
+
+    price_column = next((name for name in _MARKET_CAP_PRICE_COLUMNS
+                         if name in keyed.columns), None)
+    if price_column is None:
+        raise ValueError(
+            "%s: this frame carries no price column (looked for %s), so a "
+            "supply cannot be turned into a market cap. It carries %s. A "
+            "universe frame straight off fetch_perpetual_universe has "
+            "'lastPrice'; a frame assembled by hand may need one added."
+            % (caller, list(_MARKET_CAP_PRICE_COLUMNS), list(keyed.columns)))
+
+    supplied = supply_df is not None
+    if supplied:
+        source = supply_df
+    else:
+        source = _data.fetch_circulating_supply_cross_section(
+            keyed["symbol"].astype(str).str.upper().tolist())
+    source = _derivative_source(
+        source, supplied=supplied, caller=caller, node=node,
+        misreading="no instrument has a circulating supply")
+    source = _source_symbol_key(source, caller=caller, node=node)
+    resolved = _resolve_source_columns(source, _MARKET_CAP_COLUMNS,
+                                       caller=caller, node=node)
+
+    join = pd.DataFrame({"symbol": source["symbol"].values})
+    for out_column, source_column in resolved.items():
+        # Positional, not index-aligned — see augment_with_open_interest.
+        join[out_column] = pd.to_numeric(source[source_column], errors="coerce").values
+    for out_column, aliases in _MARKET_CAP_OPTIONAL_COLUMNS.items():
+        found = next((alias for alias in aliases if alias in source.columns), None)
+        # NaN, not 0, when the source did not carry it. 0 is a REAL reading for
+        # both of these — "the supply moved last period", and 1970-01-01 — so
+        # filling with it would answer a staleness screen for every row whose
+        # staleness is unknown, in the direction that says "fresh".
+        join[out_column] = (
+            pd.to_numeric(source[found], errors="coerce").values if found
+            else float("nan"))
+    join = join.drop_duplicates(subset=["symbol"], keep="last")
+
+    # Zero and negative are normalised to unknown rather than kept as a number.
+    # Unlike a zero mark price (always a broken reading, which is why
+    # augment_with_open_interest refuses one), a zero supply is the CORRECT
+    # answer for a synthetic instrument: all 177 non-COIN perpetuals answer 0,
+    # because there is no token behind an index or a commodity. Refusing the
+    # frame over them would mean a venue-wide screen could never run without
+    # filter_crypto_only first, and keeping the 0 would price them at a market
+    # cap of zero — which a min_usd floor drops for being SMALL rather than for
+    # being meaningless. NaN is the honest third answer: filter_market_cap drops
+    # them and counts them, and top_market_cap leaves them out of the ranking.
+    join.loc[join["circulating_supply"] <= 0, "circulating_supply"] = float("nan")
+    if not bool(join["circulating_supply"].notna().any()):
+        raise ValueError(
+            "%s: not one of the %d instrument(s) in the %s frame came with a "
+            "usable circulating supply. That is a failed capture rather than a "
+            "market state — a whole cross-section of synthetic instruments is "
+            "not something this screen is ever asked for. Check source_status "
+            "for the %r node."
+            % (caller, len(join), node, node))
+
+    _require_join_coverage(keyed, join, caller=caller, node=node,
+                           floor=_MARKET_CAP_MIN_COVERAGE,
+                           cause=_STEP_ORDER_CAUSE)
+
+    # Drop-then-merge, like augment_with_open_interest: without it a second
+    # application of this step (or a frame that already carries one of these
+    # names) merges into `_x` / `_y` suffixes, and the column this function
+    # promises silently stops existing.
+    added = list(_MARKET_CAP_COLUMNS) + list(_MARKET_CAP_OPTIONAL_COLUMNS)
+    base = keyed.drop(columns=[*added, "market_cap_price", "market_cap_usd"],
+                      errors="ignore")
+    out = base.merge(join[["symbol", *added]], on="symbol", how="left")
+
+    price = pd.to_numeric(out[price_column], errors="coerce")
+    # The same reasoning augment_with_open_interest applies to a mark price, on
+    # the other multiplicand: a non-positive price makes the cap 0 or negative,
+    # and _bounded_filter reads a number as KNOWN — so the instrument is dropped
+    # by a min_usd floor for being SMALL rather than for being unpriced. NaN
+    # keeps it unknown so it is dropped as unknown and counted.
+    out["market_cap_price"] = price.where(price > 0)
+    out["market_cap_usd"] = out["circulating_supply"] * out["market_cap_price"]
+    return out
+
+
+def filter_market_cap(
+    tickers: pd.DataFrame,
+    min_usd: Optional[float] = None,
+    max_usd: Optional[float] = None,
+) -> pd.DataFrame:
+    """Keep instruments whose market cap is within the given bounds.
+
+    Needs :func:`augment_with_market_cap`. Both bounds are inclusive dollars;
+    either may be omitted.
+
+    The keyword says ``usd`` for the same reason ``min_notional_usd`` does: a
+    cap has no meaning in coins, and a bare ``min=1_000_000`` against a supply
+    column would keep every meme coin on the venue.
+
+    ``max_usd`` is the half that gets forgotten and is usually the interesting
+    one — "small caps" is a screen with a ceiling, and written with only a floor
+    it returns BTC first.
+
+    Instruments whose cap is unknown are dropped and counted; see
+    :func:`_warn_unknown_metadata`.
+    """
+    return _bounded_filter(
+        tickers, "market_cap_usd", caller="filter_market_cap",
+        step="augment_with_market_cap",
+        bounds=(("min_usd", min_usd, "min"),
+                ("max_usd", max_usd, "max")),
+        remedy="universe.augment_with_market_cap")
+
+
+def top_market_cap(tickers: pd.DataFrame, n: int = 10) -> pd.DataFrame:
+    """Top *n* instruments by market cap, largest first.
+
+    Needs :func:`augment_with_market_cap`.
+
+    Instruments with no known cap are excluded rather than ranked last. A
+    ranking is a claim that the order means something, and ``nlargest`` alone
+    pads the tail with every instrument whose supply came back unknown — the
+    177 non-COIN perpetuals, all of which answer 0 — as soon as *n* exceeds the
+    number of real readings. A "top 10 by market cap" carrying an index
+    perpetual at position 8 reads as a small cap rather than as an absent one.
+
+    That exclusion is also why this is NOT the block that keeps tokenised
+    equities out of a "top n coins": measured, they never enter it. The reason
+    to run :func:`filter_crypto_only` first is the fan-out bill — see
+    :func:`augment_with_market_cap`.
+    """
+    _require_derived_column(tickers, "market_cap_usd", "top_market_cap",
+                            "augment_with_market_cap")
+    known = tickers[pd.to_numeric(tickers["market_cap_usd"],
+                                  errors="coerce").notna()]
+    return known.nlargest(int(n), "market_cap_usd").copy()
+
+
 def augment_with_long_short_ratio(
     tickers: pd.DataFrame,
     ls_df: Optional[pd.DataFrame] = None,
@@ -2138,6 +2368,7 @@ _AUGMENT_SOURCES = {
     "augment_with_oi_change": "oi_change_snapshot",
     "augment_with_long_short_ratio": "long_short_ratio_snapshot",
     "augment_with_spread": "book_ticker",
+    "augment_with_market_cap": "circulating_supply_snapshot",
 }
 
 

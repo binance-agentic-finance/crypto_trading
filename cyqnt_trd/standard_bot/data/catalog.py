@@ -1128,7 +1128,92 @@ _NODES: List[DataNodeSpec] = [
             "unit would mislabel whichever it did not describe. "
             "`CMCCirculatingSupply` is dropped by the fetcher: it is a "
             "third-party supply figure, not open interest, and it would repeat on "
-            "every row of every series."
+            "every row of every series. It is served instead by "
+            "`circulating_supply_snapshot`, the fundamentals node this comment "
+            "used to point at without one existing."
+        ),
+    ),
+    DataNodeSpec(
+        name="circulating_supply_snapshot",
+        # RANK, not METRIC, and the distinction is load-bearing rather than
+        # cosmetic: a METRIC node is melted to a long ``metric``/``value`` frame
+        # by input_contract.normalize_frame, and universe.augment_with_market_cap
+        # reads named columns. Declared METRIC it validated green — the dry-run
+        # stand-in is a wide frame — and then raised on every bundle, live or
+        # replayed. The three sibling fan-out snapshots joined by a universe
+        # block (open_interest_snapshot / long_short_ratio_snapshot /
+        # book_ticker) are all RANK for this reason. `oi_change_snapshot` is the
+        # one METRIC of the family because its consumer carries an explicit
+        # long-to-wide step (universe._oi_history_series); this node has none.
+        emits=FrameKind.RANK,
+        column_map={
+            "symbol": "instrument_id",
+            "supply_time": "event_time",
+        },
+        # Deliberately no `unit`, for the reason `oi_change_snapshot` gives: the
+        # two value columns are in DIFFERENT units (a coin count and a count of
+        # periods), so one frame-wide unit would mislabel whichever it did not
+        # describe.
+        constants={"source_id": "binance.cmc_circulating_supply"},
+        value_columns=("circulating_supply", "supply_unchanged_periods"),
+        description=(
+            "Circulating supply for a NAMED ROSTER of perpetuals — the missing "
+            "half of a market cap, which is otherwise unscreenable on this "
+            "venue. One row per symbol: the latest reading plus how many periods "
+            "before it carry the identical figure."
+        ),
+        strategy_types=("L", "P", "N"),
+        source_path=SourcePath.PUBLIC_BINANCE,
+        availability=Availability.FORWARD_ONLY,
+        endpoint="fapi futures/data/openInterestHist — ONE REQUEST PER SYMBOL",
+        returns=ReturnSpec(
+            "pd.DataFrame", "one row per symbol",
+            ("symbol", "circulating_supply", "supply_time",
+             "supply_unchanged_periods"),
+        ),
+        params=(
+            ParamSpec("symbols", "list[str]", required=True,
+                      description="the roster to fan out over; capped at "
+                                  "blocks.data.FAN_OUT_MAX_SYMBOLS and never "
+                                  "truncated"),
+            ParamSpec("period", "str", default="1d",
+                      description="the cadence the staleness count is measured "
+                                  "in, not the cadence of the emitted row"),
+            ParamSpec("limit", "int", default=8,
+                      description="how far back the flat-run check looks; only "
+                                  "the latest reading is emitted"),
+            _MARKET_TYPE,
+        ),
+        pit_hazard=(
+            "Three hazards. The endpoint keeps only ~30 days, so historical "
+            "market cap cannot reach further back than that. The ROSTER is "
+            "point-in-time in the same way `oi_change_snapshot`'s is. And the "
+            "upstream figure can STALL without saying so: BTCUSDT held at "
+            "20,071,518 for six days in 2026-08 before a single +3,216 "
+            "catch-up, so a replay across those days reuses a frozen supply. "
+            "`supply_unchanged_periods` is emitted so the stall is visible, but "
+            "it cannot distinguish a stalled feed from a token whose supply is "
+            "genuinely fixed."
+        ),
+        fetcher="cyqnt_trd.blocks.data.fetch_circulating_supply_cross_section",
+        notes=(
+            "FAN-OUT node — see `open_interest_snapshot` for the ordering "
+            "requirement. Same endpoint as `oi_change_snapshot` and therefore a "
+            "SECOND pass over it; they are separate nodes because the supply is "
+            "one current reading while the open interest is a series, and "
+            "carrying the supply on the series would repeat it on every row. "
+            "The figure is CoinMarketCap's and matches what binance.com "
+            "displays (ARB 6,678,075,931 on 2026-08-26, identical to the CMC "
+            "page). Do NOT substitute the `cs` field from the undocumented "
+            "bapi get-products endpoint: across 24 majors its median "
+            "disagreement is 11.14% and it is worst where supply moves fastest "
+            "(TIA +92%, OP +69%, ARB 4.21e9 against 6.68e9). A synthetic "
+            "instrument answers a literal 0, which the fetcher passes through "
+            "as the venue sent it; universe.augment_with_market_cap is where it "
+            "becomes NaN, because a zero cap is dropped by a floor for being "
+            "SMALL. Every one of the 177 non-COIN perpetuals answers 0, so "
+            "fanning out over them before filter_crypto_only buys nothing and "
+            "costs 177 requests."
         ),
     ),
     DataNodeSpec(

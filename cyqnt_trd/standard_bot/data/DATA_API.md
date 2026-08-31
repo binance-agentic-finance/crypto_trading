@@ -47,6 +47,7 @@ funding   = data.funding(symbol="BTCUSDT", limit=500)
 | `data.btc_dominance` | R | `EXTERNAL_PENDING` | external_vendor |
 | `data.calendar` | E | `SEMI` | internal_http |
 | `data.chip_distribution` | F | `FORWARD_ONLY` | internal_http |
+| `data.circulating_supply_snapshot` | L P N | `FORWARD_ONLY` | public_binance |
 | `data.cme_index` | R | `SEMI` | local_parquet |
 | `data.coin_metrics` | L P N | `SEMI` | internal_http |
 | `data.concentration` | F L | `SEMI` | internal_http |
@@ -439,13 +440,31 @@ Recent open-interest series for a NAMED ROSTER of perpetuals, in coins and in do
 - **endpoint**: fapi futures/data/openInterestHist — ONE REQUEST PER SYMBOL
 - **returns**: `pd.DataFrame` — one row per symbol × period, oldest first · columns: `symbol`, `sumOpenInterest`, `sumOpenInterestValue`, `timestamp`
 - **⚠️ PIT hazard**: Two hazards, not one. The public endpoint keeps only ~30 days, so a longer lookback silently starts mid-series. And the ROSTER is point-in-time: it was chosen from the universe as it looked at capture, so replaying this frame against a different decision time screens a set of instruments that was picked using the future.
-- **note**: FAN-OUT node — see `open_interest_snapshot` for the ordering requirement. Deliberately no `unit` constant: the two metrics are in DIFFERENT units (oi_base in coins, oi_value in USD), so one frame-wide unit would mislabel whichever it did not describe. `CMCCirculatingSupply` is dropped by the fetcher: it is a third-party supply figure, not open interest, and it would repeat on every row of every series.
+- **note**: FAN-OUT node — see `open_interest_snapshot` for the ordering requirement. Deliberately no `unit` constant: the two metrics are in DIFFERENT units (oi_base in coins, oi_value in USD), so one frame-wide unit would mislabel whichever it did not describe. `CMCCirculatingSupply` is dropped by the fetcher: it is a third-party supply figure, not open interest, and it would repeat on every row of every series. It is served instead by `circulating_supply_snapshot`, the fundamentals node this comment used to point at without one existing.
 
 | param | type | required | default | notes |
 |---|---|---|---|---|
 | `symbols` | `list[str]` | yes |  | the roster to fan out over; capped at blocks.data.FAN_OUT_MAX_SYMBOLS and never truncated |
 | `period` | `str` | no | `'1d'` | 5m..1d; universe.augment_with_oi_change measures the cadence and refuses to call a non-daily series a daily change |
 | `limit` | `int` | no | `8` | readings per symbol — a 7-day lookback needs 8 |
+| `market_type` | `str` | no | `'futures'` | spot | futures (USDⓈ-M perpetual) (`spot` / `futures`) |
+
+### `data.circulating_supply_snapshot`
+
+Circulating supply for a NAMED ROSTER of perpetuals — the missing half of a market cap, which is otherwise unscreenable on this venue. One row per symbol: the latest reading plus how many periods before it carry the identical figure.
+
+- **availability**: `FORWARD_ONLY` — snapshot only — no replayable history; collect forward
+- **source**: public Binance (`api`/`fapi`/`data-api.binance.vision`) or `alternative.me`
+- **endpoint**: fapi futures/data/openInterestHist — ONE REQUEST PER SYMBOL
+- **returns**: `pd.DataFrame` — one row per symbol · columns: `symbol`, `circulating_supply`, `supply_time`, `supply_unchanged_periods`
+- **⚠️ PIT hazard**: Three hazards. The endpoint keeps only ~30 days, so historical market cap cannot reach further back than that. The ROSTER is point-in-time in the same way `oi_change_snapshot`'s is. And the upstream figure can STALL without saying so: BTCUSDT held at 20,071,518 for six days in 2026-08 before a single +3,216 catch-up, so a replay across those days reuses a frozen supply. `supply_unchanged_periods` is emitted so the stall is visible, but it cannot distinguish a stalled feed from a token whose supply is genuinely fixed.
+- **note**: FAN-OUT node — see `open_interest_snapshot` for the ordering requirement. Same endpoint as `oi_change_snapshot` and therefore a SECOND pass over it; they are separate nodes because the supply is one current reading while the open interest is a series, and carrying the supply on the series would repeat it on every row. The figure is CoinMarketCap's and matches what binance.com displays (ARB 6,678,075,931 on 2026-08-26, identical to the CMC page). Do NOT substitute the `cs` field from the undocumented bapi get-products endpoint: across 24 majors its median disagreement is 11.14% and it is worst where supply moves fastest (TIA +92%, OP +69%, ARB 4.21e9 against 6.68e9). A synthetic instrument answers a literal 0, which the fetcher passes through as the venue sent it; universe.augment_with_market_cap is where it becomes NaN, because a zero cap is dropped by a floor for being SMALL. Every one of the 177 non-COIN perpetuals answers 0, so fanning out over them before filter_crypto_only buys nothing and costs 177 requests.
+
+| param | type | required | default | notes |
+|---|---|---|---|---|
+| `symbols` | `list[str]` | yes |  | the roster to fan out over; capped at blocks.data.FAN_OUT_MAX_SYMBOLS and never truncated |
+| `period` | `str` | no | `'1d'` | the cadence the staleness count is measured in, not the cadence of the emitted row |
+| `limit` | `int` | no | `8` | how far back the flat-run check looks; only the latest reading is emitted |
 | `market_type` | `str` | no | `'futures'` | spot | futures (USDⓈ-M perpetual) (`spot` / `futures`) |
 
 ### `data.long_short_ratio_snapshot`
@@ -1231,4 +1250,4 @@ Per-period, per-coin realised/unrealised PnL and risk slices.
 - A failed fetch raises `data.DataUnavailable`; `data.collect([...])` degrades
   instead, returning the frames it got plus the per-node status.
 
-_74 nodes: 7 BACKTESTABLE, 21 SEMI, 37 FORWARD_ONLY, 9 EXTERNAL_PENDING._
+_75 nodes: 7 BACKTESTABLE, 21 SEMI, 38 FORWARD_ONLY, 9 EXTERNAL_PENDING._
