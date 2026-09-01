@@ -10,15 +10,28 @@
 - a comprehensive indicator library (traditional TA + TradingView essentials + SMC)
 - backward compatibility with the legacy `atomic_strategy_lib` namespace
 
+### Start here
+
+| If you want to | Read |
+|---|---|
+| **understand how the system is put together** | **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)** — module map, which of the 14 top-level modules are actually on the mainline, the 12 `standard_bot` subsystems, and which implementation is live when several exist |
+| get something running | this file, from [Install](#install) onward |
+| change the code | [`AGENTS.md`](AGENTS.md) — the traps that make confident-but-wrong conclusions, and how to verify |
+
+Read `docs/ARCHITECTURE.md` first if you are new here — or if you are an AI assistant picking
+this up. This repo has grown by *adding* paths rather than replacing them, so several modules
+look load-bearing but have no callers; that document says which is which, and every number in
+it comes with the command that recomputes it.
+
 ### The shape of the system
 
 Everything funnels through **one input format and one output format**:
 
 ```
 data sources ──►  cyqnt.input/v1  ──►  blocks  ──►  cyqnt.signal/v2  ──►  consumers
-  klines            (a JSON             (146          kind=trade          backtest
+  klines            (a JSON             (393          kind=trade          backtest
   funding / OI       snapshot of         composable    kind=selection      paper
-  order book         one instant)        functions)    kind=alert          live
+  order book         one instant)        callables)    kind=alert          live
   news / buzz
   contract meta
 ```
@@ -233,7 +246,7 @@ See `cyqnt_trd/standard_bot/ma_cross_strategy/README.md` for the focused usage n
 `cyqnt_trd.blocks` provides a comprehensive pure-pandas indicator library
 spanning three families:
 
-### Classical TA (30+ functions)
+### Classical TA (56 functions)
 
 `cyqnt_trd/blocks/indicators.py`:
 
@@ -540,7 +553,7 @@ Strategies](#block-based-strategies) above).
 
 ## Verification & Quality
 
-- **Test suite**: 414 tests pass, 1 skipped, no regressions
+- **Test suite**: 2505 tests pass, 2 skipped, no regressions
 - **Lookahead safety**: all 25/29 indicators verified lookahead-safe via
   `indicator(df[:i+1])[-1] == indicator(df)[i]` test
 - **Atomic numerical parity**: 12/12 indicator outputs match atomic source
@@ -561,6 +574,23 @@ Strategies](#block-based-strategies) above).
 ---
 
 ## Documentation
+
+**Architecture and handover**
+
+- **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)** — **the system design document.** What the
+  repo is made of, the signal lifecycle, the four signal kinds, capability limits stated in
+  numbers, the top-level module map with reference counts, the 12 `standard_bot` subsystems,
+  which implementation is live where several coexist, the two invariants, and the known gaps.
+  **Read this before changing anything structural.**
+- [`AGENTS.md`](AGENTS.md) — onboarding notes for AI assistants: the three properties of this
+  repo that produce confident-but-wrong answers, and the verification methods that catch them
+- `docs/count_architecture_facts.py` — recomputes every number in `ARCHITECTURE.md` and prints
+  the *definition* behind each one. Run it before quoting a figure; `--diff` exits non-zero if
+  the document has drifted, so it can go in CI
+- `docs/report_flow.html` — generated end-to-end walkthrough, every number captured from a real
+  run (`python docs/gen_report_html.py`, offline)
+
+**Reference**
 
 - `docs/CHANGELOG.md` — date-indexed log of integration & feature work
 - `docs/atomic-compat/MIGRATION_HANDOFF.md` — atomic → cyqnt_trd integration design

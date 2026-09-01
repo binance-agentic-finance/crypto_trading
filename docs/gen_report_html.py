@@ -26,7 +26,10 @@ warnings.filterwarnings("ignore")
 import pandas as pd  # noqa: E402
 
 OUT = sys.argv[1] if len(sys.argv) > 1 else "docs/report_flow.html"
-CONFLUENCE = "https://confluence.toolsfdg.net/pages/viewpage.action?pageId=599595686"
+
+# 這是一個公開 repo,所以這裡不放公司內網的文件連結(見 tests/test_no_leaked_secrets.py)。
+# 架構總覽與 I/O 規格在 repo 內自帶一份,任何拿到這份程式碼的人都讀得到。
+ARCHITECTURE_DOC = "ARCHITECTURE.md"
 
 
 def esc(x):
@@ -254,18 +257,20 @@ a{color:#79b8ff}
 ul{padding-left:22px}li{margin:5px 0}
 """
 
+# 積木數用 BLOCK_TOTAL 注入,不要寫死 —— 這張圖原本硬編碼 310,而同一頁下方的
+# 覆蓋率表用的是實測值,於是一頁之內對同一件事給出兩個數字。
 FLOW = """①  取數                      ②  組策略               ③  出訊號                ④  消費
 ──────────────────────────────────────────────────────────────────────────────────
 K 線            ┐                                      ┌─ kind=trade       ┌→ 回測    ✅
 funding / OI    ┤                                      │                   │
 清算            ┤→   一份 JSON      →   blocks 積木  →  ┼─ kind=selection  ┼→ paper   ✅
-新聞 / 熱度     ┤   cyqnt.input/v1      (310 個函式)    │                   │
+新聞 / 熱度     ┤   cyqnt.input/v1      (%d 個積木)     │                   │
 選幣宇宙        ┤                                      └─ kind=alert       └→ live    ⚠️
-內網 BigData    ┘                                        cyqnt.signal/v2
+內部節點        ┘                                        cyqnt.signal/v2
 
      ▲ 一個決策時點                ▲ YAML 或 Python          ▲ 交易與選幣同一格式
        所有來源                      不寫程式也能組             消費端只認 kind 一個欄位
-       PIT 只 gate 一次"""
+       PIT 只 gate 一次""" % BLOCK_TOTAL
 
 DEMO_VALIDATE = """cd ~/Dev/crypto_trading-main
 
@@ -324,7 +329,9 @@ A("<h1>一份 JSON 進,一種訊號出</h1>")
 A("<p class='sub'>統一輸入 <code>cyqnt.input/v1</code> → blocks 組策略 → "
   "統一輸出 <code>cyqnt.signal/v2</code></p>")
 A("<p class='muted'>本頁所有數字都是實跑抓的(<code>docs/gen_report_html.py</code>)。"
-  "I/O 規格全文見 <a href='%s'>Confluence 599595686</a>。</p>" % CONFLUENCE)
+  "系統架構、哪條路活著、已知缺口見 <a href='%s'>docs/ARCHITECTURE.md</a>;"
+  "I/O 規格全文見 <code>strategies/_standard/</code> 底下的兩份 schema。</p>"
+  % ARCHITECTURE_DOC)
 
 A("<div class='lead'><span class='big'>核心一句話</span><br>"
   "<b>一次取數變成一份 JSON,用積木組出策略,輸出一種格式</b> —— "
@@ -502,17 +509,17 @@ A("<div class='warn'><b>被問到還缺什麼,最誠實的答案</b><br>"
 # ---- appendix ---- #
 A("<h2>附錄:檔案在哪</h2>")
 A("<table><tr><th>要找什麼</th><th>檔案</th></tr>"
-  "<tr><td>I/O 規格全文</td><td><a href='%s'>Confluence 599595686</a></td></tr>"
+  "<tr><td>系統架構 / 哪條路活著</td><td><a href='%s'><code>docs/ARCHITECTURE.md</code></a></td></tr>"
   "<tr><td>輸入契約檔</td><td><code>strategies/_standard/input.schema.v1.json</code></td></tr>"
   "<tr><td>輸出契約檔</td><td><code>strategies/_standard/signal.schema.v2.json</code></td></tr>"
   "<tr><td>輸入產生器</td><td><code>cyqnt_trd/standard_bot/data/input_bundle.py</code> / "
   "<code>live_bundle.py</code></td></tr>"
   "<tr><td>輸出契約(dataclass)</td><td><code>cyqnt_trd/standard_bot/core/signal_contract.py</code></td></tr>"
   "<tr><td>YAML 解譯器</td><td><code>cyqnt_trd/standard_bot/yaml_pipeline/</code></td></tr>"
-  "<tr><td>blocks 函式庫</td><td><code>cyqnt_trd/blocks/</code>(%d 個函式)</td></tr>"
+  "<tr><td>blocks 積木庫</td><td><code>cyqnt_trd/blocks/</code>(%d 個公開 callable)</td></tr>"
   "<tr><td>NL → YAML demo</td><td><code>docs/strategy_yaml_spec/demo/server.py</code>(port 8799)</td></tr>"
   "<tr><td>範例 YAML</td><td><code>docs/strategy_yaml_spec/example_*.yaml</code></td></tr>"
-  "</table>" % (CONFLUENCE, BLOCK_TOTAL))
+  "</table>" % (ARCHITECTURE_DOC, BLOCK_TOTAL))
 
 A("</div></body></html>")
 

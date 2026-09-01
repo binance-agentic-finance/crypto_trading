@@ -9,9 +9,9 @@
 K 線            ┐                                      ┌─ kind=trade       ┌→ 回測
 funding / OI    ┤                                      │                   │
 清算            ┤→   一份 JSON      →   blocks 積木  →  ┼─ kind=selection  ┼→ paper
-新聞 / 熱度     ┤   cyqnt.input/v1      (365 個函式)    │                   │
+新聞 / 熱度     ┤   cyqnt.input/v1      (393 個積木)    │                   │
 選幣宇宙        ┤                                      └─ kind=alert       └→ live
-內網 BigData    ┘                                        cyqnt.signal/v2
+內部節點        ┘                                        cyqnt.signal/v2
 ```
 
 ---
@@ -24,7 +24,7 @@ funding / OI    ┤                                      │                   �
 
 | 概念 | 實作數 | 說明 |
 |---|---|---|
-| 策略寫法 | 3 | block path(20 支策略)、StandardBot v2(7 支)、`UniversalBot`(**0 支、0 測試**) |
+| 策略寫法 | 3 | block path(`register()` 28 次 + `register_selection()` 6 次)、StandardBot v2(7 檔)、`UniversalBot`(**0 個真實 caller**) |
 | 輸出格式 | 4 | `SignalEnvelope block/v1`、`cyqnt.signal/v1`、`cyqnt.signal/v2`、`trades.jsonl` |
 | 回測引擎 | 3 | `cyqnt_trd/standard_bot/simulation/runner.py`(事件驅動)、`cyqnt_trd/standard_bot/simulation/vectorized_backtest.py`、`cyqnt_trd/standard_bot/simulation/numba_runner.py` |
 | 取數路徑 | 多條 | `cyqnt_trd/standard_bot/data/input_bundle.py`、`cyqnt_trd/standard_bot/data/live_bundle.py`、`cyqnt_trd/standard_bot/data/historical.py`、`cyqnt_trd/standard_bot/yaml_pipeline/_data.py`、`cyqnt_trd/standard_bot/runtime/data.py` |
@@ -74,6 +74,7 @@ grep -rn "build_input_bundle(" --include="*.py" cyqnt_trd strategies   # 注意�
 
 | 順序 | 檔案 | 為什麼 |
 |---|---|---|
+| **0** | **`docs/ARCHITECTURE.md`** | **先讀這個。** 系統由哪些部分組成、14 個頂層模組哪 3 個在主線上、`standard_bot` 12 個子系統各管什麼、同一件事的多個實作哪一個活著。沒有這張地圖,下面 10 份檔案讀起來是散的 |
 | 1 | `strategies/_standard/signal.schema.v2.json` | **輸出契約**。42 個欄位,交易與選幣共用。從 dataclass 自動生成 |
 | 2 | `cyqnt_trd/standard_bot/core/signal_contract.py` | 上面那份 schema 的來源。`StandardSignal` + `PositionIntent`(12 值) + `ExitPlan` |
 | 3 | `strategies/_standard/input.schema.v1.json` | **輸入契約**。7 種標準 frame 形狀 |
@@ -82,11 +83,27 @@ grep -rn "build_input_bundle(" --include="*.py" cyqnt_trd strategies   # 注意�
 | 6 | `cyqnt_trd/strategies/funding_squeeze_panel.py` | **最有代表性的交易型策略**:論點需要 K 線 + 資金費率 + 未平倉量 + 主動買賣**四個來源同時成立**,缺一個就驗證不了。是多源那條路的活體證明 |
 | 7 | `cyqnt_trd/strategies/news_buzz_selector.py` | **最有代表性的選幣型策略**:一次對整個宇宙排名。看它的 docstring 講「門檻要放多低」—— 熱度先於流動性出現 |
 | 8 | `cyqnt_trd/standard_bot/yaml_pipeline/interpreter.py` | YAML → 策略。看 `DENIED_NAMESPACES` 的註解理解可用邊界 |
-| 9 | `cyqnt_trd/blocks/BLOCKS_API.md` | 365 個積木的清單 |
+| 9 | `cyqnt_trd/blocks/BLOCKS_API.md` | 積木清單(393 個公開 callable,YAML 可觸及 362)|
 | 10 | `cyqnt_trd/standard_bot/adapter.py` | 兩條策略路徑之間的橋。看它**刻意不做什麼** |
 
 `docs/full_flow_spec.html` 和 `docs/report_flow.html` 是自動生成的全流程說明,
 數字全部來自實跑 —— 但**它們描述契約,不保證接線**(見上面第 2 點)。
+
+### 引用數字之前先重算
+
+這份文件、`README.md`、`docs/ARCHITECTURE.md` 裡的數字都會過期。這個 repo 曾經在四份文件裡
+對「blocks 有幾個積木」給出四個不同答案(146 / 310 / 365 / 393),四個都不是造假 ——
+它們用了四種不同計法,而沒有一份文件寫出自己用哪一種。所以:
+
+```bash
+# 重算架構相關的每一個數字,並印出每個數字的定義
+python docs/count_architecture_facts.py
+
+# 只想知道文件有沒有漂走(有漂走則 exit 1,可放進 CI)
+python docs/count_architecture_facts.py --diff
+```
+
+**如果文件和腳本不一致,相信腳本。**
 
 ### 參考策略:一支交易、一支選幣
 
@@ -250,7 +267,7 @@ python -m cyqnt_trd.standard_bot.yaml_pipeline run <spec>.yaml
 
 ---
 
-## 選幣層:29 個 universe block,而命名是機器讀的契約
+## 選幣層:31 個 universe block,而命名是機器讀的契約
 
 `selection:` 段是一條**依序套用**的 pipeline,每一步吃上一步的表:
 

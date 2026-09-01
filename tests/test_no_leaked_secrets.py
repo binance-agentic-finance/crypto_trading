@@ -59,9 +59,14 @@ _SECRET_RE = re.compile(rb"(?<![A-Za-z0-9])(?=[A-Za-z0-9]{64}(?![A-Za-z0-9]))"
 #: ``eureka.local`` — the form that had actually been written into the catalog and
 #: propagated into 21 lines of generated documentation — was not. Each alternative
 #: below is therefore anchored so the *shortest* form of the name still matches.
+#: ``toolsfdg.net`` was missing from this list, and that is how three plaintext links to an
+#: internal Confluence page (host + pageId) ended up in ``docs/gen_report_html.py`` and the
+#: documentation it generates. Any subdomain counts — the git and wiki hosts both live there.
 _INTERNAL_HOST_RE = re.compile(
     rb"("
     rb"qa1fdg\.net"
+    # toolsfdg.net and every subdomain (git, confluence, ...)
+    rb"|(?:[A-Za-z0-9-]+\.)*toolsfdg\.net"
     # eureka.local, bdp-x.eureka.local, x.eureka.qa.local — subdomains optional
     rb"|(?:[A-Za-z0-9-]+\.)*eureka(?:\.[A-Za-z0-9-]+)*\.local"
     # bin.internal and anything under it
