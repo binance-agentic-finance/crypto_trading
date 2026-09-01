@@ -7,7 +7,9 @@ from __future__ import annotations
 import asyncio
 import json
 import math
+import os
 import time
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence
@@ -57,6 +59,119 @@ def _liquidation_schema() -> "pa.Schema":
             ("liq_imbalance_ratio", pa.float64()),
         ]
     )
+
+
+_AGGREGATE_KEY = ["timestamp", "instrument_id", "timeframe"]
+
+
+def merge_liquidation_rows(existing: pd.DataFrame, incoming: pd.DataFrame) -> pd.DataFrame:
+    """Union two aggregate frames on the bucket key, keeping the more complete observation.
+
+    The recorder streams ``!forceOrder`` for ``duration_sec`` and buckets whatever it saw, so the
+    first and last bucket of any capture are inherently PARTIAL. That means the same
+    (timestamp, instrument_id, timeframe) can legitimately be observed twice with different counts:
+
+    * summing the two would double-count the overlapping events;
+    * blindly taking the newer row can replace a complete bucket with a partial one.
+
+    So for a duplicated key we keep whichever observation saw more force-order events. That is
+    deterministic, never double-counts, and monotonically improves a bucket as coverage grows.
+    Rows are returned sorted by ``timestamp`` because the only reader,
+    :func:`enrich_market_frame_with_liquidations`, feeds them to ``pd.merge_asof``, which requires
+    a sorted key and silently takes the last of any duplicate.
+
+    Two consequences of that rule that readers of the stored counts need to know:
+
+    * ``max()`` UNDERCOUNTS partially-overlapping observations. If one capture caught the first
+      5 events of a bucket and another caught the last 7, the truth is 12 but the stored count is
+      7. Counts are therefore a lower bound on activity, not a census -- only a capture that
+      covered the whole bucket window can report it exactly.
+    * On an exact tie in event count the later frame in the argument order wins, because the sort
+      is stable and ``incoming`` is concatenated last. So equal-count observations that disagree
+      on notional resolve to the incoming one.
+    """
+    frames = [f for f in (existing, incoming) if f is not None and not f.empty]
+    if not frames:
+        return incoming
+    combined = pd.concat(frames, ignore_index=True)
+
+    events = combined["long_liq_count"].fillna(0) + combined["short_liq_count"].fillna(0)
+    combined = combined.assign(_events=events).sort_values(
+        ["timestamp", "_events"], kind="stable"
+    )
+    combined = combined.drop_duplicates(subset=_AGGREGATE_KEY, keep="last")
+    return (
+        combined.drop(columns="_events")
+        .sort_values("timestamp", kind="stable")
+        .reset_index(drop=True)
+    )
+
+
+def _read_existing_aggregate(target_path: Path) -> Optional[pd.DataFrame]:
+    """Read the accumulated file, or return None if there is nothing to accumulate onto.
+
+    "Absent" and "present but unreadable" are NOT the same answer and must not both return None.
+    A missing file is the normal first capture. A file that exists but fails to parse holds
+    history that cannot be re-fetched (``!forceOrder`` is not archived upstream), and returning
+    None for it means the caller merges onto nothing and then ``os.replace`` s the only copy away
+    -- a transient read failure would silently delete every earlier capture.
+
+    So an unreadable file is moved aside first. Neither side is lost: the bytes stay on disk for
+    inspection under a sibling name, and this capture still gets written. If it cannot even be
+    moved aside the error propagates, because at that point the only way to keep the history is
+    to not write over it.
+    """
+    if not target_path.exists():
+        return None
+    try:
+        return pq.read_table(str(target_path)).to_pandas()
+    except Exception as exc:
+        quarantine = target_path.with_name(
+            "%s.unreadable-%d" % (target_path.name, int(time.time() * 1000))
+        )
+        os.replace(str(target_path), str(quarantine))
+        warnings.warn(
+            "liquidation aggregate %s could not be read (%s); moved to %s and starting a fresh "
+            "file -- earlier captures are only recoverable from that copy"
+            % (target_path, exc, quarantine.name),
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return None
+
+
+def store_liquidation_aggregate(
+    *,
+    data_root: str,
+    market_type: str,
+    instrument_id: str,
+    timeframe: str,
+    symbol_frame: pd.DataFrame,
+) -> tuple[Path, int]:
+    """Merge one capture's aggregate rows into the stored file and return (path, total_rows).
+
+    ACCUMULATES rather than overwrites: the ``!forceOrder`` stream is not archived upstream, so
+    whatever a previous capture stored is the only copy that will ever exist. The write goes to a
+    dot-prefixed sibling temp file and is swapped in with :func:`os.replace`, so an interrupted
+    write cannot leave a truncated file where the accumulated history used to be. An existing file
+    that cannot be parsed is moved aside rather than merged onto -- see
+    :func:`_read_existing_aggregate`. Stored counts are a lower bound; see
+    :func:`merge_liquidation_rows` for why.
+    """
+    ensure_pyarrow_available()
+    schema = _liquidation_schema()
+    columns = list(schema.names)
+
+    target_path = build_liquidation_path(data_root, market_type, instrument_id, timeframe)
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+
+    merged = merge_liquidation_rows(_read_existing_aggregate(target_path), symbol_frame[columns])
+    table = pa.Table.from_pandas(merged[columns], schema=schema, preserve_index=False)
+
+    tmp_path = target_path.with_name("." + target_path.name + ".tmp")
+    pq.write_table(table, str(tmp_path))
+    os.replace(str(tmp_path), str(target_path))
+    return target_path, int(len(merged))
 
 
 def _raw_to_records(payload: object) -> List[dict]:
@@ -226,7 +341,10 @@ class LiquidationCaptureResult:
     raw_path: str
     raw_row_count: int
     aggregate_paths: Dict[str, str] = field(default_factory=dict)
+    #: rows produced by THIS capture (unchanged meaning)
     aggregate_row_counts: Dict[str, int] = field(default_factory=dict)
+    #: rows in the stored file AFTER merging this capture into prior history
+    aggregate_total_row_counts: Dict[str, int] = field(default_factory=dict)
 
 
 @dataclass
@@ -283,6 +401,7 @@ class HistoricalBinanceLiquidationRecorder:
 
         aggregate_paths: Dict[str, str] = {}
         aggregate_row_counts: Dict[str, int] = {}
+        aggregate_total_row_counts: Dict[str, int] = {}
         symbol_frames = aggregate_force_order_records(
             records,
             timeframe=timeframe,
@@ -290,33 +409,17 @@ class HistoricalBinanceLiquidationRecorder:
             timeframe_ms=timeframe_ms,
         )
         ensure_pyarrow_available()
-        schema = _liquidation_schema()
         for instrument_id, symbol_frame in symbol_frames.items():
-            target_path = build_liquidation_path(self.data_root, self.market_type, instrument_id, timeframe)
-            target_path.parent.mkdir(parents=True, exist_ok=True)
-            table = pa.Table.from_pandas(
-                symbol_frame[
-                    [
-                        "timestamp",
-                        "instrument_id",
-                        "timeframe",
-                        "long_liq_count",
-                        "short_liq_count",
-                        "long_liq_qty",
-                        "short_liq_qty",
-                        "long_liq_notional_usd",
-                        "short_liq_notional_usd",
-                        "total_liq_notional_usd",
-                        "net_liq_notional_usd",
-                        "liq_imbalance_ratio",
-                    ]
-                ],
-                schema=schema,
-                preserve_index=False,
+            target_path, total_rows = store_liquidation_aggregate(
+                data_root=self.data_root,
+                market_type=self.market_type,
+                instrument_id=instrument_id,
+                timeframe=timeframe,
+                symbol_frame=symbol_frame,
             )
-            pq.write_table(table, str(target_path))
             aggregate_paths[instrument_id] = str(target_path)
             aggregate_row_counts[instrument_id] = int(len(symbol_frame))
+            aggregate_total_row_counts[instrument_id] = total_rows
 
         return LiquidationCaptureResult(
             capture_id=capture_id,
@@ -326,4 +429,5 @@ class HistoricalBinanceLiquidationRecorder:
             raw_row_count=len(records),
             aggregate_paths=aggregate_paths,
             aggregate_row_counts=aggregate_row_counts,
+            aggregate_total_row_counts=aggregate_total_row_counts,
         )
