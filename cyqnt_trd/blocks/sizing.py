@@ -500,7 +500,11 @@ def compute_stop_price(
     entry_price:
         Trade entry price.
     direction:
-        ``"LONG"`` or ``"SHORT"`` (case-sensitive).
+        ``"LONG"`` or ``"SHORT"``, matched case-insensitively. It used to be compared with a bare
+        ``== "LONG"``, so ``"long"`` fell through to the short branch and put the stop ABOVE the
+        entry on a long trade -- a wrong answer that looks like a valid price, with no exception
+        and no clue at the call site. ``stop_loss.atr_dynamic_stop`` computes the same thing and
+        has always used ``.upper()``; the two now agree.
     stop_pct:
         Stop distance as a percentage (e.g. 3.0 = 3 %).
     atr_val:
@@ -518,6 +522,6 @@ def compute_stop_price(
         else:
             stop_pct = 0.0
     distance = stop_pct / 100.0
-    if direction == "LONG":
+    if direction.upper() == "LONG":
         return round(entry_price * (1.0 - distance), 8)
     return round(entry_price * (1.0 + distance), 8)

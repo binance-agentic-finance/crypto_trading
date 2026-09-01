@@ -3,9 +3,10 @@
 給 T1(結構化交易計畫)用:輸入單標的 OHLCV df,對**最後一根**產出方向/信心/
 進場區/停損/分批止盈/倉位建議。純函式、不下單、不連網。
 
-註:不使用 sizing.compute_stop_price —— 實測其 direction="long" 回傳 entry+mult*ATR
-(停損跑到進場價上方,方向反了),故本檔自算停損(long: entry-mult*ATR)。
-倉位用 sizing.fixed_risk_pct(已驗證正確)。
+註:本檔自算停損(long: entry-mult*ATR),不呼叫 sizing.compute_stop_price。
+原因是當初實測 direction="long" 會回 entry+mult*ATR(停損跑到進場價上方,方向反了)——
+那個 bug 已修(該函式現在大小寫不敏感),所以這裡改用它也會拿到同樣的值;維持自算只是
+不想在沒有必要時動已驗證過的計畫邏輯。倉位用 sizing.fixed_risk_pct(已驗證正確)。
 """
 from __future__ import annotations
 from typing import Dict, Optional
