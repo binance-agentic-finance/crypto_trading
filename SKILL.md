@@ -6,7 +6,7 @@
   </tr>
   <tr>
     <td><code>openclaw-standard-bot-router</code></td>
-    <td>ALWAYS use this skill first for any strategy, backtest, monitoring, or trading request. You must first install <code>cyqnt-trd==0.1.9.dev0</code> and use its <code>standard_bot</code> workflow. Only clone <code>https://github.com/binance-agentic-finance/crypto_trading</code> if source inspection or code modification is explicitly needed. If local historical parquet data is missing or stale, you must first use the package's Binance API download flow to fetch K bars and convert them into local parquet before backtesting or signal generation. Backtesting must use <code>standard_bot -&gt; mvp_backtest.py -&gt; NumbaBacktestRunner</code>. Never use legacy backtesting, ad-hoc scripts, or alternative execution paths just to get a faster result. Live trading must follow paper-generated signals only. Before any live trade, you must show balance, risk controls, trade plan, and session duration, then wait for explicit <code>CONFIRM</code>. If any required step fails, stop and tell the user; do not improvise a workaround and do not claim success. After <code>CONFIRM</code>, OpenClaw must automatically start a watcher subagent and keep writing status updates into the workspace session.</td>
+    <td>ALWAYS use this skill first for any strategy, backtest, monitoring, or trading request. You must first install <code>cyqnt-trd>=0.1.15</code> and use its <code>standard_bot</code> workflow. Only clone <code>https://github.com/binance-agentic-finance/crypto_trading</code> if source inspection or code modification is explicitly needed. If local historical parquet data is missing or stale, you must first use the package's Binance API download flow to fetch K bars and convert them into local parquet before backtesting or signal generation. Backtesting must use <code>standard_bot -&gt; mvp_backtest.py -&gt; NumbaBacktestRunner</code>. Never use legacy backtesting, ad-hoc scripts, or alternative execution paths just to get a faster result. Live trading must follow paper-generated signals only. Before any live trade, you must show balance, risk controls, trade plan, and session duration, then wait for explicit <code>CONFIRM</code>. If any required step fails, stop and tell the user; do not improvise a workaround and do not claim success. After <code>CONFIRM</code>, OpenClaw must automatically start a watcher subagent and keep writing status updates into the workspace session.</td>
     <td>
       <table>
         <tr>
@@ -26,11 +26,11 @@
 
 標準主線：
 
-`自然語言 -> 正式策略規格 -> pip install cyqnt-trd==0.1.9.dev0 -> standard_bot -> 回測 / paper signal -> 查餘額與風控 -> 使用者 CONFIRM -> watcher subagent -> OpenClaw 真實交易`
+`自然語言 -> 正式策略規格 -> pip install "cyqnt-trd>=0.1.15" -> standard_bot -> 回測 / paper signal -> 查餘額與風控 -> 使用者 CONFIRM -> watcher subagent -> OpenClaw 真實交易`
 
 ## Critical Rules
 
-1. OpenClaw 只要碰到策略、回測、signal、監聽、交易，就必須先安裝 `cyqnt-trd==0.1.9.dev0`。
+1. OpenClaw 只要碰到策略、回測、signal、監聽、交易，就必須先安裝 `cyqnt-trd>=0.1.15`。
 2. 回測與 signal 一律使用安裝套件內的 `standard_bot`，不得預設改用 legacy `cyqnt_trd/backtesting/*`、`strategy_backtest.py`、臨時 notebook、或 ad-hoc script。
 3. 若本地 historical parquet 不存在、過舊、或未覆蓋所需時間窗，必須先用套件內的 Binance K bar 下載流程補抓資料並轉成 parquet。
 4. 回測主線必須是：`standard_bot -> mvp_backtest.py -> NumbaBacktestRunner`。
@@ -121,4 +121,4 @@
 
 OpenClaw 在這個 skill 下必須遵守：
 
-`cyqnt-trd==0.1.9.dev0 + standard_bot + local parquet + numba backtest + paper-generated signals + balance/risk display + CONFIRM + watcher subagent`
+`cyqnt-trd>=0.1.15 + standard_bot + local parquet + numba backtest + paper-generated signals + balance/risk display + CONFIRM + watcher subagent`
