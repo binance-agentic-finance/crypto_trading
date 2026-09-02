@@ -30,7 +30,7 @@ atomic_compat/
 
 ## 安裝後位置
 
-`pip install cyqnt-trd>=0.1.9.dev3` 之後，shim 安裝在：
+`pip install "cyqnt-trd>=0.1.9.dev3"` 之後，shim 安裝在：
 
 ```
 <site-packages>/atomic_strategy_lib/   ← shim

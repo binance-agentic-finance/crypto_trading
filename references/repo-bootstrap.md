@@ -1,6 +1,6 @@
 # Package Bootstrap And Data Refresh
 
-這份文件說明 OpenClaw 如何為 `cyqnt-trd==0.1.9.dev0` 準備執行環境與最新歷史資料。
+這份文件說明 OpenClaw 如何為 `cyqnt-trd>=0.1.15` 準備執行環境與最新歷史資料。
 
 ## 1. Install Fixed Package Version
 
@@ -18,7 +18,7 @@
 python3 -m venv .venv-standard-bot
 source .venv-standard-bot/bin/activate
 python -m pip install -U pip
-python -m pip install cyqnt-trd==0.1.9.dev0
+python -m pip install "cyqnt-trd>=0.1.15"
 ```
 
 ## 2. Optional Source Fallback
