@@ -1,8 +1,108 @@
 # Changelog
 
 本文件記錄 cyqnt_trd 持續整合與功能擴充的時序內容。
-編號採日期格式（YYYY-MM-DD），不對應 PyPI 版本號。
-PyPI 版本變動見 `pyproject.toml` 與 git tag。
+編號採日期格式（YYYY-MM-DD）。發版條目的標題會帶上 PyPI 版本號。
+版本號的真相來源是 `pyproject.toml` 與 `cyqnt_trd.__version__`（兩者由
+`tests/test_version_is_single_sourced.py` 釘住一致）。
+這個 repo 目前**不打 git tag**，所以不要去那裡找版本。
+
+---
+
+## 2026-09-02 — PyPI 0.1.15:兩個靜默錯答、選幣市值篩選,與架構設計文件
+
+### 摘要
+
+累積 PR #19 與 #20。兩個修正的共同點是**沒有例外、輸出看起來合理**,所以只能靠人盯著才會
+發現 —— 這是這個 repo 最常見的一類缺陷。
+
+此版本對應 `pyproject.toml` → `version = "0.1.15"`。
+
+### ⚠️ 行為變化:`sizing.compute_stop_price` 的 `direction`
+
+原本用裸比較 `direction == "LONG"`,所以傳 `"long"`(小寫)會掉進 short 分支,
+**做多的停損被放到進場價上方**。現在改為 `.upper()`,與 `stop_loss.atr_dynamic_stop` /
+`fixed_pct_stop` / `limits` 一致。
+
+**升版前請確認**:如果你的程式已經在這個錯答案上疊了補償邏輯(例如自己把方向再翻回來),
+升到 0.1.15 之後那層補償會變成新的錯誤。傳大寫的呼叫方不受影響。
+
+這個函式原本零測試,所以壞了沒人發現;現在有 13 條測試釘住「每種拼法停損都落在進場價的
+正確一側」以及「兩個算 ATR 停損的函式對同一組輸入給同一個價格」。
+
+### 修正:清算累積檔讀不到時會蓋掉歷史
+
+`standard_bot/data/liquidations.py` 的 `_read_existing_aggregate` 對「檔案不存在」和
+「檔案在但讀不到」都回 `None`,呼叫端把 `None` 當成沒有歷史,接著 `os.replace` 換掉唯一
+那一份。實測:存好 2 列 → 檔案損壞 → 下一次擷取後只剩 1 列,而且輸出裡沒有任何跡象。
+
+`!forceOrder` 上游不歸檔,刪掉就拿不回來。現在讀不到的檔案會先改名到
+`<name>.unreadable-<ms>` 再寫新的,並發 `RuntimeWarning` —— 壞掉的位元組留在磁碟上可以
+搶救,這次擷取照樣落地。連移不動就讓錯誤往上拋。
+
+同時把兩個實作上有、docstring 沒寫的取捨補上:合併時取 max 對**部分重疊的觀測會低估**
+(一次看到 5 筆、另一次看到 7 筆,真值 12,存的是 7 —— 計數是下界不是普查),
+以及**平手時後傳進來的贏**。
+
+### 新增:選幣宇宙的市值篩選(#19)
+
+`universe.augment_with_market_cap` —— 撿回交易所本來就在回的流通量,解除 GAP-MARKET-CAP。
+同時修掉三個「dry-run 會過、真正跑必失敗」的整合缺口。
+
+**注意步驟順序**:這個 block 屬於「沒有全市場端點、只能逐幣抓」的那五個之一,排在收窄步驟
+之前會直接超出額度;而且合約端有一批非 COIN 標的的流通量回 0,所以它必須排在
+`filter_crypto_only` 之後。`validate` 會靜態擋下錯誤順序。
+具體檔數與實測呼叫次數見 `AGENTS.md` 的「選幣層」一節。
+
+### 文件
+
+新增 `docs/ARCHITECTURE.md` —— 系統邊界、訊號生命週期、四種 `kind`、能力邊界(用數字說)、
+頂層模組地圖與引用次數、`standard_bot` 12 個子系統、同一件事的多個實作哪一個活著、
+兩個不變量、已知缺口。`README.md` 與 `AGENTS.md` 都指向它。
+
+新增 `docs/count_architecture_facts.py` —— 起因是發現四份文件對「blocks 有幾個積木」給出
+四個不同答案(146 / 310 / 365 / 393),四個都不是造假,它們用了四種計法而沒有一份文件寫出
+自己用哪一種。這支腳本重算每個數字**並印出它的定義**,`--diff` 在文件漂走時 exit 1。
+
+順帶修掉三處硬編碼在 `docs/gen_report_html.py` 及其產物裡的公司內網文件連結
+(這是公開 repo),並把漏掉的域名補進 `tests/test_no_leaked_secrets.py` 的守門清單。
+
+### 驗證
+
+`2505 passed, 2 skipped`(乾淨 Python 3.13 環境)。前一版基線 2489,新增 16 條測試。
+
+---
+
+## 2026-08-11 — PyPI 0.1.14:支援 Python 3.13
+
+`numpy` 依賴按 Python 版本分岔(`<3.13` 用 `>=1.24,<2.0`;`>=3.13` 用 `>=2.1,<3.0`),
+因為 numpy 1.x 沒有 3.13 的 wheel。新增 `tests/test_supported_python_matrix.py` 釘住
+`requires-python`、依賴分岔與工具設定的 target 三者一致。
+
+同時補齊測試自己要用的兩個依賴(`pyyaml`、`jsonschema`)—— 原本沒宣告,在乾淨環境裡
+`pip install -e ".[dev]"` 之後跑 pytest 會有 11 個模組 collection error,看起來像
+「這個 Python 版本不支援」,其實只是缺測試依賴。
+
+---
+
+## 2026-08-10 — PyPI 0.1.13:根 `__init__` 改 PEP 562 懶加載
+
+原本根 `__init__` 用一個 eager 迴圈把全部子套件匯入(失敗就吞進 `_IMPORT_ERRORS`),代價是
+**任何** `import cyqnt_trd.*` 都會連帶拉進 `get_data` / `trading_signal` / `backtesting` /
+`standard_bot` 的重依賴 —— binance SDK / requests / aiohttp / scipy / matplotlib。
+下游的純計算消費者為此得掛檔案系統墊片繞過。改成 PEP 562 `__getattr__` 懶加載後,
+只在真正取用時才匯入。新增 `tests/test_root_import_is_lazy.py`(264 行)守住這件事。
+
+---
+
+## 2026-08-03 — PyPI 0.1.12:版本號單一真相來源
+
+`cyqnt_trd.__version__` 寫著 `0.1.9.dev2` 而 `pyproject.toml` 寫 `0.1.11` —— **漂了四個
+發版**,而且沒有任何東西比對過兩者。消費端做 `cyqnt_trd.__version__` 拿到的是一個好幾個月
+前就不存在於 PyPI 的號碼,那比沒有號碼更糟:它看起來很權威。
+新增 `tests/test_version_is_single_sourced.py` 斷言兩處一致。
+
+這一版累積了 47 個 commit(自 0.1.11 起),主要是 YAML pipeline、選幣層與 NL→YAML 那條線;
+其中新聞資料層的細節見上面 2026-07-23 的條目。
 
 ---
 

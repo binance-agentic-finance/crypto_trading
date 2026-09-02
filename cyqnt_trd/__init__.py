@@ -18,7 +18,7 @@ Cyqnt Trading Package
 #: ``cyqnt_trd.__version__`` got a number that had not existed on PyPI for
 #: months, which is worse than no number at all: it looks authoritative.
 #: tests/test_version_is_single_sourced.py now asserts the two agree.
-__version__ = "0.1.14"
+__version__ = "0.1.15"
 
 #: 记录懒加载子包时吞掉的 import 错误：{子包名: 异常}。
 #:
