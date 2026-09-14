@@ -1,14 +1,38 @@
 {
-  "source": "eval/alpha101_crypto/results/null_current.parquet",
+  "source": "recomputed by `python -m factor_eval calibrate`",
   "generator": "AR(1) phi=0.9 gaussian panels, dev-frozen sign, identical engine path",
   "trials": 100,
   "primary_h": 3,
   "cost_bps": 6.5,
-  "pool": "current top-10 by 30d quote volume",
+  "pool": "current",
   "entry_lag": 2,
   "seed": 20260910,
-  "reading": "p95 is the noise floor: a random signal beats it 5% of the time. A factor at or under p95 has not shown information, whatever its absolute value.",
-  "caveat": "calibrated on this universe, horizon and cost. Change any of them and re-run `python -m factor_eval calibrate` instead of reusing these numbers.",
+  "contract": {
+    "schema": "factor-eval.calibration/v1",
+    "panel_sha256": "fb5088eda5afdc2528462d6ebc7d847a026888498be4c02494a8f15e5107ec87",
+    "engine_protocol": "factor-eval/daily-closed-cycles-v3",
+    "engine_sha256": "9944331f56d1709b0fcb530cc2c082a00848c40908c205adf7ea6f7b3f091500",
+    "primary_h": 3,
+    "cost_bps": 6.5,
+    "entry_lag": 2,
+    "min_assets": 5,
+    "hac_lags": null,
+    "annualization": 365.0,
+    "splits": {
+      "dev": [
+        "2022-04-01T00:00:00+00:00",
+        "2024-06-30T23:59:59.999999999+00:00"
+      ],
+      "oot": [
+        "2025-10-01T00:00:00+00:00",
+        "2026-09-08T23:59:59.999999999+00:00"
+      ],
+      "val": [
+        "2024-07-01T00:00:00+00:00",
+        "2025-09-30T23:59:59.999999999+00:00"
+      ]
+    }
+  },
   "ic_mean": {
     "dev": {
       "p50": 0.014171,
@@ -25,10 +49,10 @@
       "n": 100
     },
     "oot": {
-      "p50": -0.004005,
-      "p90": 0.040447,
-      "p95": 0.049243,
-      "p99": 0.061049,
+      "p50": -0.004357,
+      "p90": 0.04057,
+      "p95": 0.049066,
+      "p99": 0.062104,
       "n": 100
     }
   },
@@ -48,10 +72,10 @@
       "n": 100
     },
     "oot": {
-      "p50": -0.012298,
-      "p90": 0.114344,
-      "p95": 0.153773,
-      "p99": 0.182936,
+      "p50": -0.013191,
+      "p90": 0.114524,
+      "p95": 0.153016,
+      "p99": 0.18402,
       "n": 100
     }
   },
@@ -71,10 +95,10 @@
       "n": 100
     },
     "oot": {
-      "p50": 0.492625,
-      "p90": 0.537758,
-      "p95": 0.569469,
-      "p99": 0.58115,
+      "p50": 0.491124,
+      "p90": 0.539053,
+      "p95": 0.571006,
+      "p99": 0.579941,
       "n": 100
     }
   },
@@ -94,10 +118,10 @@
       "n": 100
     },
     "oot": {
-      "p50": -0.15769,
-      "p90": 1.487545,
-      "p95": 2.050079,
-      "p99": 2.491884,
+      "p50": -0.15909,
+      "p90": 1.512383,
+      "p95": 2.049961,
+      "p99": 2.481372,
       "n": 100
     }
   },

@@ -37,15 +37,14 @@ def test_bundle_is_aligned_and_pit(panel):
     assert 0 < float(panel.mask.sum(axis=1).mean()) <= len(panel.symbols)
 
 
-def test_leak_is_detected(panel):
-    """A factor handed the traded window must score absurdly. If this ever stops
-    holding, the measurement path no longer measures what it claims to."""
+def test_future_return_positive_control_is_rejected_by_causality_audit(panel):
+    """Perfect foresight validates measurement, but must never validate a factor."""
     card = evaluate(ex.look_ahead_trap, panel, name="leak", with_incremental=False)
     ic_dev = float(card.metrics[(card.metrics.split == "dev")
                                 & (card.metrics.h == 3)].iloc[0]["ic_mean"])
     assert ic_dev > 0.8
-    assert card.gates["G1_information"].status == PASS
-    assert card.gates["G3_cost"].status == PASS
+    assert card.gates["G0_data"].status == FAIL
+    assert card.verdict == "REJECT_DATA"
 
 
 def test_honest_factor_does_not_reach_pass(panel):
@@ -57,9 +56,16 @@ def test_honest_factor_does_not_reach_pass(panel):
 
 
 def test_skipped_incremental_cannot_report_a_clean_pass(panel):
-    card = evaluate(ex.look_ahead_trap, panel, with_incremental=False)
-    assert card.verdict == "PASS_CONDITIONAL"
+    card = evaluate(ex.reversal_5d, panel, with_incremental=False)
+    assert card.verdict == "HOLD_INCOMPLETE"
     assert "G5_incremental" not in card.gates
+    assert "G5_incremental" in card.blocking
+
+
+def test_precomputed_signal_does_not_imply_verified_causality(panel):
+    card = evaluate(ex.reversal_5d(panel), panel, with_incremental=False)
+    assert card.gates["G0_data"].status == NA
+    assert card.verdict == "HOLD_INCOMPLETE"
 
 
 def test_direction_is_frozen_on_dev_only(panel):
@@ -122,8 +128,8 @@ def test_verdict_table_covers_every_branch():
 
     assert verdict_from(gates(FAIL, PASS, PASS))[0] == "REJECT_DATA"
     assert verdict_from(gates(PASS, PASS, PASS))[0] == "PASS"
-    assert verdict_from(gates(PASS, PASS, PASS, g4=FAIL))[0] == "PASS_CONDITIONAL"
-    assert verdict_from(gates(PASS, PASS, PASS, g5=FAIL))[0] == "PASS_CONDITIONAL"
+    assert verdict_from(gates(PASS, PASS, PASS, g4=FAIL))[0] == "HOLD_CONDITIONAL"
+    assert verdict_from(gates(PASS, PASS, PASS, g5=FAIL))[0] == "HOLD_CONDITIONAL"
     assert verdict_from(gates(PASS, PASS, FAIL))[0] == "HOLD_INFO"
     assert verdict_from(gates(PASS, FAIL, PASS))[0] == "HOLD_WEAK"
     assert verdict_from(gates(PASS, FAIL, FAIL))[0] == "REJECT"
@@ -144,16 +150,21 @@ def test_bins_follow_the_width_of_the_cross_section(panel):
     assert s["names_per_bin"] >= 2.0, "bins must not be thinner than 2 names per date"
 
 
-def test_scorecard_renders_and_serialises(panel):
-    card = evaluate(ex.low_volatility, panel, name="lowvol", with_incremental=False)
+@pytest.mark.parametrize("factor", [ex.low_volatility,
+                         lambda p: pd.DataFrame(1.0, index=p.index, columns=p.symbols)])
+def test_scorecard_renders_and_serialises(panel, factor):
+    card = evaluate(factor, panel, name="json_check", with_incremental=False)
     md = card.to_markdown()
     assert card.verdict in md and "G3_cost" in md and "null p95" in md
     payload = card.to_dict()
     assert payload["verdict"] == card.verdict
     assert set(payload["gates"]) == set(card.gates)
+    assert payload["config"]["entry_lag"] == card.config["entry_lag"]
+    assert payload["config"]["splits"] == card.config["splits"]
+    assert len(payload["metrics"]) == len(card.metrics)
     # every serialised value must be JSON-clean (no NaN leaking into the payload)
     import json
-    json.dumps(payload, ensure_ascii=False)
+    json.dumps(payload, ensure_ascii=False, allow_nan=False)
 
 
 def test_incremental_flags_a_baseline_clone(panel):
@@ -163,3 +174,19 @@ def test_incremental_flags_a_baseline_clone(panel):
     assert inc["closest_baseline"] == "B_lowvol10"
     assert inc["max_abs_rank_corr"] > 0.9
     assert card.gates["G5_incremental"].status == FAIL
+
+
+def test_search_selection_cannot_receive_single_candidate_clearance(panel, monkeypatch):
+    """Even an otherwise passing candidate cannot certify a selected search winner."""
+    import factor_eval
+    monkeypatch.setattr(factor_eval, "verdict_from", lambda gates: ("PASS", []))
+    card = evaluate(ex.reversal_5d, panel, trials_seen=50, with_incremental=False)
+    assert card.verdict == "HOLD_SEARCH"
+    assert "search_selection" in card.blocking
+    assert card.to_dict()["config"]["trials_seen"] == 50
+
+
+@pytest.mark.parametrize("count", [0, -1, 1.5, True])
+def test_invalid_trial_counts_are_rejected(panel, count):
+    with pytest.raises(ValueError, match="trials_seen"):
+        evaluate(ex.reversal_5d, panel, trials_seen=count)

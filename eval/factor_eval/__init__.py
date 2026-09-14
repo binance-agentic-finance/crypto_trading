@@ -27,6 +27,10 @@ no longer hold — the reference study in `eval/alpha101_crypto/` shows how far 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import hashlib
+import inspect
+import json
+import platform
 from pathlib import Path
 
 import numpy as np
@@ -34,11 +38,14 @@ import pandas as pd
 
 from .baselines import baseline_signals, cross_sectional_rank, residualise
 from .bundle import DEFAULT_BUNDLE, Panel, load_bundle, to_long
-from .engine import DEFAULT_SPLITS, evaluate_factor
+from .causality import check_prefix_invariance
+from .engine import DAY, DEFAULT_SPLITS, _split_bounds, evaluate_factor
+from .diagnostics import build_diagnostics
 from .matrix import (Gate, VERDICTS, gate_cost, gate_data, gate_incremental,
                      gate_information, gate_robustness, gate_structure,
                      load_calibration, verdict_from)
 from .report import scorecard_markdown, scorecard_text
+from .provenance import calibration_contract, validate_calibration
 
 __all__ = ["evaluate", "Scorecard", "Panel", "load_bundle", "to_long",
            "baseline_signals", "DEFAULT_BUNDLE", "DEFAULT_SPLITS", "VERDICTS"]
@@ -62,6 +69,7 @@ class Scorecard:
     incremental: dict = field(default_factory=dict)
     yearly_ic: pd.Series | None = None
     config: dict = field(default_factory=dict)
+    diagnostics: dict = field(default_factory=dict)
 
     @property
     def headline(self) -> str:
@@ -74,17 +82,57 @@ class Scorecard:
         return scorecard_text(self)
 
     def to_dict(self) -> dict:
-        return {
+        return _json_clean({
             "name": self.name, "verdict": self.verdict, "blocking": self.blocking,
             "primary_h": self.primary_h, "cost_bps": self.cost_bps,
             "panel": self.panel_description,
+            "config": self.config,
+            "metrics": self.metrics.to_dict("records"),
+            "diagnostics": self.diagnostics,
+            "assessments": {"information": self.gates["G1_information"].status,
+                            "economic": self.gates["G3_cost"].status,
+                            "baseline_novelty": self.gates["G5_incremental"].status
+                                if "G5_incremental" in self.gates else "NOT_EVALUATED",
+                            "strategy_combination": "NOT_EVALUATED"},
             "gates": {k: {"title": g.title, "status": g.status,
                           "checks": [c.to_dict() for c in g.checks]}
                       for k, g in self.gates.items()},
             "structure": self.structure, "incremental": self.incremental,
             "yearly_ic": None if self.yearly_ic is None else
                          {str(k): float(v) for k, v in self.yearly_ic.items()},
-        }
+        })
+
+
+def _json_clean(value):
+    if isinstance(value, dict):
+        return {str(k): _json_clean(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_clean(v) for v in value]
+    if isinstance(value, np.generic):
+        value = value.item()
+    if isinstance(value, float) and not np.isfinite(value):
+        return None
+    return value
+
+
+def _reproduction_identity(factor, signal, calibration):
+    values = signal.to_numpy(dtype="<f8", copy=True)
+    values[np.isnan(values)] = np.nan
+    values[values == 0] = 0.0
+    source_hash = None
+    if callable(factor):
+        try:
+            source_hash = hashlib.sha256(inspect.getsource(factor).encode()).hexdigest()
+        except (OSError, TypeError):
+            pass  # Interactive callables can lack source; signal hash still identifies the output.
+    digest = hashlib.sha256()
+    for name in ("__init__.py", "engine.py", "matrix.py", "baselines.py", "bundle.py", "causality.py", "provenance.py", "diagnostics.py", "targets.py", "statistics.py"):
+        digest.update(name.encode())
+        digest.update((Path(__file__).parent / name).read_bytes())
+    return {"signal_sha256": hashlib.sha256(values.tobytes()).hexdigest(),
+            "factor_source_sha256": source_hash, "evaluation_code_sha256": digest.hexdigest(),
+            "calibration_sha256": hashlib.sha256(json.dumps(calibration, sort_keys=True).encode()).hexdigest(),
+            "runtime": {"python": platform.python_version(), "numpy": np.__version__, "pandas": pd.__version__}}
 
 
 def _as_signal(factor, panel: Panel) -> pd.DataFrame:
@@ -93,13 +141,15 @@ def _as_signal(factor, panel: Panel) -> pd.DataFrame:
         raise TypeError("a factor must produce a date × symbol DataFrame, not a Series")
     if not isinstance(sig, pd.DataFrame):
         raise TypeError(f"a factor must produce a DataFrame, got {type(sig).__name__}")
-    sig = sig.reindex(index=panel.index, columns=panel.symbols)
-    if not sig.notna().to_numpy().any():
+    if not sig.index.is_unique or not sig.columns.is_unique:
+        raise ValueError("factor signal must have unique date and symbol labels")
+    sig = sig.reindex(index=panel.index, columns=panel.symbols).astype(float)
+    if not np.isfinite(sig.to_numpy()).any():
         raise ValueError("the factor produced no finite values on this panel")
     return sig.astype(float)
 
 
-def _structure(signal, panel, h, entry_lag, sign, bins=None):
+def _structure(signal, panel, h, entry_lag, sign, bins=None, splits=None):
     """Bin the frozen-direction signal and read the forward return per bin.
 
     ``sign`` is the direction the engine froze on dev; the bins must be built on
@@ -112,39 +162,44 @@ def _structure(signal, panel, h, entry_lag, sign, bins=None):
     signal = signal * float(sign)
     opens = panel.open
     fwd = np.log(opens.shift(-(entry_lag + h)) / opens.shift(-entry_lag))
-    usable = panel.mask & signal.notna() & fwd.notna()
+    usable = panel.mask & np.isfinite(signal)
+    # Rank using decision-time eligibility only. A missing future label must
+    # not move the surviving names into different bins.
     s, f = signal.where(usable), fwd.where(usable)
     # Bin count follows the width of the cross-section. Ten names split five ways
     # leaves ~1.5 per bin, i.e. the extreme bins are single names and the "shape"
     # is one coin's tail. Aim for >=2.5 names per bin, 3..5 bins.
-    width = float(usable.sum(axis=1).replace(0, np.nan).mean())
+    bounds = _split_bounds(DEFAULT_SPLITS if splits is None else splits)
+    dev_start, dev_end = bounds["dev"]
+    dev_dates = (panel.index >= dev_start) & (panel.index + (entry_lag + h) * DAY <= dev_end)
+    width = float(usable.loc[dev_dates].sum(axis=1).replace(0, np.nan).mean())
     if bins is None:
         bins = int(np.clip(np.floor(width / 2.5), 3, 5)) if np.isfinite(width) else 3
     q = s.rank(axis=1, pct=True)
-    rows = []
-    for i in range(bins):
-        sel = (q > i / bins) & (q <= (i + 1) / bins)
-        per_date = f.where(sel).mean(axis=1)      # equal weight per decision date …
-        counts = sel.sum(axis=1)
-        rows.append({"bin": i + 1, "n": int(counts.sum()),
-                     # … then average across dates, the same weighting the IC uses.
-                     # Pooling asset-days instead lets a handful of fat-tailed moves
-                     # in the high-volatility names invert the picture while the
-                     # per-date IC is positive — the two gates would then disagree
-                     # for a purely mechanical reason.
-                     "mean_bp": float(per_date.mean() * 1e4) if counts.sum() else np.nan})
-    table = pd.DataFrame(rows)
-    ok = table.dropna(subset=["mean_bp"])
-    spearman = (ok["bin"].corr(ok["mean_bp"], method="spearman")
-                if len(ok) >= 3 else np.nan)
-    spread = (table.mean_bp.iloc[-1] - table.mean_bp.iloc[0]
-              if table.mean_bp.notna().all() else np.nan)
-    per_bin = width / bins if np.isfinite(width) else np.nan
-    return {"bins": table.to_dict("records"), "spearman": float(spearman),
-            "spread_bp": float(spread), "n_bins": int(bins),
-            "names_per_bin": float(per_bin),
-            "bins_note": (f"{bins} bins, ~{per_bin:.1f} names per bin per date, "
-                          f"{int(table.n.sum())} asset-days")}
+    selections = [(q > i / bins) & (q <= (i + 1) / bins) for i in range(bins)]
+    counts = pd.DataFrame({i: sel.sum(axis=1) for i, sel in enumerate(selections)})
+    # Ties stay together; a thin/empty bin invalidates the entire date. Compare
+    # every bin on the same dates rather than averaging different regimes.
+    common_dates = counts.ge(2).all(axis=1) & (~usable | np.isfinite(fwd)).all(axis=1)
+    by_split = {}
+    for split, (start, end) in bounds.items():
+        dates = common_dates & (panel.index >= start) & (panel.index + (entry_lag + h) * DAY <= end)
+        rows = []
+        for i, sel in enumerate(selections):
+            per_date = f.where(sel).mean(axis=1).loc[dates]
+            rows.append({"bin": i + 1, "n": int(counts.loc[dates, i].sum()),
+                         "mean_bp": float(per_date.mean() * 1e4)})
+        table = pd.DataFrame(rows)
+        enough = int(dates.sum()) >= 30
+        spearman = table["bin"].corr(table.mean_bp, method="spearman") if enough else np.nan
+        spread = float(table.mean_bp.iloc[-1] - table.mean_bp.iloc[0]) if enough else np.nan
+        per_bin = float(counts.loc[dates].to_numpy().mean()) if dates.any() else np.nan
+        by_split[split] = {"bins": rows, "spearman": float(spearman), "spread_bp": spread,
+                           "n_bins": int(bins), "n_dates": int(dates.sum()),
+                           "names_per_bin": per_bin,
+                           "bins_note": f"{split}: {bins} bins; {int(dates.sum())} common dates; >=2 names/bin; >=30 dates required"}
+    return {**by_split["val"], "gate_split": "val", "by_split": by_split,
+            "bin_fit_split": "dev", "weighting": "equal date then equal asset; common dates across bins"}
 
 
 def _yearly_ic(ic_table, h):
@@ -157,12 +212,16 @@ def _yearly_ic(ic_table, h):
 def _incremental(signal, panel, h, cost_bps, splits, entry_lag, metrics):
     base = baseline_signals(panel)
     sig_rank = cross_sectional_rank(signal, panel.mask)
-    corrs = {name: float(sig_rank.corrwith(cross_sectional_rank(b, panel.mask), axis=1).mean())
+    dev_start, dev_end = _split_bounds(splits)["dev"]
+    dev_dates = (panel.index >= dev_start) & (panel.index <= dev_end)
+    corrs = {name: float(sig_rank.corrwith(cross_sectional_rank(b, panel.mask), axis=1).loc[dev_dates].mean())
              for name, b in base.items()}
-    closest = max(corrs, key=lambda k: abs(corrs[k])) if corrs else None
+    finite_corrs = {k: v for k, v in corrs.items() if np.isfinite(v)}
+    closest = max(finite_corrs, key=lambda k: abs(finite_corrs[k])) if finite_corrs else None
     resid = residualise(signal, base, panel.mask)
     out = {"rank_corr": corrs, "closest_baseline": closest,
-           "max_abs_rank_corr": float(max(abs(v) for v in corrs.values())) if corrs else np.nan}
+           "max_abs_rank_corr": max(abs(v) for v in finite_corrs.values()) if finite_corrs else np.nan,
+           "correlation_split": "dev", "scope": "public-baseline novelty, not strategy combination"}
     try:
         r = evaluate_factor(resid, panel.open, panel.close, panel.mask, panel.funding,
                             horizons=(h,), cost_bps=cost_bps, splits=splits, entry_lag=entry_lag)
@@ -171,8 +230,6 @@ def _incremental(signal, panel, h, cost_bps, splits, entry_lag, metrics):
         res_ic = abs(float(rm[(rm.split == "dev") & (rm.h == h)].iloc[0]["ic_mean"]))
         net = rm[(rm.split == "val") & (rm.h == h)]
         net_val = float(net.iloc[0]["net_bp"])
-        if not np.isfinite(net_val):
-            net_val = float(net.iloc[0]["net_available_bp"])
         out["residual_ic_dev"] = res_ic
         out["retention"] = res_ic / base_ic if base_ic > 0 else np.nan
         out["residual_net_val"] = net_val
@@ -186,22 +243,26 @@ def _incremental(signal, panel, h, cost_bps, splits, entry_lag, metrics):
 def evaluate(factor, panel: Panel | None = None, *, name: str = "factor",
              horizons=HORIZONS, primary_h: int = PRIMARY_H, cost_bps: float = COST_BPS,
              splits=None, entry_lag: int = 2, calibration=None,
-             with_incremental: bool = True) -> Scorecard:
+             with_incremental: bool = True, trials_seen: int = 1,
+             with_diagnostics: bool = True, n_bootstrap: int = 100,
+             diagnostic_horizons=tuple(range(1, 61)), benchmark_symbol="BTCUSDT",
+             spread: pd.DataFrame | None = None) -> Scorecard:
     """Score one factor. ``factor`` is a callable ``Panel -> DataFrame`` or a DataFrame."""
     panel = panel if panel is not None else load_bundle()
     panel.validate()
-    if primary_h not in tuple(horizons):
+    horizons = tuple(horizons)
+    if isinstance(trials_seen, bool) or not isinstance(trials_seen, (int, np.integer)) or trials_seen < 1:
+        raise ValueError("trials_seen must be a positive integer counting all examined variants")
+    if primary_h not in horizons:
         horizons = tuple(sorted({*horizons, primary_h}))
     signal = _as_signal(factor, panel)
-    splits = splits or DEFAULT_SPLITS
+    splits = DEFAULT_SPLITS if splits is None else splits
+    if set(splits) != {"dev", "val", "oot"}:
+        raise ValueError("the scorecard requires exactly dev, val and oot splits")
     cal = calibration if isinstance(calibration, dict) else load_calibration(calibration)
-    if int(cal.get("primary_h", PRIMARY_H)) != int(primary_h) or abs(
-            float(cal.get("cost_bps", COST_BPS)) - float(cost_bps)) > 1e-9:
-        raise ValueError(
-            f"calibration is for h={cal.get('primary_h')} and cost={cal.get('cost_bps')} bp; "
-            f"you asked for h={primary_h} and cost={cost_bps} bp. Re-run "
-            "`python -m factor_eval calibrate` for this setting instead of comparing "
-            "against a noise floor that was measured elsewhere.")
+    validate_calibration(cal, panel, primary_h=primary_h, cost_bps=cost_bps,
+                         splits=splits, entry_lag=entry_lag)
+    causality = check_prefix_invariance(factor, panel, signal)
 
     result = evaluate_factor(signal, panel.open, panel.close, panel.mask, panel.funding,
                              horizons=tuple(horizons), cost_bps=cost_bps, splits=splits,
@@ -209,7 +270,7 @@ def evaluate(factor, panel: Panel | None = None, *, name: str = "factor",
     metrics, ic_table = result["metrics"], result["ic"]
     dev_row = metrics[(metrics.split == "dev") & (metrics.h == primary_h)]
     frozen_sign = float(dev_row.iloc[0]["sign"]) if not dev_row.empty else 1.0
-    structure = _structure(signal, panel, primary_h, entry_lag, frozen_sign)
+    structure = _structure(signal, panel, primary_h, entry_lag, frozen_sign, splits=splits)
     yearly = _yearly_ic(ic_table, primary_h)
     incremental = (_incremental(signal, panel, primary_h, cost_bps, splits, entry_lag, metrics)
                    if with_incremental else {})
@@ -223,9 +284,30 @@ def evaluate(factor, panel: Panel | None = None, *, name: str = "factor",
     }
     if with_incremental:
         gates["G5_incremental"] = gate_incremental(incremental)
+    gates["G0_data"].checks.append(causality)
     verdict, blocking = verdict_from(gates)
+    if trials_seen > 1 and verdict.startswith("PASS"):
+        verdict, blocking = "HOLD_SEARCH", [*blocking, "search_selection"]
+    diagnostics = (build_diagnostics(signal, panel, primary_h=primary_h, entry_lag=entry_lag,
+                                    splits=splits, sign=frozen_sign, metrics=metrics, periods=result["periods"],
+                                    cost_bps=cost_bps, gates=gates, trials_seen=trials_seen,
+                                    n_bootstrap=n_bootstrap, ftr_horizons=diagnostic_horizons,
+                                    benchmark_symbol=benchmark_symbol, spread=spread)
+                   if with_diagnostics else {})
     return Scorecard(name=name, verdict=verdict, blocking=blocking, gates=gates,
                      metrics=metrics, primary_h=primary_h, cost_bps=cost_bps,
                      panel_description=panel.describe(), structure=structure,
                      incremental=incremental, yearly_ic=yearly,
-                     config={**result["config"], "calibration": cal.get("source", str(calibration))})
+                     diagnostics=diagnostics,
+                     config={**result["config"], "calibration": cal.get("source", "custom calibration"),
+                             **_reproduction_identity(factor, signal, cal),
+                             "calibration_contract": calibration_contract(
+                                 panel, primary_h=primary_h, cost_bps=cost_bps, splits=splits, entry_lag=entry_lag),
+                             "trials_seen": int(trials_seen),
+                             "evaluation_scope": "single_factor_evaluation_matrix" if with_diagnostics else "six_gate_research_screen",
+                             "diagnostics_enabled": bool(with_diagnostics),
+                             "strategy_combination": "NOT_EVALUATED",
+                             "selection_caveat": panel.meta.get("selection_caveat", "universe provenance not supplied"),
+                             "holdout_status": "oot is a time split, not evidence of a sealed holdout",
+                             "funding_price_basis": "provided settlement reference; may include historical mark-open proxies",
+                             "capacity": "NOT_EVALUATED: no order-book depth or market-impact model"})

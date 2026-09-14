@@ -43,12 +43,11 @@ def look_ahead_trap(p):
     answer. It exists as the harness's own smoke test: if this ever stops posting
     an absurd IC, the measurement path has drifted.
 
-    Two things worth noticing when you run it. First, the IC is ~0.9 — an order of
-    magnitude above anything real in this universe, which is what a leak looks
-    like from the outside; be suspicious of your own factor long before that.
-    Second, ``p.close.shift(-1)`` — peeking one day ahead — does *not* light this
-    up, because the two-day entry lag has already walked past it. A leak only pays
-    if it reaches into the traded window, which is why the lag is not negotiable.
+    Its high IC is a measurement positive control, not a leakage detector.
+    G0 separately rejects it because truncating future panel rows changes past
+    signals. That check also rejects ``p.close.shift(-1)`` even when entry delay
+    removes any apparent profit from the leak. Sampled checks cannot certify
+    upstream data availability or future information hidden in external state.
     """
     h = 3
     return p.open.shift(-(2 + h)) / p.open.shift(-2) - 1.0

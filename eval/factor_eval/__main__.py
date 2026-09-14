@@ -23,6 +23,11 @@ if str(HERE.parent) not in sys.path:
 
 from factor_eval import evaluate, load_bundle          # noqa: E402
 from factor_eval.engine import DEFAULT_SPLITS, evaluate_factor   # noqa: E402
+from factor_eval.provenance import calibration_contract          # noqa: E402
+
+
+def _splits(args):
+    return json.loads(Path(args.splits).read_text()) if args.splits else DEFAULT_SPLITS
 
 
 def _load_callable(spec: str):
@@ -45,24 +50,41 @@ def _load_callable(spec: str):
 
 
 def cmd_score(args):
+    if args.quick and args.report_dir:
+        raise ValueError("--report-dir requires diagnostics; omit --quick")
     factor = _load_callable(args.factor)
     panel = load_bundle(args.bundle)
     card = evaluate(factor, panel, name=args.name or args.factor.rsplit(":", 1)[-1],
                     primary_h=args.h, cost_bps=args.cost,
+                    entry_lag=args.entry_lag, splits=_splits(args),
+                    calibration=args.calibration, trials_seen=args.trials_seen,
+                    with_diagnostics=not args.quick, n_bootstrap=args.bootstrap,
+                    benchmark_symbol=args.benchmark,
                     with_incremental=not args.skip_incremental)
     print(card)
     if args.markdown:
         Path(args.markdown).write_text(card.to_markdown())
         print(f"\nwrote {args.markdown}")
     if args.json:
-        Path(args.json).write_text(json.dumps(card.to_dict(), ensure_ascii=False, indent=2))
+        Path(args.json).write_text(json.dumps(card.to_dict(), ensure_ascii=False, indent=2, allow_nan=False))
         print(f"wrote {args.json}")
+    if args.report_dir:
+        from factor_eval.plots import render_diagnostics
+        paths = render_diagnostics(card, args.report_dir)
+        print(f"wrote {paths['html']}")
     return 0 if card.verdict.startswith("PASS") else 1
 
 
 def cmd_calibrate(args):
     """Re-measure the noise floor for a setting the shipped calibration does not cover."""
     panel = load_bundle(args.bundle)
+    if args.trials < 30:
+        raise ValueError("calibrate requires at least 30 trials; use 100 or more for a p95 screen")
+    if not np.isfinite(args.phi) or abs(args.phi) >= 1:
+        raise ValueError("AR(1) phi must be finite and strictly between -1 and 1")
+    splits = _splits(args)
+    contract = calibration_contract(panel, primary_h=args.h, cost_bps=args.cost,
+                                    splits=splits, entry_lag=args.entry_lag)
     rng = np.random.default_rng(args.seed)
     rows = []
     for k in range(args.trials):
@@ -73,7 +95,7 @@ def cmd_calibrate(args):
         sig = pd.DataFrame(x, index=panel.index, columns=panel.symbols).where(panel.mask)
         out = evaluate_factor(sig, panel.open, panel.close, panel.mask, panel.funding,
                               horizons=(args.h,), cost_bps=args.cost,
-                              splits=DEFAULT_SPLITS, entry_lag=2)
+                              splits=splits, entry_lag=args.entry_lag)
         rows.append(out["metrics"].assign(trial=k))
         if (k + 1) % 10 == 0:
             print(f"  {k + 1}/{args.trials}", flush=True)
@@ -81,7 +103,8 @@ def cmd_calibrate(args):
     cal = {"source": "recomputed by `python -m factor_eval calibrate`",
            "generator": f"AR(1) phi={args.phi} gaussian panels, dev-frozen sign, identical engine path",
            "trials": int(args.trials), "primary_h": int(args.h), "cost_bps": float(args.cost),
-           "pool": panel.meta.get("pool", "custom bundle"), "entry_lag": 2, "seed": int(args.seed)}
+           "pool": panel.meta.get("pool", "custom bundle"), "entry_lag": args.entry_lag,
+           "seed": int(args.seed), "contract": contract}
     for field in ("ic_mean", "icir", "ic_win", "ic_t_hac", "net_bp", "net_available_bp",
                   "sharpe_net", "turnover", "breakeven_cost_bps"):
         cal[field] = {}
@@ -102,7 +125,7 @@ def cmd_demo(args):
     print(f"panel: {panel.describe()}\n")
     for name in ex.DEMO:
         card = evaluate(getattr(ex, name), panel, name=name, with_incremental=not args.fast)
-        first = f" (first failure: {', '.join(card.blocking)})" if card.blocking else ""
+        first = f" (blocking/missing: {', '.join(card.blocking)})" if card.blocking else ""
         print(f"{name:22s} {card.verdict:17s}{first}")
     return 0
 
@@ -125,6 +148,14 @@ def main(argv=None):
     s.add_argument("--name", default=None)
     s.add_argument("--h", type=int, default=3, help="primary horizon in days")
     s.add_argument("--cost", type=float, default=6.5, help="one-way cost in bp")
+    s.add_argument("--calibration", help="matching calibration JSON from calibrate")
+    s.add_argument("--entry-lag", type=int, default=2)
+    s.add_argument("--splits", help="JSON mapping of dev/val/oot to [start, end]")
+    s.add_argument("--trials-seen", type=int, default=1, help="all variants examined before selecting this factor")
+    s.add_argument("--report-dir", help="write the complete matrix and offline diagnostic figures as HTML")
+    s.add_argument("--quick", action="store_true", help="six gates only; omit the full diagnostic matrix")
+    s.add_argument("--bootstrap", type=int, default=100, help="moving-block bootstrap draws per diagnostic")
+    s.add_argument("--benchmark", default="BTCUSDT", help="explicit benchmark symbol for residual targets")
     s.add_argument("--skip-incremental", action="store_true",
                    help="skip G5 (faster; the per-date projection is the slow part)")
     s.add_argument("--markdown", default=None)
@@ -135,6 +166,8 @@ def main(argv=None):
     c.add_argument("--trials", type=int, default=100)
     c.add_argument("--h", type=int, default=3)
     c.add_argument("--cost", type=float, default=6.5)
+    c.add_argument("--entry-lag", type=int, default=2)
+    c.add_argument("--splits", help="JSON mapping of dev/val/oot to [start, end]")
     c.add_argument("--phi", type=float, default=0.9)
     c.add_argument("--seed", type=int, default=20260910)
     c.add_argument("--out", default=str(HERE / "calibration" / "null_custom.json"))

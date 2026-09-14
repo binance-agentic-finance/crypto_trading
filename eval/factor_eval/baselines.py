@@ -33,7 +33,7 @@ def baseline_signals(panel) -> dict[str, pd.DataFrame]:
 
 def cross_sectional_rank(frame: pd.DataFrame, mask: pd.DataFrame) -> pd.DataFrame:
     """Percentile rank inside the eligible set, demeaned and unit-scaled per date."""
-    ranked = frame.where(mask).rank(axis=1, pct=True)
+    ranked = frame.replace([np.inf, -np.inf], np.nan).where(mask).rank(axis=1, pct=True)
     centred = ranked.sub(ranked.mean(axis=1), axis=0)
     return centred.div(centred.std(axis=1).replace(0, np.nan), axis=0)
 
@@ -46,6 +46,10 @@ def residualise(signal: pd.DataFrame, others: dict[str, pd.DataFrame],
     itself, how much of the ranking is not already the baselines?", which is the
     question the incremental gate asks. It is deliberately the *harsher* of the two
     readings — a frozen-coefficient projection leaves more residual.
+
+    A saturated fit has no residual degrees of freedom. An exactly replicated
+    signal also has no residual information. Both remain unavailable instead of
+    allowing later ranking to magnify floating-point roundoff into a new signal.
     """
     y = cross_sectional_rank(signal, mask)
     xs = [cross_sectional_rank(v, mask) for v in others.values()]
@@ -59,6 +63,17 @@ def residualise(signal: pd.DataFrame, others: dict[str, pd.DataFrame],
         if int(ok.sum()) < min_assets:
             continue
         A = np.column_stack([np.ones(int(ok.sum()))] + [c[ok].to_numpy() for c in cols])
-        beta, *_ = np.linalg.lstsq(A, yt[ok].to_numpy(), rcond=None)
-        resid.loc[t, ok[ok].index] = yt[ok].to_numpy() - A @ beta
+        target = yt[ok].to_numpy()
+        beta, _, rank, _ = np.linalg.lstsq(A, target, rcond=None)
+        if len(target) <= rank:
+            continue
+        error = target - A @ beta
+        # A backward-error scale accounts for both the target and the fitted
+        # projection, including an ill-conditioned design's larger coefficients.
+        scale = max(1.0, float(np.linalg.norm(target, ord=np.inf)),
+                    float(np.linalg.norm(A, ord=np.inf) * np.linalg.norm(beta, ord=np.inf)))
+        tolerance = 32 * np.finfo(float).eps * max(A.shape) * scale
+        if float(np.linalg.norm(error, ord=np.inf)) <= tolerance:
+            continue
+        resid.loc[t, ok[ok].index] = error
     return resid

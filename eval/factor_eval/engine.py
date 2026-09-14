@@ -35,6 +35,9 @@ DEFAULT_SPLITS = {
     "oot": ("2025-10-01", "2026-09-08"),
 }
 DAY = pd.Timedelta(days=1)
+# Change this whenever execution, weighting, funding, or missing-data semantics
+# change, so a calibration cannot silently cross incompatible engine contracts.
+ENGINE_PROTOCOL = "factor-eval/daily-closed-cycles-v3"
 PNL_FIELDS = (
     "gross", "long_gross", "short_gross", "trading_cost", "funding",
     "net_ex_funding", "net",
@@ -43,6 +46,8 @@ PNL_FIELDS = (
 
 def _utc(value):
     stamp = pd.Timestamp(value)
+    if pd.isna(stamp):
+        raise ValueError("Split boundaries must be finite timestamps")
     return stamp.tz_localize("UTC") if stamp.tzinfo is None else stamp.tz_convert("UTC")
 
 
@@ -51,7 +56,10 @@ def _split_bounds(splits):
         raise ValueError("splits must be a mapping containing 'dev'")
     result = {}
     for name, bounds in splits.items():
-        if len(bounds) != 2:
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("Split names must be nonempty strings")
+        if (isinstance(bounds, (str, bytes, Mapping)) or not hasattr(bounds, "__len__")
+                or not hasattr(bounds, "__getitem__") or len(bounds) != 2):
             raise ValueError("Each split requires (start, end)")
         start, end = _utc(bounds[0]), _utc(bounds[1])
         # Old-style YYYY-MM-DD ends include that calendar day, but not the
@@ -60,10 +68,14 @@ def _split_bounds(splits):
             end += DAY - pd.Timedelta(nanoseconds=1)
         if start > end:
             raise ValueError("Split start must not follow split end")
-        result[str(name)] = (start, end)
+        result[name] = (start, end)
     ordered = sorted(result.values())
     if any(right[0] <= left[1] for left, right in zip(ordered, ordered[1:])):
         raise ValueError("Splits must not overlap")
+    if result["dev"][0] != ordered[0][0]:
+        raise ValueError("The dev split must precede every evaluation split")
+    if "val" in result and "oot" in result and result["val"][0] > result["oot"][0]:
+        raise ValueError("The val split must precede the oot split")
     return result
 
 
@@ -78,7 +90,9 @@ def _panel(frame, index, columns, name, *, is_mask=False):
     result.index = result.index.tz_localize("UTC") if result.index.tz is None else result.index.tz_convert("UTC")
     result = result.reindex(index=index, columns=columns)
     if is_mask:
-        return result.fillna(False).astype(bool)
+        if result.isna().to_numpy().any() or not result.isin([False, True]).to_numpy().all():
+            raise ValueError(f"{name} must explicitly contain only booleans or 0/1 on the signal grid")
+        return result.astype(bool)
     return result.astype(float)
 
 
@@ -179,18 +193,23 @@ def evaluate_factor(signal, opens, closes, mask, funding=None, horizons=(1, 3, 5
         raise ValueError("The engine requires a complete daily UTC midnight grid")
     if not signal.columns.is_unique or not len(signal.columns):
         raise ValueError("signal requires unique, nonempty asset columns")
-    if not isinstance(entry_lag, (int, np.integer)) or entry_lag < 1:
+    if isinstance(entry_lag, (bool, np.bool_)) or not isinstance(entry_lag, (int, np.integer)) or entry_lag < 1:
         raise ValueError("entry_lag must be an integer >= 1")
     horizons = tuple(horizons)
-    if not horizons or any(not isinstance(h, (int, np.integer)) or h < 1 for h in horizons):
+    if not horizons or any(isinstance(h, (bool, np.bool_)) or not isinstance(h, (int, np.integer)) or h < 1 for h in horizons):
         raise ValueError("horizons must contain positive integers")
     if len(set(horizons)) != len(horizons):
         raise ValueError("horizons must be unique")
-    if not np.isfinite(cost_bps) or cost_bps < 0:
+    horizons = tuple(int(h) for h in horizons)
+    if isinstance(cost_bps, (bool, np.bool_)) or not np.isfinite(cost_bps) or cost_bps < 0:
         raise ValueError("cost_bps must be finite and nonnegative")
-    if min_assets < 2 or annualization <= 0:
-        raise ValueError("min_assets >= 2 and annualization > 0 are required")
-    if hac_lags is not None and (not isinstance(hac_lags, (int, np.integer)) or hac_lags < 0):
+    if (isinstance(min_assets, (bool, np.bool_)) or not isinstance(min_assets, (int, np.integer))
+            or min_assets < 2):
+        raise ValueError("min_assets must be an integer >= 2")
+    if isinstance(annualization, (bool, np.bool_)) or not np.isfinite(annualization) or annualization <= 0:
+        raise ValueError("annualization must be finite and positive")
+    if hac_lags is not None and (isinstance(hac_lags, (bool, np.bool_))
+                               or not isinstance(hac_lags, (int, np.integer)) or hac_lags < 0):
         raise ValueError("hac_lags must be a nonnegative integer")
 
     bounds = _split_bounds(DEFAULT_SPLITS if splits is None else splits)
@@ -201,6 +220,7 @@ def evaluate_factor(signal, opens, closes, mask, funding=None, horizons=(1, 3, 5
     eligible = _panel(mask, index, columns, "mask", is_mask=True).to_numpy()
     fund = None if funding is None else _panel(funding, index, columns, "funding").to_numpy()
     raw_weights, n_signal = _target_weights(sig, eligible, min_assets)
+    signal_complete = n_signal >= min_assets
     n_expected = eligible.sum(axis=1)
     sample_size, asset_count = sig.shape
     if fund is not None:
@@ -235,7 +255,7 @@ def evaluate_factor(signal, opens, closes, mask, funding=None, horizons=(1, 3, 5
             label_valid[in_split] = (in_panel & np.asarray((entry_times >= start) & (exit_times <= end)))[in_split]
         raw_ic[~label_valid] = np.nan
         dev_mean = _mean(raw_ic[split_names == "dev"])
-        direction_frozen = bool(np.isfinite(dev_mean))
+        direction_frozen = bool(np.isfinite(dev_mean) and dev_mean != 0)
         sign = -1 if direction_frozen and dev_mean < 0 else 1
         signed_ic = sign * raw_ic
         weights = sign * raw_weights
@@ -265,13 +285,14 @@ def evaluate_factor(signal, opens, closes, mask, funding=None, horizons=(1, 3, 5
             funding_paid = np.where(held, units * accumulated, 0.0).sum(axis=1)
             funding_paid[~funding_complete] = np.nan
         for values in (gross, long_gross, short_gross, exit_notional, turnover, trading_cost, funding_paid):
-            values[~price_complete | ~label_valid] = np.nan
+            values[~price_complete | ~label_valid | ~signal_complete] = np.nan
         net_ex_funding = gross - trading_cost
         net = net_ex_funding - funding_paid
         status = np.full(sample_size, "ok", dtype=object)
         status[~active] = "flat"
         status[active & ~funding_complete] = "missing_funding"
         status[active & ~price_complete] = "missing_price"
+        status[~signal_complete] = "missing_signal"
         status[~label_valid] = "purged_label"
         coverage = np.full(sample_size, np.nan)
         target_coverage = np.full(sample_size, np.nan)
@@ -286,6 +307,7 @@ def evaluate_factor(signal, opens, closes, mask, funding=None, horizons=(1, 3, 5
             "n_signal_assets": n_signal, "n_expected_assets": n_expected,
             "coverage": coverage, "target_coverage": target_coverage,
             "label_valid": label_valid,
+            "signal_complete": signal_complete,
         })
         ic_tables.append(ic_table.loc[ic_table.split != ""].reset_index(drop=True))
         period_table = pd.DataFrame({
@@ -293,6 +315,7 @@ def evaluate_factor(signal, opens, closes, mask, funding=None, horizons=(1, 3, 5
             "available_at": index + DAY, "entry_time": entry_times,
             "exit_time": exit_times, "sign": sign, "status": status,
             "label_valid": label_valid, "active": active,
+            "signal_complete": signal_complete,
             "price_complete": price_complete, "funding_complete": funding_complete,
             "n_positions": held.sum(axis=1), "entry_notional": entry_notional,
             "exit_notional": exit_notional, "turnover": turnover,
@@ -329,7 +352,8 @@ def evaluate_factor(signal, opens, closes, mask, funding=None, horizons=(1, 3, 5
                 "mean_ic_assets": _mean(n_label[valid_dates]),
                 "n_periods": len(cycles), "n_purged": len(cycles_all) - len(cycles),
                 "n_active": int(cycles.active.sum()),
-                "n_flat": int((~cycles.active).sum()),
+                "n_flat": int((~cycles.active & cycles.signal_complete).sum()),
+                "n_missing_signal": int((~cycles.signal_complete).sum()),
                 "n_invalid_price": int((~cycles.price_complete).sum()),
                 "n_missing_funding": int((cycles.active & ~cycles.funding_complete).sum()),
                 "n_complete": int(np.isfinite(cycles.net).sum()),
@@ -360,7 +384,8 @@ def evaluate_factor(signal, opens, closes, mask, funding=None, horizons=(1, 3, 5
         "ic": pd.concat(ic_tables, ignore_index=True),
         "periods": pd.concat(period_tables, ignore_index=True),
         "config": {
-            "version": "v2_closed_cycles",
+            "version": "v3_closed_cycles",
+            "engine_protocol": ENGINE_PROTOCOL,
             "bar": "1d", "timezone": "UTC", "entry_lag": int(entry_lag),
             "additional_wait_days_after_bar_close": int(entry_lag - 1),
             "horizons": list(horizons), "cost_bps_one_way": float(cost_bps),
@@ -375,8 +400,9 @@ def evaluate_factor(signal, opens, closes, mask, funding=None, horizons=(1, 3, 5
             "funding_supplied": funding is not None,
             "incomplete_pnl": "whole held-position cycle invalid; official split means require all cycles; available fields are partial diagnostics",
             "flat_cycles": "included with zero PnL and zero current-cycle cost; prior cycle already pays its full exit",
+            "missing_signal": "fewer than min_assets finite eligible signals is unknown PnL, never a flat zero-return cycle",
             "direction": "sign of dev mean raw RankIC separately for each horizon; exploratory horizon-specific selection",
-            "missing_dev_direction": "sign +1 placeholder with direction_frozen=False; no validated direction",
+            "missing_dev_direction": "missing or zero dev mean gives sign +1 placeholder with direction_frozen=False; no validated direction",
             "ic": "per-date Spearman versus forward log returns; report valid-pair coverage",
             "hac": "Bartlett on regular time grids; missing date gaps retained; not a guaranteed conservative bound",
             "splits": {name: [start.isoformat(), end.isoformat()] for name, (start, end) in bounds.items()},
