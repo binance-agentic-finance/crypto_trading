@@ -114,3 +114,11 @@ eval/alpha101_crypto/results/incremental_*/periods_*.parquet
 eval/alpha101_crypto/results/incremental_*/*.pkl.gz
 eval/alpha101_crypto/results/incremental_*/ic_*.parquet
 eval/alpha101_crypto/results/incremental_*/*.csv.gz
+
+# Factor-evaluation reports are generated locally.
+/eval/REVIEW.md
+/eval/factor_eval/examples/example_card.md
+/eval/factor_eval/examples/report/
+/eval/report/
+/eval/card*.md
+/eval/card*.json

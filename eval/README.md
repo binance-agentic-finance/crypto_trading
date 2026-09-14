@@ -2,7 +2,7 @@
 
 给一个因子，输出**六道裁决闸门、14 维证据矩阵、四种收益目标和八组诊断图**，回答它在当前数据与评估约定下的信息强度、关系形态、净收益、稳健性、基线重复性，以及失败或缺证的位置。
 
-这是两阶段研究的第一步：**筛选和诊断单因子**。第二步才是组合因子、分配风险、设计仓位和执行规则，再验证策略收益。`PASS` 表示通过这张研究卡；组合策略在输出中始终标为 `NOT_EVALUATED`，不代表实盘许可或未来收益保证。本轮审查及待补证据见 [REVIEW.md](REVIEW.md)。
+这是两阶段研究的第一步：**筛选和诊断单因子**。第二步才是组合因子、分配风险、设计仓位和执行规则，再验证策略收益。`PASS` 表示通过这张研究卡；组合策略在输出中始终标为 `NOT_EVALUATED`，不代表实盘许可或未来收益保证。
 
 ```bash
 cd eval
@@ -25,7 +25,7 @@ from factor_eval.plots import render_diagnostics
 render_diagnostics(card, "report")           # HTML、8 组 PNG、JSON 和 Markdown
 ```
 
-默认面板和标定文件随仓库提供，安装依赖后可离线运行。完整示例见 [离线报告](factor_eval/examples/report/index.html) 与 [示例卡片](factor_eval/examples/example_card.md)；浏览 HTML 时保留同目录 PNG。默认 `evaluate()` 和 `score` 都计算完整诊断，`--report-dir` 负责生成可分享的图表文件。`score` 在 `PASS` 或 `PASS_CONDITIONAL` 时返回 0，其余研究裁决返回 1；报告仍会正常写出。自动流程应读取具体裁决和闸门，不能把退出码当成交易许可。
+默认面板和标定文件随仓库提供，安装依赖后可离线运行。报告由上述命令在本地生成，不纳入版本管理；浏览 HTML 时保留同目录 PNG。默认 `evaluate()` 和 `score` 都计算完整诊断，`--report-dir` 负责生成图表文件。`score` 在 `PASS` 或 `PASS_CONDITIONAL` 时返回 0，其余研究裁决返回 1；报告仍会正常写出。自动流程应读取具体裁决和闸门，不能把退出码当成交易许可。
 
 ## 一、14 维评估矩阵
 
@@ -213,7 +213,7 @@ BTC · ETH · SOL · ZEC · XRP · HYPE · DOGE · BNB · TRUMP · ENA
 python eval/factor_eval/build_bundle.py --pool historical --out my_bundle.parquet
 ```
 
-获取快照的方法见 [参考研究 README](alpha101_crypto/README.md)。新面板需重新标定。扩大历史时点标的池、引入真正封存的验证窗口、补充搜索校正和容量估计，仍是第一阶段的重要增强，详见 [审查报告](REVIEW.md)。
+获取快照的方法见 [参考研究 README](alpha101_crypto/README.md)。新面板需重新标定。扩大历史时点标的池、引入真正封存的验证窗口、补充搜索校正和容量估计，仍是第一阶段需要补充的证据。
 
 ## 七、目录与验证
 
@@ -226,10 +226,9 @@ python eval/factor_eval/build_bundle.py --pool historical --out my_bundle.parque
 | `factor_eval/matrix.py` | 检查、门槛来源与裁决 |
 | `factor_eval/targets.py` / `statistics.py` | 四目标、共同样本、日期等权关系及块 bootstrap/HAC |
 | `factor_eval/diagnostics.py` / `plots.py` | 14 维证据盘点、八组离线图与报告 |
-| `factor_eval/examples/report/` | 可复核的示例 HTML、图像及卡片 |
+| `factor_eval/examples/example_factors.py` | 可直接运行的示例因子 |
 | `factor_eval/data/` / `calibration/` | 默认面板、来源元数据和随机信号标定 |
 | `alpha101_crypto/` | Alpha101 参考研究及其历史实验结果 |
-| `REVIEW.md` | 本轮确认修复与后续证据需求 |
 
 `alpha101_crypto/` 是框架的参考研究，既有 [REPORT.md](alpha101_crypto/REPORT.md) 及结果文件保留其原实验口径。本轮框架修复不表示重新完成了整套 Alpha101 实验；需要重跑时应明确记录新引擎、数据与标定版本。
 
