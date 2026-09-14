@@ -97,3 +97,20 @@ docs/capability_audit_*.md
 
 # PyPI API token handed over for the 0.1.13 release —— 不要提交
 token.md
+
+# eval/:原始行情快照與大型中間結果。653 個合約的日線 + 41 萬條資金費事件約 168 MB,
+# 四組逐周期明細 + IC 面板 + 因子快取約 180 MB —— 全部可用 eval/alpha101_crypto/acquire_data.py
+# 與 run_pipeline.py 重新產生。追蹤的是**結論**(metrics_/summary_/null_ 小表、圖、
+# manifest 與 sha256 清單),不是輸入。重跑會得到新的快照,不保證與本版逐位元相同。
+eval/alpha101_crypto/data/daily/
+eval/alpha101_crypto/data/funding/
+eval/alpha101_crypto/data/funding_raw/
+eval/alpha101_crypto/data/funding_mark_klines/
+eval/alpha101_crypto/data/exchange_info.json
+eval/alpha101_crypto/results/periods_*.parquet
+eval/alpha101_crypto/results/ic_*.parquet
+eval/alpha101_crypto/results/factors_*.pkl.gz
+eval/alpha101_crypto/results/incremental_*/periods_*.parquet
+eval/alpha101_crypto/results/incremental_*/*.pkl.gz
+eval/alpha101_crypto/results/incremental_*/ic_*.parquet
+eval/alpha101_crypto/results/incremental_*/*.csv.gz

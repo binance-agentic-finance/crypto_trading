@@ -1,0 +1,5226 @@
+[
+  {
+    "symbol": "0GUSDT",
+    "status": "ok",
+    "rows": 358,
+    "first": "2025-09-17 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "72b8510204ec100fb4b5d128629f8528c40ab96286fa3703d0fc96136091efeb"
+  },
+  {
+    "symbol": "1000000MOGUSDT",
+    "status": "ok",
+    "rows": 672,
+    "first": "2024-11-07 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "2eca1462019e01d58b055ed48ce2ec2946f21d1ce82396318f88f569073075e5"
+  },
+  {
+    "symbol": "1000000BOBUSDT",
+    "status": "ok",
+    "rows": 462,
+    "first": "2025-06-05 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "bc4b82f03e41732023be9e0d31729fdeed6e7661fe4d387069004ded5ee4fc2d"
+  },
+  {
+    "symbol": "1000CATUSDT",
+    "status": "ok",
+    "rows": 689,
+    "first": "2024-10-21 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "cac1397c42d6bf431663fcfa45e921379db58fc95e58665e0cb07f6c0d7ed8cd"
+  },
+  {
+    "symbol": "1000CHEEMSUSDT",
+    "status": "ok",
+    "rows": 654,
+    "first": "2024-11-25 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "e16ff4682d5c728c841818147c301ff218179048d63892013d0864ada3471050"
+  },
+  {
+    "symbol": "1000BONKUSDT",
+    "status": "ok",
+    "rows": 1023,
+    "first": "2023-11-22 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "caf3abf0153490d04cc4842dbc26f743dfc52419185290edf731495b0e79d753"
+  },
+  {
+    "symbol": "1000RATSUSDT",
+    "status": "ok",
+    "rows": 1000,
+    "first": "2023-12-15 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "72a89048f6eaea3c31ae5487986e49e1a117eb77bf2d412f92f4d4714ac94a24"
+  },
+  {
+    "symbol": "1000FLOKIUSDT",
+    "status": "ok",
+    "rows": 1223,
+    "first": "2023-05-06 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "cf5ed595fc91077e9353b7a4214aa4591575d8f6809f34e8e11388628ad17d3a"
+  },
+  {
+    "symbol": "1000LUNCUSDT",
+    "status": "ok",
+    "rows": 1462,
+    "first": "2022-09-09 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "578e0894a655e4e2053cf42212925bbd0bb57996da8ccdf992ec4ce01fc243dd"
+  },
+  {
+    "symbol": "1000PEPEUSDT",
+    "status": "ok",
+    "rows": 1224,
+    "first": "2023-05-05 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "d2102c535029529145cf913d070202a2441d4bcf42c12f16b6c34be089645016"
+  },
+  {
+    "symbol": "1000WHYUSDT",
+    "status": "ok",
+    "rows": 654,
+    "first": "2024-11-25 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "2e7d4f033c2a7fbe810d046aac92c7b17c9ebf241fe8c320771cef6fbde233a4"
+  },
+  {
+    "symbol": "1000SATSUSDT",
+    "status": "ok",
+    "rows": 1003,
+    "first": "2023-12-12 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "06d6821a916029a3b0f57d65a9cf95e26198fdf0f8c4febda0997354efe977c3"
+  },
+  {
+    "symbol": "1000XUSDT",
+    "status": "ok",
+    "rows": 666,
+    "first": "2024-11-13 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "0fdd07a91cc71de82651cee21e6345f17d9d4684c872c1bba3c401c719f2427e"
+  },
+  {
+    "symbol": "1000SHIBUSDT",
+    "status": "ok",
+    "rows": 1949,
+    "first": "2021-05-10 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "936c11bcf30e84dabcb3a9bef27001e7f6afd6e2766599c798955c8a5be67679"
+  },
+  {
+    "symbol": "1000XECUSDT",
+    "status": "ok",
+    "rows": 1819,
+    "first": "2021-09-17 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "83016f1175589407c82779ce932f0566dd358f9f8e0c279f70c361245783f2d4"
+  },
+  {
+    "symbol": "1MBABYDOGEUSDT",
+    "status": "ok",
+    "rows": 724,
+    "first": "2024-09-16 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "f41f3d00462467b38bbeb52db3d80c4ca3f1821f1a2c851d74c3d9d7dfb54e9e"
+  },
+  {
+    "symbol": "2ZUSDT",
+    "status": "ok",
+    "rows": 343,
+    "first": "2025-10-02 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "af5ffe3f3e3ebcf91e0c2c0b2b954175569b8539525cab713675f154cb9ab3d7"
+  },
+  {
+    "symbol": "42USDT",
+    "status": "ok",
+    "rows": 318,
+    "first": "2025-10-27 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "af410424aad7eedada0818b83f88dbccefe7abf5a7a745a6c76fc0d56b90706d"
+  },
+  {
+    "symbol": "4USDT",
+    "status": "ok",
+    "rows": 337,
+    "first": "2025-10-08 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "4799c1b7cbe7acfa24da7c783932c928e4ef96c454bd5289fddbf3c6b0853413"
+  },
+  {
+    "symbol": "A2ZUSDT",
+    "status": "ok",
+    "rows": 407,
+    "first": "2025-07-30 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "1d3cce021a3013d27866625b6224befbb5839fdb924f5a92f33dba084f9c0e10"
+  },
+  {
+    "symbol": "1INCHUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "fa56194af03ffaf1db4dcac9c2413742cc018063127ae928c4e5cabf48e5f2f5"
+  },
+  {
+    "symbol": "ACEUSDT",
+    "status": "ok",
+    "rows": 997,
+    "first": "2023-12-18 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "dfaef992c7052dd64b9e9703a751f97110872c3f0590d8741f4b1a9bb857afc7"
+  },
+  {
+    "symbol": "ACTUSDT",
+    "status": "ok",
+    "rows": 668,
+    "first": "2024-11-11 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "e2f857f0cb32948d756bdbd49a0b319c0ce5e187138f39bda02f8d033da5fee0"
+  },
+  {
+    "symbol": "ACUUSDT",
+    "status": "ok",
+    "rows": 232,
+    "first": "2026-01-21 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "684032e7219d3bb590b3b6915dff9aaaf7f02f9d70ccab35084f6ca49347a4ae"
+  },
+  {
+    "symbol": "ACXUSDT",
+    "status": "ok",
+    "rows": 643,
+    "first": "2024-12-06 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "001b6c3a518dea9930d94c30866b4a89e02b8c1498d75ac18e2480a565d42b14"
+  },
+  {
+    "symbol": "ACHUSDT",
+    "status": "ok",
+    "rows": 1296,
+    "first": "2023-02-22 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "25caac67fec66f462c4ac9fe32a9daf4ceec1539fb2486f939d62d81bb8b77aa"
+  },
+  {
+    "symbol": "AAVEUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "bb097e3bead2427547a9cc968ccd535dcd9c76c82a0ce764dbed79505fd44052"
+  },
+  {
+    "symbol": "AEROUSDT",
+    "status": "ok",
+    "rows": 645,
+    "first": "2024-12-04 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "ce8a7dc99920edaedffeda611d4bbdbd45a8de4f7854177a97dc055d3c4fc038"
+  },
+  {
+    "symbol": "AEVOUSDT",
+    "status": "ok",
+    "rows": 911,
+    "first": "2024-03-13 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "7f584597259247724f8d2bcca7d7c2ef1bd75567c6c99e466001e865bcefd855"
+  },
+  {
+    "symbol": "AGIXUSDT",
+    "status": "ok",
+    "rows": 1302,
+    "first": "2023-02-16 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "dffc9c539011c77f7c059e450d0291955303ac6f114577faa01e869fb2936fa3"
+  },
+  {
+    "symbol": "AGTUSDT",
+    "status": "ok",
+    "rows": 478,
+    "first": "2025-05-20 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "641275890441cafd9b5937a622bab3825a4f58dc91713915276d606a39113e8b"
+  },
+  {
+    "symbol": "ADAUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "5f24ad12bc94d45ccd1e02edf4639b16a60bac3f33f721e19e5ee7ad681a3fcc"
+  },
+  {
+    "symbol": "AI16ZUSDT",
+    "status": "ok",
+    "rows": 616,
+    "first": "2025-01-02 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "8500b8688ed6cbe1133ca99ca85b300e374a15569527862217eab6a0170e517b"
+  },
+  {
+    "symbol": "AGLDUSDT",
+    "status": "ok",
+    "rows": 1139,
+    "first": "2023-07-29 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "9bed1b8a7ad26a48b24b4d74154ccb06bb8c9992d5cf9249871984a5fa5eade4"
+  },
+  {
+    "symbol": "AIGENSYNUSDT",
+    "status": "ok",
+    "rows": 134,
+    "first": "2026-04-29 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "859d89297444c4f6ccc5957d0d8665443b03236f53a5df46158bc6baa6a032df"
+  },
+  {
+    "symbol": "AIAUSDT",
+    "status": "ok",
+    "rows": 233,
+    "first": "2026-01-20 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "bb6897309cba626e3d99d4c9f9e55c610949cffbfc210a8196ce70a0495525bc"
+  },
+  {
+    "symbol": "AIOUSDT",
+    "status": "ok",
+    "rows": 393,
+    "first": "2025-08-13 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "cdfa98a05d0a17c6f071e8acbc3d3a435f75c29f7ea08e042b8906a870707d69"
+  },
+  {
+    "symbol": "AINUSDT",
+    "status": "ok",
+    "rows": 427,
+    "first": "2025-07-10 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "043d49fe7d0a9e6de99ea514f6e91855776f131d34fc532821cd9ba8e485c30d"
+  },
+  {
+    "symbol": "AIOTUSDT",
+    "status": "ok",
+    "rows": 498,
+    "first": "2025-04-30 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "e6fed7f8c52e332e74e9da1bf2bd8fa004b9f771b9a2e1fe24cc5e331e2997a9"
+  },
+  {
+    "symbol": "AIUSDT",
+    "status": "ok",
+    "rows": 976,
+    "first": "2024-01-08 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "2ae0f383bcb18cb70b8f6b5f358db1da4124c2262f82de98b79d284119c6eed5"
+  },
+  {
+    "symbol": "AKEUSDT",
+    "status": "ok",
+    "rows": 349,
+    "first": "2025-09-26 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "9e77b0dc28de98f5d91042cc877d8de28fd61a377d89fd37b273e966b2beee0f"
+  },
+  {
+    "symbol": "AIXBTUSDT",
+    "status": "ok",
+    "rows": 629,
+    "first": "2024-12-20 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "87a24b30e0226b81a2a0032b096778c0cf051e4269f9cce6a2448a66f5bca9da"
+  },
+  {
+    "symbol": "AKTUSDT",
+    "status": "ok",
+    "rows": 661,
+    "first": "2024-11-18 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "31717dd34590c0924762d6d1fff3ae144d8418c0503bdd2c7d2aa0d1ea8a907a"
+  },
+  {
+    "symbol": "ALCHUSDT",
+    "status": "ok",
+    "rows": 611,
+    "first": "2025-01-07 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "3e1a6f40171ed2be2f0460dd90e9c4a405003c7ce8e2c8d6920ab1a26d36c9d2"
+  },
+  {
+    "symbol": "ALLOUSDT",
+    "status": "ok",
+    "rows": 303,
+    "first": "2025-11-11 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "12b5993a66672829ac4443a6c4ca02681f88503bf5e22a38b4de19ac73f47596"
+  },
+  {
+    "symbol": "ALPACAUSDT",
+    "status": "ok",
+    "rows": 749,
+    "first": "2024-08-22 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "9db5f1a2cd11a9ad3cbae991e8d534c560cd625534ef4d32a88aabfa2c0a111c"
+  },
+  {
+    "symbol": "ALPINEUSDT",
+    "status": "ok",
+    "rows": 492,
+    "first": "2025-05-06 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "c92dcf9e4b3889ff0595dbc57f26699349718ecc10c0c4e45cd021b48c61cc74"
+  },
+  {
+    "symbol": "ALGOUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "0e721aeef71ba262e1161040a420646bda5701ef124fe3167e9d04bfdbd13c60"
+  },
+  {
+    "symbol": "ALICEUSDT",
+    "status": "ok",
+    "rows": 2004,
+    "first": "2021-03-16 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "b69096b470919295ce63e52bcccf9efe943d268e5bc9d262ff5a51296a4e1482"
+  },
+  {
+    "symbol": "ALTUSDT",
+    "status": "ok",
+    "rows": 959,
+    "first": "2024-01-25 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "62d9498969d5b0f569f68ff543bcd45770677a0e98a171dbde1546e7c8b4e880"
+  },
+  {
+    "symbol": "ANIMEUSDT",
+    "status": "ok",
+    "rows": 595,
+    "first": "2025-01-23 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "e719f2c9bd199b5e7a16114a4574de0835a007ac8cf5e9e84902f5de5814a39a"
+  },
+  {
+    "symbol": "ALPHAUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "50c2cfafe7df4e3120ddc0633b7e11493fcd296928c6309db032ef2ed2bd31b3"
+  },
+  {
+    "symbol": "AMBUSDT",
+    "status": "ok",
+    "rows": 1260,
+    "first": "2023-03-30 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "7d7f0583bca749432d389858c097e2c0fb1c65d3aed72b993968849b68a941e2"
+  },
+  {
+    "symbol": "APRUSDT",
+    "status": "ok",
+    "rows": 322,
+    "first": "2025-10-23 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "2c921448c98ae03e110a8eede5f5e3815b5a6ffa804e6b118c3efc6b62d44ee5"
+  },
+  {
+    "symbol": "APEUSDT",
+    "status": "ok",
+    "rows": 1638,
+    "first": "2022-03-17 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "88e861cb8c6825b42a4532f26182e61fcb3c99ed88bbaa14280ae68c353e054c"
+  },
+  {
+    "symbol": "API3USDT",
+    "status": "ok",
+    "rows": 1661,
+    "first": "2022-02-22 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "f2377e32a9a145cb97d50d0df916deacc822ed1c6fb6ee35f526acf4bec22658"
+  },
+  {
+    "symbol": "ANKRUSDT",
+    "status": "ok",
+    "rows": 2053,
+    "first": "2021-01-26 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "8946098254db0ee5471f5ae96f9ee4daef88210202ffdf805bb22e58e5947111"
+  },
+  {
+    "symbol": "ARIAUSDT",
+    "status": "ok",
+    "rows": 372,
+    "first": "2025-09-03 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "8ed0c6986a28df7977aabe1c0673fa2e5896546fa80a23f0d88800b849426cd4"
+  },
+  {
+    "symbol": "ARCUSDT",
+    "status": "ok",
+    "rows": 601,
+    "first": "2025-01-17 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "335e893b2ae24d159151a533f94870f204b8f1bf83f5df26563ad597e7528114"
+  },
+  {
+    "symbol": "APTUSDT",
+    "status": "ok",
+    "rows": 1422,
+    "first": "2022-10-19 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "1311e28bb89c3db88f53d944f5fbc0621bf794e298870ba96a6bc72c2b851009"
+  },
+  {
+    "symbol": "ARBUSDT",
+    "status": "ok",
+    "rows": 1267,
+    "first": "2023-03-23 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "41ea2627fee80eaea0c06364e664a9308c2f68adc328bd8c88dfe26765e37da2"
+  },
+  {
+    "symbol": "ARKMUSDT",
+    "status": "ok",
+    "rows": 1140,
+    "first": "2023-07-28 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "b468289d93ef135be4d0393d7b350c93ec3b2bb2ff2db0fde63c38fe1ead222b"
+  },
+  {
+    "symbol": "ARKUSDT",
+    "status": "ok",
+    "rows": 1087,
+    "first": "2023-09-19 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "a288c652f42049d1433fb51dbd4b45d43a5256fe71d25ecf024041e78c20c145"
+  },
+  {
+    "symbol": "ARXUSDT",
+    "status": "ok",
+    "rows": 79,
+    "first": "2026-06-23 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "c8c28fc4911bdb077d68299c50953e7d664f89e4f4b7c9622ba8cb5c5a8ec247"
+  },
+  {
+    "symbol": "ARPAUSDT",
+    "status": "ok",
+    "rows": 1787,
+    "first": "2021-10-19 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "88bba7c0b9e3e41516382e35a902142686aa920ecd53d3ccc676c81ef429f151"
+  },
+  {
+    "symbol": "ASRUSDT",
+    "status": "ok",
+    "rows": 492,
+    "first": "2025-05-06 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "378aea9a6a8962e99f42318ce217902351a757de3ba5586d38bdf00bd379e124"
+  },
+  {
+    "symbol": "ASTERUSDT",
+    "status": "ok",
+    "rows": 356,
+    "first": "2025-09-19 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "a0c0d766d52f1f4bbf06c844457e96c263e9365a37c195fb3a4ab68b0b89b8c9"
+  },
+  {
+    "symbol": "ATHUSDT",
+    "status": "ok",
+    "rows": 526,
+    "first": "2025-04-02 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "92c73713bff2d597da449150d8d53790e3774de0f8c3151a8abccd41bf7ce8ec"
+  },
+  {
+    "symbol": "ASTRUSDT",
+    "status": "ok",
+    "rows": 1304,
+    "first": "2023-02-14 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "138aa9f0b3d6c8caa4f0d1143004c2a5e9f56efc1c623197246c7954f30f9c93"
+  },
+  {
+    "symbol": "ATAUSDT",
+    "status": "ok",
+    "rows": 1836,
+    "first": "2021-08-31 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "9fa1c7d0516137d86a02c162c4ff5451bab1735b474d297ed5a57c5f9b0fe43e"
+  },
+  {
+    "symbol": "ATUSDT",
+    "status": "ok",
+    "rows": 316,
+    "first": "2025-10-29 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "4c768fc755572f3429a4ef6d337e89deadfb392cfa441db662a3ece069c14b06"
+  },
+  {
+    "symbol": "AUSDT",
+    "status": "ok",
+    "rows": 470,
+    "first": "2025-05-28 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "afe4dca0223e964901d70d266f810ea5d9b80045de2d790d47ce0283324ee42b"
+  },
+  {
+    "symbol": "AUCTIONUSDT",
+    "status": "ok",
+    "rows": 1000,
+    "first": "2023-12-15 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "a574643b246ad1bc155fd68591cecbe18d56a3df52e1f9906852750b5d90f587"
+  },
+  {
+    "symbol": "AVAAIUSDT",
+    "status": "ok",
+    "rows": 601,
+    "first": "2025-01-17 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "1d00018f9b2a712b48027c4238c1571c6a29b894b4efc4d0615b6f8d1f88b77a"
+  },
+  {
+    "symbol": "AVAUSDT",
+    "status": "ok",
+    "rows": 636,
+    "first": "2024-12-13 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "999f951be0f7a55f7d95072effe0078b3c330762c09d13cd2e04fb7ee587e331"
+  },
+  {
+    "symbol": "ATOMUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "0b5f17e2aeb722d5590e71fe9f16360ddfca6c048fe4d8baff2cffae9415867e"
+  },
+  {
+    "symbol": "AVNTUSDT",
+    "status": "ok",
+    "rows": 366,
+    "first": "2025-09-09 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "c8c1fc7d5c8f83915a89786669dc84581b2f5ec01fc513a559b8dd497374597a"
+  },
+  {
+    "symbol": "AWEUSDT",
+    "status": "ok",
+    "rows": 477,
+    "first": "2025-05-21 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "589ef555cade0e567f97dec22d95e02321a61696a6204d63ab34d293fa468c68"
+  },
+  {
+    "symbol": "AXLUSDT",
+    "status": "ok",
+    "rows": 923,
+    "first": "2024-03-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "518c3854cda1a9d22adba3cde59e9a48cb9b56bc3e3dd768075f783ede86b4ea"
+  },
+  {
+    "symbol": "AVAXUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "a6ce3e7392179699382de332249d1fe5dabfb8d582cf09a6651efdc3a8453b5f"
+  },
+  {
+    "symbol": "AZTECUSDT",
+    "status": "ok",
+    "rows": 211,
+    "first": "2026-02-11 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "221e5f2b56e85615a1c738695784b5ea2b207eefbaa39e03b7b99213779ce623"
+  },
+  {
+    "symbol": "B2USDT",
+    "status": "ok",
+    "rows": 492,
+    "first": "2025-05-06 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "2cd3f6189852743a37675a9dc814bea65053869363b01a887b5ccbe4d4f94093"
+  },
+  {
+    "symbol": "B3USDT",
+    "status": "ok",
+    "rows": 574,
+    "first": "2025-02-13 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "d22b6388dedaa16502a8454f83483b81a76f99eca7d111b1cf434d94b87f6c0d"
+  },
+  {
+    "symbol": "BABYUSDT",
+    "status": "ok",
+    "rows": 523,
+    "first": "2025-04-05 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "1f8393dff3594ba3618288b44f2a2e289be3077ef5475565a39f7e1e9346e545"
+  },
+  {
+    "symbol": "AXSUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "d4d4d2a9c9a9a8ee8bc2025c2e1925a8aca7e7d34df0f831f1814d57383e6e9b"
+  },
+  {
+    "symbol": "BADGERUSDT",
+    "status": "ok",
+    "rows": 1036,
+    "first": "2023-11-09 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "dcf33b17ae20ce806243cea0a488a5c71f91c48478a3191776cc7a9438fb8a98"
+  },
+  {
+    "symbol": "BANANAS31USDT",
+    "status": "ok",
+    "rows": 537,
+    "first": "2025-03-22 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "82e538f475d74e514d6dd649fdcaa714ded799a2560718e8500fa1bbb0fbd074"
+  },
+  {
+    "symbol": "BAKEUSDT",
+    "status": "ok",
+    "rows": 1940,
+    "first": "2021-05-19 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "47a5a4b553f08c8e97208274d74b5a44575f0432548c76165ad420ceb38aa13a"
+  },
+  {
+    "symbol": "BANANAUSDT",
+    "status": "ok",
+    "rows": 756,
+    "first": "2024-08-15 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "70cbd3c6b5799cf24bdec9934a57b221b259d306631b9bbe307397032bb15c18"
+  },
+  {
+    "symbol": "BALUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "33164106af38e1dff55461b01a9eced9ac85682993e42df8dd33deeba9421c56"
+  },
+  {
+    "symbol": "BANKUSDT",
+    "status": "ok",
+    "rows": 510,
+    "first": "2025-04-18 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "7471ff3452e0502548d6b10c66dd77cee4ed7cf1b686bf4036ee23eeacb31937"
+  },
+  {
+    "symbol": "BANUSDT",
+    "status": "ok",
+    "rows": 661,
+    "first": "2024-11-18 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "6032e3dc5d54ad96eb4decddb19b41f7a5dbb7accf6b9a7df5d2e553a338e1ec"
+  },
+  {
+    "symbol": "BARDUSDT",
+    "status": "ok",
+    "rows": 357,
+    "first": "2025-09-18 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "51ddfe592cb58d752d6e1004cae464b630894fef18ee29d47ac19b04948dc1be"
+  },
+  {
+    "symbol": "BANDUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "77495d4c33d3d17a73f43d15a6bb32edfe551418e3ed50623640b815c0ee194e"
+  },
+  {
+    "symbol": "BASEDUSDT",
+    "status": "ok",
+    "rows": 164,
+    "first": "2026-03-30 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "194b4c16959b2a986b43f3335eff153c9042aef5ebdf8e473b281fa05d20b311"
+  },
+  {
+    "symbol": "BASUSDT",
+    "status": "ok",
+    "rows": 380,
+    "first": "2025-08-26 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "27fa4530735573e6cb6e0521d0d933a94372e2568106c744ab543a1e0faff8ed"
+  },
+  {
+    "symbol": "BBUSDT",
+    "status": "ok",
+    "rows": 850,
+    "first": "2024-05-13 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "0276a0814b636a186522647aa24a6841bd64e07fb5b7d1060e410c5126077360"
+  },
+  {
+    "symbol": "BATUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "aba7c9f7e7cf793aa67e8c15b5e22309b9d6d2edbf6db6db962b77b1fe2f58bb"
+  },
+  {
+    "symbol": "BEAMXUSDT",
+    "status": "ok",
+    "rows": 1028,
+    "first": "2023-11-17 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "9081a7c1d9ffc2dfb9c97bf01a5cd66e0572436a8d56973eb901e5c6c9f41826"
+  },
+  {
+    "symbol": "BCHUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "1e2d6779207af1574a21389d44962312ba8c59f2886f36d220188700d709b079"
+  },
+  {
+    "symbol": "BEATUSDT",
+    "status": "ok",
+    "rows": 302,
+    "first": "2025-11-12 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "47e31d256ae30ee473a273a8199b6072122100a58740e3c2a3fb9bd6de8f5d26"
+  },
+  {
+    "symbol": "BERAUSDT",
+    "status": "ok",
+    "rows": 581,
+    "first": "2025-02-06 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "40e55d86e758a9944eea0b83d26ec7cfb1ed0b14cb29a0b2e78503c8fe5170b3"
+  },
+  {
+    "symbol": "BIDUSDT",
+    "status": "ok",
+    "rows": 539,
+    "first": "2025-03-20 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "9c9569b679729a8df7f2b835e2b93512154169d9a1ee214ed692170446a07069"
+  },
+  {
+    "symbol": "BELUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "376ecf29b5b8cb25c5c001d3ac9c2978d5c1494d3650fcaf8436f303079ca96b"
+  },
+  {
+    "symbol": "BICOUSDT",
+    "status": "ok",
+    "rows": 1078,
+    "first": "2023-09-28 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "f949b47deaa27900c6b1c36c61af46e9d5f641dc83230c4bed6e711498e5ef65"
+  },
+  {
+    "symbol": "BILLUSDT",
+    "status": "ok",
+    "rows": 126,
+    "first": "2026-05-07 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "7f5eadbff90c58f3cf0d3b44f2c1ded4d7850181a759d291d8ea005adc9fc9f2"
+  },
+  {
+    "symbol": "BIRBUSDT",
+    "status": "ok",
+    "rows": 224,
+    "first": "2026-01-29 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "bafe40a4c4c937eb7c01dc8e10fd0b148aefa7f7f1b15e7223716ba23c6d3cc7"
+  },
+  {
+    "symbol": "BIOUSDT",
+    "status": "ok",
+    "rows": 615,
+    "first": "2025-01-03 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "df46814c29fd81e8be2afb8f22b505e0ec4656638f9984f1052ced7392581d82"
+  },
+  {
+    "symbol": "BIGTIMEUSDT",
+    "status": "ok",
+    "rows": 1064,
+    "first": "2023-10-12 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "ebe08fe7751b63e5fe982a69822f2d9f56129509933467642298636712a4a16c"
+  },
+  {
+    "symbol": "BLESSUSDT",
+    "status": "ok",
+    "rows": 352,
+    "first": "2025-09-23 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "0e08c626a6b416e5cde2c86ab313ca06f9fd20e3584d23cf5b760aaea433454d"
+  },
+  {
+    "symbol": "BLUAIUSDT",
+    "status": "ok",
+    "rows": 324,
+    "first": "2025-10-21 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "0ef6156b1d912f604d5eb7ae8a5884133a5b8f388713cd662ec166e858cc621b"
+  },
+  {
+    "symbol": "BMTUSDT",
+    "status": "ok",
+    "rows": 542,
+    "first": "2025-03-17 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "4dee8667508cf36f07f7b0f457090ab8b915d1dea322f115c3a6ae619e494c7e"
+  },
+  {
+    "symbol": "BLURUSDT",
+    "status": "ok",
+    "rows": 1231,
+    "first": "2023-04-28 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "c65209e2a7abe016f0e02c3ab0f6e4081e6042f4b16d9e0761e3c20acc285bdb"
+  },
+  {
+    "symbol": "BLZUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "75be66e972c7c8eb9df8d3f4932e3818c350503d8efe8713de1c94ee2cf1acea"
+  },
+  {
+    "symbol": "BNTUSDT",
+    "status": "ok",
+    "rows": 1127,
+    "first": "2023-08-10 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "dd07cc5762babf2a912327142fb623f3dc6b10c655e3f67d061a7c86188ffc7f"
+  },
+  {
+    "symbol": "BOBUSDT",
+    "status": "ok",
+    "rows": 293,
+    "first": "2025-11-21 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "1fd26990add68d8aa076d07ef4feccb0bb9944c889e2f03d5bcdda2c22da9208"
+  },
+  {
+    "symbol": "BNBUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "79a194b473c056c0bd7a7b6108b9a81533d28b56048c2167c1307cec9d621411"
+  },
+  {
+    "symbol": "BNXUSDT",
+    "status": "ok",
+    "rows": 1296,
+    "first": "2023-02-22 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "f5a273f3fb16e6658df33cc0b93518a65e243d38d66b7cbe1dfc3b4a477c5ea4"
+  },
+  {
+    "symbol": "BOMEUSDT",
+    "status": "ok",
+    "rows": 908,
+    "first": "2024-03-16 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "227ef65a70ab3c0d5f5a37b21079028cc0b89216b18d6892a9034872698e42cc"
+  },
+  {
+    "symbol": "BRETTUSDT",
+    "status": "ok",
+    "rows": 751,
+    "first": "2024-08-20 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "1c16211ba44951817de4c7b0ec8674ac5418026ba4e8c3a051f91ed53d0e013f"
+  },
+  {
+    "symbol": "BREVUSDT",
+    "status": "ok",
+    "rows": 254,
+    "first": "2025-12-30 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "9db3640c2e9ab4461d688447ffb8f19262ff4f9ee91684867208a6734a643731"
+  },
+  {
+    "symbol": "BONDUSDT",
+    "status": "ok",
+    "rows": 1061,
+    "first": "2023-10-15 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "eb7106a5a96d383d0cda8d4365819e15e83a0858719581381a362285380a200a"
+  },
+  {
+    "symbol": "BROCCOLI714USDT",
+    "status": "ok",
+    "rows": 538,
+    "first": "2025-03-21 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "cb24653d5fbc96b5a2abeabe911aa74c1d8a94a17e141ce20403a8fb863e86f4"
+  },
+  {
+    "symbol": "BROCCOLIF3BUSDT",
+    "status": "ok",
+    "rows": 538,
+    "first": "2025-03-21 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "aa7a01658df51ab934dab9daa01130096b81ffd763dc51ac39d2eb9ec2b57d82"
+  },
+  {
+    "symbol": "BRUSDT",
+    "status": "ok",
+    "rows": 538,
+    "first": "2025-03-21 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "a4c0ab2f886bbae0cb0d044ecb8fcbe8360d5d03091ccda617aafba18262c300"
+  },
+  {
+    "symbol": "BSBUSDT",
+    "status": "ok",
+    "rows": 169,
+    "first": "2026-03-25 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "02cbd5eecbd133f99c3d749b26e389c45b53e67c366f502e9043082d789c5212"
+  },
+  {
+    "symbol": "BSWUSDT",
+    "status": "ok",
+    "rows": 735,
+    "first": "2024-09-05 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "c90b83701a3e8ff01458efed79eb21c8413b51b11866616a61e41cfcef4fcc19"
+  },
+  {
+    "symbol": "BTRUSDT",
+    "status": "ok",
+    "rows": 379,
+    "first": "2025-08-27 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "89b925dfac749fc06e401982691ce11484d587a6e0c1d8476993500859bf6193"
+  },
+  {
+    "symbol": "BSVUSDT",
+    "status": "ok",
+    "rows": 1056,
+    "first": "2023-10-20 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "9c8045f2fe3add59a4ae2d4a43738a2ca0d284f452180b94c6c1c60e88fe083d"
+  },
+  {
+    "symbol": "BTWUSDT",
+    "status": "ok",
+    "rows": 98,
+    "first": "2026-06-04 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "0777a73abdc3e6eda0e59c5bf7cf73afa393afe1ec75bf1de0ed8484c4ccb1ea"
+  },
+  {
+    "symbol": "BULLAUSDT",
+    "status": "ok",
+    "rows": 433,
+    "first": "2025-07-04 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "a1ec4017aa89dcecf1c8f7eac091e73c0a1f8ec7587ce93f3f0ef8e292f06d3a"
+  },
+  {
+    "symbol": "BUSDT",
+    "status": "ok",
+    "rows": 476,
+    "first": "2025-05-22 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "9cc9a2846f302648c070eafe51e04dfa4f72d4300f2c664703e545b1a1ec7244"
+  },
+  {
+    "symbol": "BTCUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "8534a15b72978a5c271c6f192c369ba7d2a3e5785d28d6acaf4121db5152e0de"
+  },
+  {
+    "symbol": "CAPUSDT",
+    "status": "ok",
+    "rows": 75,
+    "first": "2026-06-27 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "5a5eca79d7d6090d0eeb028f872e340d105d3da0ee5ca7930799d78a65a2b059"
+  },
+  {
+    "symbol": "ARUSDT",
+    "status": "ok",
+    "rows": 1808,
+    "first": "2021-09-28 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "3a0ecf732cbf405afe75ecda3f0b2d22f11c72888f44e1a5c5afe79eed826793"
+  },
+  {
+    "symbol": "CARVUSDT",
+    "status": "ok",
+    "rows": 399,
+    "first": "2025-08-07 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "41a7a8ea404c872eca4ad376d721938f6eb925fb7bb9806a47ba05f89fd5b3ff"
+  },
+  {
+    "symbol": "CAKEUSDT",
+    "status": "ok",
+    "rows": 1043,
+    "first": "2023-11-02 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "ad5565dcc46837f1ef487d602d293b306ef429a860874c85dd19fecf6d985985"
+  },
+  {
+    "symbol": "C98USDT",
+    "status": "ok",
+    "rows": 1843,
+    "first": "2021-08-24 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "c227f50301ac8fd12ae7fb58925134522b2bd66c2cfb81b9b73c1182e99bf38c"
+  },
+  {
+    "symbol": "CATIUSDT",
+    "status": "ok",
+    "rows": 720,
+    "first": "2024-09-20 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "f1e8016b3a984b825e39c81c8b5cdf61f09e6cbafe8201ed310ad5bc3a3e57f9"
+  },
+  {
+    "symbol": "CCUSDT",
+    "status": "ok",
+    "rows": 314,
+    "first": "2025-10-31 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "724eab0b0fd4a013baab49192d782245739567492e5e317e30ecc0e44c75e5f7"
+  },
+  {
+    "symbol": "CFGUSDT",
+    "status": "ok",
+    "rows": 178,
+    "first": "2026-03-16 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "4599b8bceb958c0f9970e2deba9fbd0fca7696e1908b1f8a4c1e8719c0343470"
+  },
+  {
+    "symbol": "CETUSUSDT",
+    "status": "ok",
+    "rows": 673,
+    "first": "2024-11-06 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "5a9cd5f022dd551794d7b3849a66843517a901d62049f5d80ce8c1a694626995"
+  },
+  {
+    "symbol": "CELOUSDT",
+    "status": "ok",
+    "rows": 1809,
+    "first": "2021-09-27 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "72ab962de22b9d494629ecdc7ff990e9c508496d2c9321363a578b964d68772d"
+  },
+  {
+    "symbol": "CGPTUSDT",
+    "status": "ok",
+    "rows": 629,
+    "first": "2024-12-20 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "4639fe1c5230c5e8073485a71dd5555f4d5fc1c1e8b24811484dc5bf050861a1"
+  },
+  {
+    "symbol": "CELRUSDT",
+    "status": "ok",
+    "rows": 1991,
+    "first": "2021-03-29 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "e820f856df220f411e02d33b1e13fcdc137f892b740f6095abd5820c4c79ec7a"
+  },
+  {
+    "symbol": "CHESSUSDT",
+    "status": "ok",
+    "rows": 742,
+    "first": "2024-08-29 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "1ac7e394904e9d0926d6ee644a54f44662488007488486731eb43071d44c5d03"
+  },
+  {
+    "symbol": "CFXUSDT",
+    "status": "ok",
+    "rows": 1298,
+    "first": "2023-02-20 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "0a437ab3ce5b2b921c75ab2c93054ae0bd1957e5063af6318525d48861bb5039"
+  },
+  {
+    "symbol": "CHIPUSDT",
+    "status": "ok",
+    "rows": 147,
+    "first": "2026-04-16 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "1f3132ddf5c4008beb478f11b30ede75f04d233f5dbf5efa16b76df593dc80cc"
+  },
+  {
+    "symbol": "CHILLGUYUSDT",
+    "status": "ok",
+    "rows": 652,
+    "first": "2024-11-27 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "23f293e5181f747060ce7a37f85d7564ed13632fcc847e1ff5d7c180b77d3be2"
+  },
+  {
+    "symbol": "CLANKERUSDT",
+    "status": "ok",
+    "rows": 302,
+    "first": "2025-11-12 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "3acaf89a7d7768b8b8c65d4b218d4d953e9671bd05d953235411fbf2909c9de2"
+  },
+  {
+    "symbol": "CLOUSDT",
+    "status": "ok",
+    "rows": 331,
+    "first": "2025-10-14 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "5b148d43d7bb34e84e5658f98b30f135380eb66a58e4d1238b9ee6d91f9a98ad"
+  },
+  {
+    "symbol": "CKBUSDT",
+    "status": "ok",
+    "rows": 1290,
+    "first": "2023-02-28 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "89442a68292504e1625a993ce3a3f0c0b062bb24635798096af0ff0bbdfa8161"
+  },
+  {
+    "symbol": "COAIUSDT",
+    "status": "ok",
+    "rows": 350,
+    "first": "2025-09-25 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "a0e71c0cc65e4554e696c221d7e94d270d5aa7aa5adde216a671a0617f878481"
+  },
+  {
+    "symbol": "CHRUSDT",
+    "status": "ok",
+    "rows": 2008,
+    "first": "2021-03-12 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "dab85a11f4606585cbab4ec87fe0135621d9d947ac4589b404ec429b4eb52fde"
+  },
+  {
+    "symbol": "CHZUSDT",
+    "status": "ok",
+    "rows": 2058,
+    "first": "2021-01-21 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "53a70c32b31b8cf49bd00df2d94cef849524fd898f47b6ec49c15e6992e2d103"
+  },
+  {
+    "symbol": "COLLECTUSDT",
+    "status": "ok",
+    "rows": 253,
+    "first": "2025-12-31 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "26940cdf3c0bc49ba40c202577a2924236e33a72ec48cabe60b840f714fa980f"
+  },
+  {
+    "symbol": "COMMONUSDT",
+    "status": "ok",
+    "rows": 318,
+    "first": "2025-10-27 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "f94f6dc9dbbde4edf91951806061117f1a110d709f25c7ca1f95f1eaf2398476"
+  },
+  {
+    "symbol": "COOKIEUSDT",
+    "status": "ok",
+    "rows": 611,
+    "first": "2025-01-07 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "3f2a6777d4af899114e91745918d9e7c3fb72cecfbfa62a58004d8a7ca5ff980"
+  },
+  {
+    "symbol": "COMBOUSDT",
+    "status": "ok",
+    "rows": 1196,
+    "first": "2023-06-02 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "679b0c55bcec130ab918f4bf83e64c6a42d378ea5068f011b7d79b65827401e0"
+  },
+  {
+    "symbol": "COSUSDT",
+    "status": "ok",
+    "rows": 710,
+    "first": "2024-09-30 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "82502ef5901e400c4bea9871b3b290f034596a98b4ea718a2f52db8801ef27cf"
+  },
+  {
+    "symbol": "COWUSDT",
+    "status": "ok",
+    "rows": 673,
+    "first": "2024-11-06 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "bf7836a7eb16c8cb09c7993c72900615a83df512bc4ba968443ae759c861c30b"
+  },
+  {
+    "symbol": "CROSSUSDT",
+    "status": "ok",
+    "rows": 427,
+    "first": "2025-07-10 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "94fc461ae78380b692fcf3f93a49c2683a6d8ea8b74b7885f7a29a4bf9ba876a"
+  },
+  {
+    "symbol": "COMPUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "d8ae45894e6b3713d7d6d02983e8bea1f126c5fdd3d226d80766029b66ed338d"
+  },
+  {
+    "symbol": "CTRUSDT",
+    "status": "ok",
+    "rows": 105,
+    "first": "2026-05-28 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "e7020886dd2ddfdb503c05a1d39173b3ad00e14a7ca2aabdf3cc312dc3bcd6de"
+  },
+  {
+    "symbol": "CTKUSDT",
+    "status": "ok",
+    "rows": 498,
+    "first": "2025-04-30 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "e6d6c760fe03c95c3092680110472f95154e951048d3561c5873c519419146fd"
+  },
+  {
+    "symbol": "CUDISUSDT",
+    "status": "ok",
+    "rows": 386,
+    "first": "2025-08-20 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "302c193b222c75f2e649bab4ea949d1c7c0551b641dcfd26fd5ae5917b481df7"
+  },
+  {
+    "symbol": "COTIUSDT",
+    "status": "ok",
+    "rows": 2010,
+    "first": "2021-03-10 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "dcbc410bcbc53fee2d6a90887f5bbf2cf9b96d0aba9353fb09246fc7bded1d25"
+  },
+  {
+    "symbol": "CUSDT",
+    "status": "ok",
+    "rows": 422,
+    "first": "2025-07-15 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "0870d70b222733add162fdf5eb32da5a136edc67b4a16c591c20c13334183fc8"
+  },
+  {
+    "symbol": "CRVUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "9f82957f356746822458a62b0b4a023fca087f5e0e2b3c311336e9b1332efd38"
+  },
+  {
+    "symbol": "CVCUSDT",
+    "status": "ok",
+    "rows": 482,
+    "first": "2025-05-16 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "fb97083e79237878720a2722a2ed900520ca38ec6bf2338c29872a0cfe520518"
+  },
+  {
+    "symbol": "CTSIUSDT",
+    "status": "ok",
+    "rows": 1780,
+    "first": "2021-10-26 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "293c558d1f0f6519031476235778b7d6ce4985dc4463a890c0e6a47bad296024"
+  },
+  {
+    "symbol": "CVXUSDT",
+    "status": "ok",
+    "rows": 414,
+    "first": "2025-07-23 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "a6096dabf981d61c93d7371179d4c489681b08434d643e022f08b2fe1ae95843"
+  },
+  {
+    "symbol": "CYSUSDT",
+    "status": "ok",
+    "rows": 272,
+    "first": "2025-12-12 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "fdfb9b52dfe7ff3d8faa95d50fc2b55e668d7547ef60fef830058f51f6373f8b"
+  },
+  {
+    "symbol": "DAMUSDT",
+    "status": "ok",
+    "rows": 388,
+    "first": "2025-08-18 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "62168a65187336893d464f257da1a366dbcf784991aa09d1ae6fc57ddd03c6bd"
+  },
+  {
+    "symbol": "CYBERUSDT",
+    "status": "ok",
+    "rows": 1116,
+    "first": "2023-08-21 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "b5f8a0135a046f8a7bf1a4487b5166b5b9b9ead8f940d136f050130d98010528"
+  },
+  {
+    "symbol": "DATAIPUSDT",
+    "status": "ok",
+    "rows": 69,
+    "first": "2026-07-03 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "45b6836096c9705b23868a95edf0d671d904b76deb606b3c16712d5738759a97"
+  },
+  {
+    "symbol": "DEEPUSDT",
+    "status": "ok",
+    "rows": 506,
+    "first": "2025-04-22 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "612bc42ded71518d18210cb7779c876daa0de8062422d79250c4960081008690"
+  },
+  {
+    "symbol": "DARUSDT",
+    "status": "ok",
+    "rows": 1595,
+    "first": "2022-04-29 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "c2e3fb9de31eebe3f514232150e6b07ec51418ded665b2621e87d56d81d5fef8"
+  },
+  {
+    "symbol": "DEGENUSDT",
+    "status": "ok",
+    "rows": 664,
+    "first": "2024-11-15 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "baeb7848c8e953c134d3c5d2b518c9361b3330e8c6cb7cfd376ce942b76f48bf"
+  },
+  {
+    "symbol": "DEGOUSDT",
+    "status": "ok",
+    "rows": 636,
+    "first": "2024-12-13 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "5e0810d51c514a007f009b92019dd537160deca8db98fbd88dd6bb393d577911"
+  },
+  {
+    "symbol": "DEXEUSDT",
+    "status": "ok",
+    "rows": 625,
+    "first": "2024-12-24 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "94515aedd6d80c6d0d4f8eaff0e38fc9cf6e4e5aa41763832d89c50653daa168"
+  },
+  {
+    "symbol": "DASHUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "c8259bf5eb51746c544d0c4f6df2db71820cbd4cfe0627395d74786a95c7ebaa"
+  },
+  {
+    "symbol": "DFUSDT",
+    "status": "ok",
+    "rows": 619,
+    "first": "2024-12-30 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "6722243a3c950cce5005c033f421b781fde14c2b4e6e0373e77ec4fa759c9006"
+  },
+  {
+    "symbol": "DENTUSDT",
+    "status": "ok",
+    "rows": 1996,
+    "first": "2021-03-24 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "fd365aa2233b92e690b4d3a1506963afa770a13a16cbdfe9fd1b19254a8eb4d9"
+  },
+  {
+    "symbol": "DIAUSDT",
+    "status": "ok",
+    "rows": 708,
+    "first": "2024-10-02 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "83bae016e700aaade0a3a1a9e97307bd54a04ae86904d6f53f8e735911f0f9a5"
+  },
+  {
+    "symbol": "DMCUSDT",
+    "status": "ok",
+    "rows": 443,
+    "first": "2025-06-24 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "fee36400ab74d6a725de6fa51ae4c7fac8eb0283213fdfc9ecafb677a0af6614"
+  },
+  {
+    "symbol": "DGBUSDT",
+    "status": "ok",
+    "rows": 1968,
+    "first": "2021-04-21 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "04f442eb41f0fcfeec2aad6e19636e31d3f35f74401e2d6dd47291914f79b1a2"
+  },
+  {
+    "symbol": "DODOXUSDT",
+    "status": "ok",
+    "rows": 1129,
+    "first": "2023-08-08 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "aed32dd4b5482c69aa3e94d6143c7bcaa0a54a2916dfbc8011f9f4ae77b1d310"
+  },
+  {
+    "symbol": "DOGSUSDT",
+    "status": "ok",
+    "rows": 745,
+    "first": "2024-08-26 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "a2dacc9d4177396d4724a6e1958dbb2f95e519792f9b727e412d4f5dbfbc812b"
+  },
+  {
+    "symbol": "DOLOUSDT",
+    "status": "ok",
+    "rows": 497,
+    "first": "2025-05-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "34a285ad2961193e1fadbe7a3c3376b3f2e57e09b4ed7295074f521b21beb63a"
+  },
+  {
+    "symbol": "DOSUSDT",
+    "status": "ok",
+    "rows": 30,
+    "first": "2026-08-11 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "7dec6e7c6e47b7963329375e00537ea43fe2abc36fbe0a25d285ee4d60d79abe"
+  },
+  {
+    "symbol": "DOODUSDT",
+    "status": "ok",
+    "rows": 489,
+    "first": "2025-05-09 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "50d30c6c41ddb39509895ff85f8504df4c8ba0857ddc6779c825ae47e3e35490"
+  },
+  {
+    "symbol": "DRIFTUSDT",
+    "status": "ok",
+    "rows": 671,
+    "first": "2024-11-08 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "4f9d8faeed4f4e5c0ef8595b8aa9f9fb390339d7332affbd368c1ee4bebc032f"
+  },
+  {
+    "symbol": "DUSDT",
+    "status": "ok",
+    "rows": 609,
+    "first": "2025-01-09 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "3df27f55c2292c1e2861ecf0c8871dd5c9bed886617cfa92ca1a05a928dd79ea"
+  },
+  {
+    "symbol": "DOGEUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "2e00de1936594f4dd562f93019e3d04cd3808da08970062a83193edd381d1206"
+  },
+  {
+    "symbol": "DOTUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "88d000f18a33ed88418343ef3d7f09e9102074184a84ac1f3ae608279d41c45c"
+  },
+  {
+    "symbol": "DYMUSDT",
+    "status": "ok",
+    "rows": 946,
+    "first": "2024-02-07 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "32b78509a28df35491a571a618047e421d3356aa007039c253321a6a2acce531"
+  },
+  {
+    "symbol": "DUSKUSDT",
+    "status": "ok",
+    "rows": 1707,
+    "first": "2022-01-07 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "8d1e992c7d0241fb832427e0f885fc841011be02a025714da35ebedb3bed5e59"
+  },
+  {
+    "symbol": "EDENUSDT",
+    "status": "ok",
+    "rows": 345,
+    "first": "2025-09-30 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "8aed70552cc83830b82f3e8cfa4a7826a6521eb133d2be18acdff72fe84916dc"
+  },
+  {
+    "symbol": "DYDXUSDT",
+    "status": "ok",
+    "rows": 1826,
+    "first": "2021-09-10 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "e09e47b1d05a096ac6278c9e0610f82e0d29d7e07d652bb0d767cab809c672c9"
+  },
+  {
+    "symbol": "EDGEUSDT",
+    "status": "ok",
+    "rows": 175,
+    "first": "2026-03-19 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "8c40d5706118eee123bd92f35f2ac7472e88561bd1f71df15d6547bcef67040b"
+  },
+  {
+    "symbol": "EIGENUSDT",
+    "status": "ok",
+    "rows": 709,
+    "first": "2024-10-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "91c31d09c5919580616230bc2426e457ff98955a9a794d994155b8869ee91483"
+  },
+  {
+    "symbol": "ELSAUSDT",
+    "status": "ok",
+    "rows": 231,
+    "first": "2026-01-22 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "d3de44611ae51d8b533e46b9d1840beed5f3b0a134acd0940d65e0b90391e22e"
+  },
+  {
+    "symbol": "EDUUSDT",
+    "status": "ok",
+    "rows": 1229,
+    "first": "2023-04-30 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "a882c8363033abce62628171370496a262d01f22e3229bf67954aea70befe979"
+  },
+  {
+    "symbol": "ENAUSDT",
+    "status": "ok",
+    "rows": 891,
+    "first": "2024-04-02 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "cc38e6d6f6c2b98c0edc0ab254759efe895c4ab38ccd4494bf378046aa089bc0"
+  },
+  {
+    "symbol": "ENSOUSDT",
+    "status": "ok",
+    "rows": 331,
+    "first": "2025-10-14 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "78ea84924a0521a151fcb57bcbb5fab6ae7ef63faa7641785a373d574632ac0d"
+  },
+  {
+    "symbol": "EGLDUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "9b54050c66ef41713a9ef3a530d8edcdac1634057d9bfc6971e247b9d16c2580"
+  },
+  {
+    "symbol": "EPICUSDT",
+    "status": "ok",
+    "rows": 546,
+    "first": "2025-03-13 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "728891ec9a448b3b862bf17682dbba8f48a05671b83a133ed800cdea0ea3f07f"
+  },
+  {
+    "symbol": "EPTUSDT",
+    "status": "ok",
+    "rows": 507,
+    "first": "2025-04-21 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "d1f2aa426e6809707f7211aa1b2e0f3e6c1654f55ff48f19f24668af60782e4e"
+  },
+  {
+    "symbol": "ENSUSDT",
+    "status": "ok",
+    "rows": 1745,
+    "first": "2021-11-30 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "cd4b4133c37d73144b269485683bb06d6c0c56347d70d211eb659c2658f0e896"
+  },
+  {
+    "symbol": "ERAUSDT",
+    "status": "ok",
+    "rows": 420,
+    "first": "2025-07-17 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "6ee9e33f1b6f1ff0ae4aeb9e022365706d73e9b135362bb91f425c2c4ecb7a17"
+  },
+  {
+    "symbol": "ESPORTSUSDT",
+    "status": "ok",
+    "rows": 408,
+    "first": "2025-07-29 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "235c0353f4353a37f486c745df1e0486e786e46b3ab3c6481fed4bb4bdc21548"
+  },
+  {
+    "symbol": "ENJUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "4daf29fa66b11d451b3db180529177de24cc836cbaa75fbbaef0b6590af7f5a6"
+  },
+  {
+    "symbol": "ESPUSDT",
+    "status": "ok",
+    "rows": 212,
+    "first": "2026-02-10 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "2f856d233c583483bd9bf18c14c50ab3f2d02b31811d6bda36ea94646e885498"
+  },
+  {
+    "symbol": "ETHFIUSDT",
+    "status": "ok",
+    "rows": 906,
+    "first": "2024-03-18 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "5efa330e2a70f1f66b1ddc3f3e3f8440636dde9059d8cf3a3c9f8434045f9312"
+  },
+  {
+    "symbol": "EULUSDT",
+    "status": "ok",
+    "rows": 332,
+    "first": "2025-10-13 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "7c1446772f0d361373af7ea04aa9f56b2b48daed77389d36d9841a3a32a9d4db"
+  },
+  {
+    "symbol": "ETHWUSDT",
+    "status": "ok",
+    "rows": 1017,
+    "first": "2023-11-28 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "1009ddee3f092758cd2f154aaf928a47cf9dee61ddca7d10042dcbc048507408"
+  },
+  {
+    "symbol": "ETCUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "9ee7769994f39a11975bcbbb713e3cbf95885114f772b5307842c138dd9a26b7"
+  },
+  {
+    "symbol": "FARTCOINUSDT",
+    "status": "ok",
+    "rows": 629,
+    "first": "2024-12-20 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "48a33510ad6015df7cbf9ae06b1ed2181344ef0ab0c8ba621d1d7051eaeaad72"
+  },
+  {
+    "symbol": "EVAAUSDT",
+    "status": "ok",
+    "rows": 342,
+    "first": "2025-10-03 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "4de5931dc0e7b001e7cdb2b4d9a48be93f0fe9277f434eb563d433a580158b9a"
+  },
+  {
+    "symbol": "ETHUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "195939664cb08ef4f503bb0e8b8fe95ef4e7fd2ded84d82adcee9cb4ff87c82c"
+  },
+  {
+    "symbol": "FFUSDT",
+    "status": "ok",
+    "rows": 346,
+    "first": "2025-09-29 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "57207530c9c8632d1818d592d359329e190b2e5b928d5ef2e33157be7ff65168"
+  },
+  {
+    "symbol": "FHEUSDT",
+    "status": "ok",
+    "rows": 516,
+    "first": "2025-04-12 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "53f591d835ea1824cade88c698401445f3b01573d530356823f7e05b6005ec24"
+  },
+  {
+    "symbol": "FIDAUSDT",
+    "status": "ok",
+    "rows": 721,
+    "first": "2024-09-19 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "a2972c1be6ad7024efd41cbd6d1cb383dd2d718c7ad5cf17f4bb0090a4f5a465"
+  },
+  {
+    "symbol": "FETUSDT",
+    "status": "ok",
+    "rows": 1332,
+    "first": "2023-01-17 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "716051e59a9e84ad187ef7d4d0eaac70279f61600de0fe558f2da871b3530032"
+  },
+  {
+    "symbol": "FIGHTUSDT",
+    "status": "ok",
+    "rows": 230,
+    "first": "2026-01-23 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "db95fcbff3d7015bc324dab45a3ab635698fc861cf8fac11e32c7af18c35a638"
+  },
+  {
+    "symbol": "FIOUSDT",
+    "status": "ok",
+    "rows": 720,
+    "first": "2024-09-20 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "8ba54bb024f7cab6ca718792a448cd2f9aa4585190e08c0532229b793b0ceded"
+  },
+  {
+    "symbol": "FISUSDT",
+    "status": "ok",
+    "rows": 503,
+    "first": "2025-04-25 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "2832503f0a5865d4f31f0b0d9b25ae5921b7a42c09befed5232b39c1caef9b15"
+  },
+  {
+    "symbol": "FLOCKUSDT",
+    "status": "ok",
+    "rows": 366,
+    "first": "2025-09-09 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "7b2c3b53e0835d70fb3e6b50e65adca6b3fe20e874d7c6399b6c5fe112b3038e"
+  },
+  {
+    "symbol": "FLUIDUSDT",
+    "status": "ok",
+    "rows": 351,
+    "first": "2025-09-24 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "5b8d9b180f61b110e29710cd17d11cebb66072f42c8c63fb75e0266ca701f34b"
+  },
+  {
+    "symbol": "FILUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "9410bb5939795e4184fd1ee249947f7bf67e843627e82e8d675726caaac913cc"
+  },
+  {
+    "symbol": "FLMUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "17f92b35facbd402a01aa3c1e1eb520f5496e59f51ea868819598ca8bd5352c5"
+  },
+  {
+    "symbol": "FLOWUSDT",
+    "status": "ok",
+    "rows": 1673,
+    "first": "2022-02-10 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "ba2b75801b1778df7e7dba1521c52e3b0eb6930511e3c2cdcc172d106e82b70f"
+  },
+  {
+    "symbol": "FLUXUSDT",
+    "status": "ok",
+    "rows": 737,
+    "first": "2024-09-03 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "8453a45b7dbb89bcb82aa8d84bdd59980f1117c71994d074a066e56272466411"
+  },
+  {
+    "symbol": "FOGOUSDT",
+    "status": "ok",
+    "rows": 243,
+    "first": "2026-01-10 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "b87bb94831c5106256c37c69666847a11bbfd72ddb21bb72b0301fd17122408b"
+  },
+  {
+    "symbol": "FOLKSUSDT",
+    "status": "ok",
+    "rows": 308,
+    "first": "2025-11-06 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "4e6a41e32ad5ad1691886bd5baae0a3c1f8a60f63caa887ac66f541bc6bc706a"
+  },
+  {
+    "symbol": "FRAXUSDT",
+    "status": "ok",
+    "rows": 238,
+    "first": "2026-01-15 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "0b2c61d9c2d6663719816c0092f1e2e13811ac9e63481786c757491d6ed88779"
+  },
+  {
+    "symbol": "FORTHUSDT",
+    "status": "ok",
+    "rows": 520,
+    "first": "2025-04-08 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "3f5e1e30603a439352a688f6a2c0ef1081911b2895b67cb56a8d1fb589d27919"
+  },
+  {
+    "symbol": "FUNUSDT",
+    "status": "ok",
+    "rows": 528,
+    "first": "2025-03-31 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "eb37552d4c4ce0d576c5edce665e7032d12946ae81a3d58a5680b2d3062a428a"
+  },
+  {
+    "symbol": "FTTUSDT",
+    "status": "ok",
+    "rows": 1609,
+    "first": "2022-04-15 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "9457d75bcae94b8d473975b4d94e399d36db89573bfcc8db25f47d119039eea5"
+  },
+  {
+    "symbol": "FUSDT",
+    "status": "ok",
+    "rows": 449,
+    "first": "2025-06-18 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "05a1b9d7235125150cd5866448f21d1b64f2c9faf6303caa31c74bf8ccac08e6"
+  },
+  {
+    "symbol": "FTMUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "7f40743256b0b97cca917c7dc2c3fefec7314bdd79967a2612999e843fe5e511"
+  },
+  {
+    "symbol": "FXSUSDT",
+    "status": "ok",
+    "rows": 1329,
+    "first": "2023-01-20 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "534097e8b8f4efc2adebd0d95d88cfc7e9e4b7f51bf8ea4bccb6efd77cda1ec5"
+  },
+  {
+    "symbol": "GENIUSUSDT",
+    "status": "ok",
+    "rows": 147,
+    "first": "2026-04-16 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "e28f6774f3e1da6def576da8d873f9d97602df2d6ef6961a8bc75741a8110b41"
+  },
+  {
+    "symbol": "GALAUSDT",
+    "status": "ok",
+    "rows": 1818,
+    "first": "2021-09-18 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "717adc2ca6635e627a06641527f810611465f31055db4b364fff2d206bf3385b"
+  },
+  {
+    "symbol": "GASUSDT",
+    "status": "ok",
+    "rows": 1051,
+    "first": "2023-10-25 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "12bc608d564571d488ac4cde6c599a5cb457a371b009ebf5bcf78b0b5e783031"
+  },
+  {
+    "symbol": "GHSTUSDT",
+    "status": "ok",
+    "rows": 717,
+    "first": "2024-09-23 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "752de21145a691735a4c8d92e43595fd25e5e2dd61e0f633c5f4803f7a028d94"
+  },
+  {
+    "symbol": "GIGGLEUSDT",
+    "status": "ok",
+    "rows": 336,
+    "first": "2025-10-09 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "ed357cc22060c3ffe38ba390dd0c288e7938cbc42db8bfef360995f07d95a759"
+  },
+  {
+    "symbol": "GLMRUSDT",
+    "status": "ok",
+    "rows": 1080,
+    "first": "2023-09-26 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "0ead19badc94919fca78b97c7779ac05d909ee0c21c39dffba422dc07fd020c0"
+  },
+  {
+    "symbol": "GLMUSDT",
+    "status": "ok",
+    "rows": 931,
+    "first": "2024-02-22 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "46c3fa8d21bfd79089460b7057c368a912e8755c1ab6b757068fdbc6e48d390b"
+  },
+  {
+    "symbol": "GOATUSDT",
+    "status": "ok",
+    "rows": 686,
+    "first": "2024-10-24 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "a8222503462fce060488e0f01f3af74adaaa2aa82aaf9921a4dc07e2023d1c6e"
+  },
+  {
+    "symbol": "GMTUSDT",
+    "status": "ok",
+    "rows": 1640,
+    "first": "2022-03-15 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "416c39638d4b5dd2825f01bc24909cde22c32d13d2543ec2db7d1dbdba68bea5"
+  },
+  {
+    "symbol": "GMXUSDT",
+    "status": "ok",
+    "rows": 1301,
+    "first": "2023-02-17 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "c8bdfa893817b7a0c94c8dfbf8890cc348dc1faf64ff545aab1f405a4af3c8a8"
+  },
+  {
+    "symbol": "GRAMUSDT",
+    "status": "ok",
+    "rows": 70,
+    "first": "2026-07-02 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "2b61a694d20487415a80dee42f972e13bc646db5ed077ed73a64cedd21339b59"
+  },
+  {
+    "symbol": "GPSUSDT",
+    "status": "ok",
+    "rows": 570,
+    "first": "2025-02-17 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "c7b97189df97e658b76dcf64499cead1b447f21a9cd61eef230043fbb1055979"
+  },
+  {
+    "symbol": "GRASSUSDT",
+    "status": "ok",
+    "rows": 671,
+    "first": "2024-11-08 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "01f25f06ee7a45440a603796008da9c0d3f94fe92d6d74f77709f4cdfe27719f"
+  },
+  {
+    "symbol": "GRIFFAINUSDT",
+    "status": "ok",
+    "rows": 616,
+    "first": "2025-01-02 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "f4979c0717d6a81d440d1c08cd28d8b2d00f0b10e68771d25b752b97bdcb7806"
+  },
+  {
+    "symbol": "GRVTUSDT",
+    "status": "ok",
+    "rows": 41,
+    "first": "2026-07-31 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "363f8911ce9ddcf5abb8cd1f30353ee9d4875c3dac439c166de87ac4497e1e0b"
+  },
+  {
+    "symbol": "GUAUSDT",
+    "status": "ok",
+    "rows": 263,
+    "first": "2025-12-21 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "6d3000508eb9382c3d2d58639e89eca24e13cbf155ec2b48a46f9eea3cf5a4a1"
+  },
+  {
+    "symbol": "GRTUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "111acba12c4bcaa30c1ad7561eada1cd26b817efb859b57fc156442a18e30c8a"
+  },
+  {
+    "symbol": "GUNUSDT",
+    "status": "ok",
+    "rows": 528,
+    "first": "2025-03-31 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "3b7ed96ca87ec1b28a94c9210e0a7bb2532a8744c3f3d9318cb4fa33c7f71ac7"
+  },
+  {
+    "symbol": "GTCUSDT",
+    "status": "ok",
+    "rows": 1917,
+    "first": "2021-06-11 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "5a79aa33e53f6311abd7b61a27266d81eb449bea2a4a54fa87ccd99aa91f2a66"
+  },
+  {
+    "symbol": "GUSDT",
+    "status": "ok",
+    "rows": 756,
+    "first": "2024-08-15 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "b2d745e8cac0bdd5147adbdbc64f4ba730f429f15aca69d1cb165451d0302929"
+  },
+  {
+    "symbol": "GWEIUSDT",
+    "status": "ok",
+    "rows": 224,
+    "first": "2026-01-29 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "69514fdd5224407a4f20d5f812169a9f4207c97866ce2abea2474e34f0c7e11a"
+  },
+  {
+    "symbol": "HAEDALUSDT",
+    "status": "ok",
+    "rows": 497,
+    "first": "2025-05-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "55592825b4b6694bc6b6e97ec800fc2b0ed9fb0ed4e51b7178f66972f653ef06"
+  },
+  {
+    "symbol": "HANAUSDT",
+    "status": "ok",
+    "rows": 349,
+    "first": "2025-09-26 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "09a708107ad94acdc334fd6123a2e6497e54ad38ac002a9ab413ecb7f3d32a10"
+  },
+  {
+    "symbol": "HEIUSDT",
+    "status": "ok",
+    "rows": 574,
+    "first": "2025-02-13 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "e26ac70f204506c07599f348e632de0638acb17a1a95937bdc422ac941565f82"
+  },
+  {
+    "symbol": "HEMIUSDT",
+    "status": "ok",
+    "rows": 377,
+    "first": "2025-08-29 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "8915734a506bcbf7f302e20ddc6a5b6d92a96befae4758c26c65690f5a46db34"
+  },
+  {
+    "symbol": "HBARUSDT",
+    "status": "ok",
+    "rows": 2003,
+    "first": "2021-03-17 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "2d83b40b52cc2c62d80dd857fceadfdb1b411ab20133692e16d3df6e5c362596"
+  },
+  {
+    "symbol": "HFTUSDT",
+    "status": "ok",
+    "rows": 1253,
+    "first": "2023-04-06 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "201ecb24917eb10bf6c1aa255a495d9e9e3b7bbe46dd4da80292a775773336fc"
+  },
+  {
+    "symbol": "HIFIUSDT",
+    "status": "ok",
+    "rows": 1090,
+    "first": "2023-09-16 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "8b6ab19d339ac48815d8ef875d623736198ae68b226d0da77e5b6dc140c3ab93"
+  },
+  {
+    "symbol": "HIPPOUSDT",
+    "status": "ok",
+    "rows": 666,
+    "first": "2024-11-13 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "753e2c7c54185cd6c6b7afd83407a46c10a620c04abe73439405c2d66a7443af"
+  },
+  {
+    "symbol": "HIVEUSDT",
+    "status": "ok",
+    "rows": 626,
+    "first": "2024-12-23 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "a2e9626011f1542cc070619d1fb2c67a448baf755a6ddf05ae3d68c1775190db"
+  },
+  {
+    "symbol": "HIGHUSDT",
+    "status": "ok",
+    "rows": 1311,
+    "first": "2023-02-07 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "d1ca7f0a7a6c3f5bd8589607a44e20624b490527e180c94c707e08b96ee8cdfa"
+  },
+  {
+    "symbol": "HMSTRUSDT",
+    "status": "ok",
+    "rows": 714,
+    "first": "2024-09-26 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "675d1fe3669ae702e174e747b6dcef3ec52f6cae0df6532ca4794a8f90ba1d99"
+  },
+  {
+    "symbol": "HOLOUSDT",
+    "status": "ok",
+    "rows": 364,
+    "first": "2025-09-11 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "53675b3ba7ae43590b1317e6cf1741c4134a4cecc6ffbd439ba200a532cfef96"
+  },
+  {
+    "symbol": "HOMEUSDT",
+    "status": "ok",
+    "rows": 457,
+    "first": "2025-06-10 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "55e292bde162377762e160a2dc801bb69047f91c73098708f44819e73675085a"
+  },
+  {
+    "symbol": "HUMAUSDT",
+    "status": "ok",
+    "rows": 472,
+    "first": "2025-05-26 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "81c7e90c330652325c323fb5f8c28ab753ad87de33799bd33c59a27e007c2fc3"
+  },
+  {
+    "symbol": "HOOKUSDT",
+    "status": "ok",
+    "rows": 1326,
+    "first": "2023-01-23 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "e45c70f77efdd4f11429a6799f34bc2d187f9ae143371956604199d8464e6727"
+  },
+  {
+    "symbol": "HOTUSDT",
+    "status": "ok",
+    "rows": 1990,
+    "first": "2021-03-30 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "b7b8eaa4f32e69634d30f2268875efde7eb80401a3e4131aff4660b4702c6d86"
+  },
+  {
+    "symbol": "HUSDT",
+    "status": "ok",
+    "rows": 442,
+    "first": "2025-06-25 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "a90a730c64ff778b68229c0ce4f9ac0d1f0dbb955ffaff7a1fe152d1234cd000"
+  },
+  {
+    "symbol": "HYPERUSDT",
+    "status": "ok",
+    "rows": 506,
+    "first": "2025-04-22 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "90c1bfbe1f107826d724a87d433877b774f8d7d930d198c1a503e566d99fc10a"
+  },
+  {
+    "symbol": "HYPEUSDT",
+    "status": "ok",
+    "rows": 468,
+    "first": "2025-05-30 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "825cd5f15d96f4eed896220145c9c264c35c44a7751885519d08f1343adeebae"
+  },
+  {
+    "symbol": "ICNTUSDT",
+    "status": "ok",
+    "rows": 434,
+    "first": "2025-07-03 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "bd38c8b007349a9a12a0502ef654d715eea5ecb677cbd7a3eebddf87998f42de"
+  },
+  {
+    "symbol": "ICPUSDT",
+    "status": "ok",
+    "rows": 1444,
+    "first": "2022-09-27 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "8a08502990500fc93a69f8b31ad96bdb5c67b07b251786e192b4f5f06e9aebaf"
+  },
+  {
+    "symbol": "IDEXUSDT",
+    "status": "ok",
+    "rows": 1226,
+    "first": "2023-05-03 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "05c3d151a76e65fb44397eefc6672f93b3049a70773aa3db683973fdd093811f"
+  },
+  {
+    "symbol": "ICXUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "530d01a47e97f6abf5f947679820471c8d5be7f25ddeabd3fc7b9978d3ea2561"
+  },
+  {
+    "symbol": "IDOLUSDT",
+    "status": "ok",
+    "rows": 433,
+    "first": "2025-07-04 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "1e438ff75573ce1dafaed2970e7df7939aacd2a03e5d70edc23bfe6626eb3777"
+  },
+  {
+    "symbol": "FORMUSDT",
+    "status": "ok",
+    "rows": 540,
+    "first": "2025-03-19 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "f0c3a5659c9ddb989dfa7fc2491cf182630aee3d2acc994df2d2cec7ca1456ac"
+  },
+  {
+    "symbol": "IDUSDT",
+    "status": "ok",
+    "rows": 1267,
+    "first": "2023-03-23 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "13245f906b26b38dde7376305fa7ffb12c208399b7fd3fa462a7dab7a34387ae"
+  },
+  {
+    "symbol": "ILVUSDT",
+    "status": "ok",
+    "rows": 1035,
+    "first": "2023-11-10 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "4ebc058b840e7d96ea238b8e12b63e712038a3e389222d3ffc4d4a82f4e7c9b5"
+  },
+  {
+    "symbol": "IMXUSDT",
+    "status": "ok",
+    "rows": 1672,
+    "first": "2022-02-11 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "7cdf08986ea1a06b7d47376e33caa7c7950453d0b1decf68d60877f386be4792"
+  },
+  {
+    "symbol": "INITUSDT",
+    "status": "ok",
+    "rows": 512,
+    "first": "2025-04-16 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "72de5c64b02a269468e799d0544c841c19e2a645c5482b3b32158f3cfb85e22e"
+  },
+  {
+    "symbol": "INXUSDT",
+    "status": "ok",
+    "rows": 223,
+    "first": "2026-01-30 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "095afcf3354b51d31af69e0b99b8caab9a704b4ab828bf727eb664bd56feef56"
+  },
+  {
+    "symbol": "INJUSDT",
+    "status": "ok",
+    "rows": 1485,
+    "first": "2022-08-17 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "9603de81740650690e5c6bd93524f45070fe2d0317cb51e69082014c8bdd1d09"
+  },
+  {
+    "symbol": "INUSDT",
+    "status": "ok",
+    "rows": 399,
+    "first": "2025-08-07 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "699d40866c69f4c4d955c8aa50f3c73b852460d8978822a6e4c8857883b899f5"
+  },
+  {
+    "symbol": "IOUSDT",
+    "status": "ok",
+    "rows": 821,
+    "first": "2024-06-11 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "7c9260b227f69bbca008ebc67b5b2faba72f0b37407e9b77b11d41f6a41edc4d"
+  },
+  {
+    "symbol": "IOSTUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "69744e6392b835760d55cbc9edb2f34075c183b32982a5b644272b0c6df9c8b7"
+  },
+  {
+    "symbol": "IOTXUSDT",
+    "status": "ok",
+    "rows": 1855,
+    "first": "2021-08-12 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "47b965bfea9941aafd95d7ee4f7b9bb05284a2a54366ad944f8d3ab28e3d6ed3"
+  },
+  {
+    "symbol": "IPUSDT",
+    "status": "ok",
+    "rows": 574,
+    "first": "2025-02-13 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "8fa266415f9f98516f10b05fdb4771ce19cc1b372c323185db91efe08a07bc5a"
+  },
+  {
+    "symbol": "IOTAUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "1a5ad4a727205fd956e63d972dd3a7123c120be5b00b2442b769952bf714a8be"
+  },
+  {
+    "symbol": "IRUSDT",
+    "status": "ok",
+    "rows": 263,
+    "first": "2025-12-21 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "5d0e96d0d88b3d38725a25c3f9047405b8c35627b1ab0929b4da1916cad3f880"
+  },
+  {
+    "symbol": "IRYSUSDT",
+    "status": "ok",
+    "rows": 288,
+    "first": "2025-11-26 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "1470b6a86dc8de52541565e3204afc78cb24a9052ed6b4cb8f7ea42dd8ed224e"
+  },
+  {
+    "symbol": "JCTUSDT",
+    "status": "ok",
+    "rows": 304,
+    "first": "2025-11-10 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "0e537e4025b18442c0458d669fd609b32190136200ad8b6fd0268e7368a862bd"
+  },
+  {
+    "symbol": "JELLYJELLYUSDT",
+    "status": "ok",
+    "rows": 533,
+    "first": "2025-03-26 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "5ed71018b1bf9c00ce771daeb8d17075f538cdc374fce50b224dac98851cd0e0"
+  },
+  {
+    "symbol": "JSTUSDT",
+    "status": "ok",
+    "rows": 500,
+    "first": "2025-04-28 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "64d9b7bee7b12b5a0d707502638b584e750d1d22a614000c8b19cf3e714a4134"
+  },
+  {
+    "symbol": "JASMYUSDT",
+    "status": "ok",
+    "rows": 1604,
+    "first": "2022-04-20 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "4e3709211bc1d905dfe26cc33da6994401fc1b4d2e085e9fa11dd85b05cb9986"
+  },
+  {
+    "symbol": "JOEUSDT",
+    "status": "ok",
+    "rows": 1261,
+    "first": "2023-03-29 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "9099b005c74add95dc005a3a96ae4b1d94740a08d4cc96d1ea10138c0539dccc"
+  },
+  {
+    "symbol": "JUPUSDT",
+    "status": "ok",
+    "rows": 953,
+    "first": "2024-01-31 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "4b3b328bf3d72087b34aa135630b8f1e7a410a31437d33b4852acdbb8ec787ce"
+  },
+  {
+    "symbol": "KAIAUSDT",
+    "status": "ok",
+    "rows": 645,
+    "first": "2024-12-04 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "419b9adb815da876627864b00390512d6ea5c7a7189ee707c6cc918adfbe17ca"
+  },
+  {
+    "symbol": "JTOUSDT",
+    "status": "ok",
+    "rows": 1007,
+    "first": "2023-12-08 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "749158edec57a538a38a745ee6a15e4572b7492d9b90ed9c0e99660df4dc1ecb"
+  },
+  {
+    "symbol": "KAITOUSDT",
+    "status": "ok",
+    "rows": 567,
+    "first": "2025-02-20 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "288fd4388b74d38851ca12494938f55c4e95326a2af98e68c5da7d2f1ee0c4f4"
+  },
+  {
+    "symbol": "KATUSDT",
+    "status": "ok",
+    "rows": 192,
+    "first": "2026-03-02 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "801f1ba6748409f30d0076b401222e17d681b4e433eb4e5cf2fe14bc89961481"
+  },
+  {
+    "symbol": "KDAUSDT",
+    "status": "ok",
+    "rows": 722,
+    "first": "2024-09-18 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "c7dedf29db13090541e3b6ed74280a40368396dca3be38c24e06e057dc84d078"
+  },
+  {
+    "symbol": "KERNELUSDT",
+    "status": "ok",
+    "rows": 514,
+    "first": "2025-04-14 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "ee960260a871a8f2fe1bd14a2b278edb388dff34c3c27f4ad987d75335cf4a19"
+  },
+  {
+    "symbol": "KASUSDT",
+    "status": "ok",
+    "rows": 1028,
+    "first": "2023-11-17 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "1f20b60dfa0efaa8806deb5e131b9a38fd888ccfedc4c301460020f14132f017"
+  },
+  {
+    "symbol": "KGENUSDT",
+    "status": "ok",
+    "rows": 338,
+    "first": "2025-10-07 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "96c86a5df2f0446b4f3962fa1de593e45da61a2f1e673c621dffc7f3201ba72d"
+  },
+  {
+    "symbol": "KITEUSDT",
+    "status": "ok",
+    "rows": 316,
+    "first": "2025-10-29 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "1f7ef03ca644e9821d42443a249ef5b4cc36d93f211eeb707468623d77d2477c"
+  },
+  {
+    "symbol": "KAVAUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "209bca5036f015b0f0e84283d866bfda8f6f977f3bc98764bbf615c7d0326be4"
+  },
+  {
+    "symbol": "KEYUSDT",
+    "status": "ok",
+    "rows": 1205,
+    "first": "2023-05-24 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "9710d7962c55d8e15b4d1a4348d183986e1f0c11a09ab4ed2c5884f9e58db402"
+  },
+  {
+    "symbol": "KMNOUSDT",
+    "status": "ok",
+    "rows": 629,
+    "first": "2024-12-20 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "0efa7c73b481df29a46c7547256caff5b2aa8e3453893300d973adebfebdc45b"
+  },
+  {
+    "symbol": "KLAYUSDT",
+    "status": "ok",
+    "rows": 1794,
+    "first": "2021-10-12 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "be49fba54012d976dcda200257f7cca5f5028363df863893f309d2ba4b8c45b2"
+  },
+  {
+    "symbol": "KOMAUSDT",
+    "status": "ok",
+    "rows": 639,
+    "first": "2024-12-10 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "a81a2915233d913cafff1ea1774027b89966f7c4bc3d9a488208946a161a6768"
+  },
+  {
+    "symbol": "LABUSDT",
+    "status": "ok",
+    "rows": 328,
+    "first": "2025-10-17 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "d538e4c0aacd35bb0b7fa366a71a656969c5bdaf72c43237ce5e8d47bd0b4fed"
+  },
+  {
+    "symbol": "LAUSDT",
+    "status": "ok",
+    "rows": 462,
+    "first": "2025-06-05 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "ca0347deccdd9a6fd8772c1ab46fd4ea9d0b46b60821aaa6d3922bbf5dd472ae"
+  },
+  {
+    "symbol": "LAYERUSDT",
+    "status": "ok",
+    "rows": 576,
+    "first": "2025-02-11 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "d1c18019f9eea3601e7e591d5e0394ee7a99e3252f506e18bff62b59d5412aed"
+  },
+  {
+    "symbol": "KNCUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "3804111d25b42cb0c0fa4e204c584fd3217696fe70f871e003e356f5edb08b62"
+  },
+  {
+    "symbol": "KSMUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "e95754106a70ecf36108a212b491fc8abde280bae9bca77fd64f5f3279ddc975"
+  },
+  {
+    "symbol": "LIGHTUSDT",
+    "status": "ok",
+    "rows": 348,
+    "first": "2025-09-27 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "4bab1a7156b2f94900da5d1d4d40f25256cdfa8620e3ad5fe86413c628f56228"
+  },
+  {
+    "symbol": "LDOUSDT",
+    "status": "ok",
+    "rows": 1449,
+    "first": "2022-09-22 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "90178165976a833a0d181f6f72172230b43e8073652733943c9e920c03d41e77"
+  },
+  {
+    "symbol": "LINEAUSDT",
+    "status": "ok",
+    "rows": 374,
+    "first": "2025-09-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "aecad6453f9f235cfdf8fdbe94c12d04f22dbfa8137727057614c1dc2b645757"
+  },
+  {
+    "symbol": "LEVERUSDT",
+    "status": "ok",
+    "rows": 1260,
+    "first": "2023-03-30 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "e8ad47172d9ee9356d0e0bece77b5dcc41894584a487e3a2263502a4f959ccbf"
+  },
+  {
+    "symbol": "LINAUSDT",
+    "status": "ok",
+    "rows": 2001,
+    "first": "2021-03-19 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "157a1af613f29d967d809bd8ee434c4bb5adf6bbb443924194c2577211425576"
+  },
+  {
+    "symbol": "LISTAUSDT",
+    "status": "ok",
+    "rows": 812,
+    "first": "2024-06-20 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "71e472a64396d9a91efa845898ef6f80620e61c78c3804cd16aa277a9821214f"
+  },
+  {
+    "symbol": "LITUSDT",
+    "status": "ok",
+    "rows": 261,
+    "first": "2025-12-23 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "21b7dddc9e297b9240b98a33cd6d9896d485d2ac892548665868dabd201200e9"
+  },
+  {
+    "symbol": "LOKAUSDT",
+    "status": "ok",
+    "rows": 716,
+    "first": "2024-09-24 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "4418b111131cb5d856ed6a62b305b0c8b4983487c016a3d7943c5bf5d66fe577"
+  },
+  {
+    "symbol": "LOOMUSDT",
+    "status": "ok",
+    "rows": 1065,
+    "first": "2023-10-11 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "365c64096639886798c720abc99eb22aa64aeba7f1a1ec1a3a18f5638a503f9b"
+  },
+  {
+    "symbol": "LINKUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "54ce532b6f66fc5d7ba93b180f4c4d57349464dc396dd9324ad8d5ec024ea377"
+  },
+  {
+    "symbol": "LPTUSDT",
+    "status": "ok",
+    "rows": 1764,
+    "first": "2021-11-11 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "be793fd8a427cf5b4e4f1f577e28ae7080f7729e5893e0b1de915dfee654a500"
+  },
+  {
+    "symbol": "LQTYUSDT",
+    "status": "ok",
+    "rows": 1280,
+    "first": "2023-03-10 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "e66fbed96bfaa37eb0f99571a2cf1fc2edf095fd08530f3d85189156a31ce52c"
+  },
+  {
+    "symbol": "LSKUSDT",
+    "status": "ok",
+    "rows": 959,
+    "first": "2024-01-25 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "0f5d7b6f8137f7c3af373193a43b0aa1843f988081d145f7fec357c572190d3d"
+  },
+  {
+    "symbol": "LUMIAUSDT",
+    "status": "ok",
+    "rows": 631,
+    "first": "2024-12-18 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "a2d62558dc8e015551ba38e7dedccf23389f7b5e5ae401cbf9332cf62cc34bf6"
+  },
+  {
+    "symbol": "LYNUSDT",
+    "status": "ok",
+    "rows": 339,
+    "first": "2025-10-06 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "c1743504c003e004944064f52d6a235afa39ef543646e4f046f8177e00c3b1ef"
+  },
+  {
+    "symbol": "LRCUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "6811d2ad59ecda87519556b712ee1708a271887d7d75918abf20460200133ee3"
+  },
+  {
+    "symbol": "LUNA2USDT",
+    "status": "ok",
+    "rows": 1461,
+    "first": "2022-09-10 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "9bceaee9e86e06f59e5a72a872eca0c224bbe2659040572d4dea222ccfec5e67"
+  },
+  {
+    "symbol": "MAGMAUSDT",
+    "status": "ok",
+    "rows": 253,
+    "first": "2025-12-31 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "eac16be37fd494c1d6708f79304a41b186e93f397806d0a5c527099f6121224e"
+  },
+  {
+    "symbol": "LTCUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "847f47f03f3c91325a202ee0d834aada473f071d74bb16ad808403a51ff06678"
+  },
+  {
+    "symbol": "MANTRAUSDT",
+    "status": "ok",
+    "rows": 190,
+    "first": "2026-03-04 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "f0077f06ce4429eaae7252f123445d13d657e0791bcb3d7a77dbf92c01b1aa85"
+  },
+  {
+    "symbol": "MAGICUSDT",
+    "status": "ok",
+    "rows": 1324,
+    "first": "2023-01-25 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "3bda1a6747bd129c829e125f9bbbf6ef066a767c3246650c76fa10463db6e961"
+  },
+  {
+    "symbol": "MANTAUSDT",
+    "status": "ok",
+    "rows": 966,
+    "first": "2024-01-18 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "db29a8683d8fb2a79868fcc1d42f5da40ba2687b02d273e093e5e01b24662a48"
+  },
+  {
+    "symbol": "MARSCOINUSDT",
+    "status": "ok",
+    "rows": 9,
+    "first": "2026-09-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "1b9dd9341fa98972f8220969d4424ad4e27aa436e034bcc3ecea90c7b2c59e2c"
+  },
+  {
+    "symbol": "MAVIAUSDT",
+    "status": "ok",
+    "rows": 533,
+    "first": "2025-03-26 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "4653b0b22edfecb180541892c6c35dc7eca8200de8fa9cda5af243a05137f529"
+  },
+  {
+    "symbol": "MANAUSDT",
+    "status": "ok",
+    "rows": 2005,
+    "first": "2021-03-15 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "a1c5ab2bd043161fc83654be0ced8e329299077d8dab3197e233331404228cb7"
+  },
+  {
+    "symbol": "MBOXUSDT",
+    "status": "ok",
+    "rows": 743,
+    "first": "2024-08-28 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "705d13057625e7e8485b9555b30029ccacb19ecb9e098c381fff638b4654f8b7"
+  },
+  {
+    "symbol": "MAVUSDT",
+    "status": "ok",
+    "rows": 1169,
+    "first": "2023-06-29 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "25e4e2d7a7d8dd23af9d9dbb4367375c60bfea345e3b0e45f0e09dad59fecd9e"
+  },
+  {
+    "symbol": "MEGAUSDT",
+    "status": "ok",
+    "rows": 223,
+    "first": "2026-01-30 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "45dcf5b1c14494f1b4384321ff3f9c06b26aedf773d64d8c430dcefa33655532"
+  },
+  {
+    "symbol": "MASKUSDT",
+    "status": "ok",
+    "rows": 1840,
+    "first": "2021-08-27 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "bebd225612f935c63f2f518a61f6fac522b3a8a03a8cd87982d98d17593b4707"
+  },
+  {
+    "symbol": "MELANIAUSDT",
+    "status": "ok",
+    "rows": 598,
+    "first": "2025-01-20 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "a42dd935a7bf93e4842e07eaadcd21d3cfadd8750a0917e3355a0713ad3a2a01"
+  },
+  {
+    "symbol": "MDTUSDT",
+    "status": "ok",
+    "rows": 1168,
+    "first": "2023-06-30 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "f5ad10b6d6d49e96315eeb0ec14bd6a6a3e61b999b6cdf4805975f257ed2d597"
+  },
+  {
+    "symbol": "MEMEFIUSDT",
+    "status": "ok",
+    "rows": 503,
+    "first": "2025-04-25 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "ee61b1fa057aeb03e8b244a7669cfc64598a473ca166a43e359c67a7f44e3f15"
+  },
+  {
+    "symbol": "MERLUSDT",
+    "status": "ok",
+    "rows": 469,
+    "first": "2025-05-29 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "6207259f582316a4a80004c93c4dfb2c760afcf691d7e9d9572a1797172e04f1"
+  },
+  {
+    "symbol": "METUSDT",
+    "status": "ok",
+    "rows": 334,
+    "first": "2025-10-11 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "039152b560cc98a252119f179c0b31f048c42dd7fd6cef28c5697226004faf61"
+  },
+  {
+    "symbol": "METISUSDT",
+    "status": "ok",
+    "rows": 912,
+    "first": "2024-03-12 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "77fceb1b485adb8d96b575cba5032195060f86192f4cfc922bc16911833d5ca7"
+  },
+  {
+    "symbol": "MEMEUSDT",
+    "status": "ok",
+    "rows": 1042,
+    "first": "2023-11-03 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "ab8c24f43407c324fb2d0d00df512d59277d87d636bb5263d16d339fb4845951"
+  },
+  {
+    "symbol": "MEUSDT",
+    "status": "ok",
+    "rows": 639,
+    "first": "2024-12-10 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "18c1a5e776abaeb959f055cc4c253b1414b572a4bd817835aa6297f6c473db52"
+  },
+  {
+    "symbol": "MEWUSDT",
+    "status": "ok",
+    "rows": 815,
+    "first": "2024-06-17 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "70bede5c206a5ff9c9a43fff09c2e1290426441a54822daee5a442dc18bef0fe"
+  },
+  {
+    "symbol": "MILKUSDT",
+    "status": "ok",
+    "rows": 492,
+    "first": "2025-05-06 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "ad9aaa351d2e65ac915371e190fdc4ca669d36b70563f69c2220466cff0e1f59"
+  },
+  {
+    "symbol": "MIRAUSDT",
+    "status": "ok",
+    "rows": 349,
+    "first": "2025-09-26 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "fe0249c5099181244e4db4ac16c1119b28aaadf8f967f157fb412356bd7c16f3"
+  },
+  {
+    "symbol": "MITOUSDT",
+    "status": "ok",
+    "rows": 378,
+    "first": "2025-08-28 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "4d17f9916474170166ca63001f3cb5daa4689d71ed13383fd08cf362852c7f5b"
+  },
+  {
+    "symbol": "MINAUSDT",
+    "status": "ok",
+    "rows": 1311,
+    "first": "2023-02-07 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "56cb972453cdd13b43a1158e3a95b38eb2b7176d0dbd6c18a029f12c5542db57"
+  },
+  {
+    "symbol": "MLNUSDT",
+    "status": "ok",
+    "rows": 528,
+    "first": "2025-03-31 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "951f37f73b7c8b553473e665fd6026ea62ad172ce2f0655fc8c8205ed827def1"
+  },
+  {
+    "symbol": "MMTUSDT",
+    "status": "ok",
+    "rows": 310,
+    "first": "2025-11-04 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "5d3207590e40387850f7517e06cbdb87592a7a8d8ba1ac70773b712e62f91f63"
+  },
+  {
+    "symbol": "MOCAUSDT",
+    "status": "ok",
+    "rows": 633,
+    "first": "2024-12-16 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "6ba69b6029788bde17f7ea423b72bea1d5dc0c564ace8df5a42089953903d84c"
+  },
+  {
+    "symbol": "MONUSDT",
+    "status": "ok",
+    "rows": 335,
+    "first": "2025-10-10 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "e1065bdf7f9973e441de9d8654c65da0de1e35dbabd4d2a6663347d147d4b026"
+  },
+  {
+    "symbol": "MOODENGUSDT",
+    "status": "ok",
+    "rows": 685,
+    "first": "2024-10-25 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "485b7b152b8c63e6263b6722b94fa60dedc613fe5387b75aa419dae729f1cb0e"
+  },
+  {
+    "symbol": "MKRUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "617b82e87c6d8ac4079aada75f365e30c0e38a2615bca64707acb64f4a78f465"
+  },
+  {
+    "symbol": "MORPHOUSDT",
+    "status": "ok",
+    "rows": 652,
+    "first": "2024-11-27 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "0f007ed0bb7502f8b7d39af9501cff906fc68bd02c3b4e7b4db4c4180dbc87a5"
+  },
+  {
+    "symbol": "MOVEUSDT",
+    "status": "ok",
+    "rows": 640,
+    "first": "2024-12-09 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "229f55fbaa7235c5491cacebf255c62a9b6fd95a03fb59af85e2b418b72d5416"
+  },
+  {
+    "symbol": "MOVRUSDT",
+    "status": "ok",
+    "rows": 989,
+    "first": "2023-12-26 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "e79a23724bdf7dbbb41bc7c472434382eb1241a162acc85375f212e9c88f4d2a"
+  },
+  {
+    "symbol": "MUBARAKUSDT",
+    "status": "ok",
+    "rows": 542,
+    "first": "2025-03-17 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "4f92dd6bf6b4d4ad8c5b521bb606747e008a948a0893874d71e1fb447e3e015d"
+  },
+  {
+    "symbol": "MUSDT",
+    "status": "ok",
+    "rows": 430,
+    "first": "2025-07-07 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "b27f68c4f47b8a9867ea65e8784bc1198c4ed30ec53012a2648c342dbd0bf10b"
+  },
+  {
+    "symbol": "MYROUSDT",
+    "status": "ok",
+    "rows": 919,
+    "first": "2024-03-05 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "a29126b97e991b690c6f2c1082d73b2084c696b2b9f17279a8ef57ff008a2f0d"
+  },
+  {
+    "symbol": "MYXUSDT",
+    "status": "ok",
+    "rows": 449,
+    "first": "2025-06-18 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "55e343d599ee4eb6168d61895778125e421e9cff05d0876bf1e89734d2d331b3"
+  },
+  {
+    "symbol": "MTLUSDT",
+    "status": "ok",
+    "rows": 1989,
+    "first": "2021-03-31 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "cb36d5825f40d72debd3a84247fc7b2e4226f919e9b208f84d8f90f4c1948208"
+  },
+  {
+    "symbol": "NAORISUSDT",
+    "status": "ok",
+    "rows": 406,
+    "first": "2025-07-31 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "9cf9d579ca28fb130bb787832a48e040e093f564329bfdc2765562dd3ab4461f"
+  },
+  {
+    "symbol": "NEIROETHUSDT",
+    "status": "ok",
+    "rows": 734,
+    "first": "2024-09-06 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "858744f50526c5832656e646417e731097ce378dbbd82dd71ef02069867011ee"
+  },
+  {
+    "symbol": "NEIROUSDT",
+    "status": "ok",
+    "rows": 724,
+    "first": "2024-09-16 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "93376b622dc290db6105e3a9035b2673c78f07bd3bb02af4b59e770a98b4b438"
+  },
+  {
+    "symbol": "NEWTUSDT",
+    "status": "ok",
+    "rows": 448,
+    "first": "2025-06-19 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "ba40dca78cd5c0523aeefb5908786f8e1dd487cc69c39f421121c9461876137a"
+  },
+  {
+    "symbol": "NFPUSDT",
+    "status": "ok",
+    "rows": 988,
+    "first": "2023-12-27 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "e88f4c9c2141e7e2cf7686e7ace2abbc849d9618581d0611d8ba1554e2e1be50"
+  },
+  {
+    "symbol": "NEARUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "46d3a0061dae4235e1e73897c6b44c79956dcce1fa635e2c6b6098e226ff5c93"
+  },
+  {
+    "symbol": "NIGHTUSDT",
+    "status": "ok",
+    "rows": 274,
+    "first": "2025-12-10 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "0bf0ae3e4466791bd0556f0056e65cc9a635c6d40a55e74a9b9dbb31734a0e94"
+  },
+  {
+    "symbol": "NILUSDT",
+    "status": "ok",
+    "rows": 535,
+    "first": "2025-03-24 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "5e051f7a40f2175a692a0ae201695bbefbecd1e35a36232014400fa9a7636903"
+  },
+  {
+    "symbol": "NEOUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "ac259660eb813feefe45c1f24922cb70e5abb791cb8bf7a90b6837d3a4db458d"
+  },
+  {
+    "symbol": "NOMUSDT",
+    "status": "ok",
+    "rows": 344,
+    "first": "2025-10-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "31177872c00cd6b7b2569b1cba33f1344342ab8259c58d1668b9479f6adc5b07"
+  },
+  {
+    "symbol": "NOTUSDT",
+    "status": "ok",
+    "rows": 847,
+    "first": "2024-05-16 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "4b0123dadf4b99098c70b63e5347ed959a3892a49ffe33abef528b6080695177"
+  },
+  {
+    "symbol": "NMRUSDT",
+    "status": "ok",
+    "rows": 1176,
+    "first": "2023-06-22 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "e42d8723d8b3a79139f38fbeabddaadc0c9d495c6d3946aaf78d61e700bd3c92"
+  },
+  {
+    "symbol": "NKNUSDT",
+    "status": "ok",
+    "rows": 1980,
+    "first": "2021-04-09 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "0dd7cf55ef9ca0ef5e09c409e1897880c3db67afd110e51c3ea13a8de8696d92"
+  },
+  {
+    "symbol": "NULSUSDT",
+    "status": "ok",
+    "rows": 745,
+    "first": "2024-08-26 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "f82ba63893fc5e780b763baf5af45aff0ade8fd4979b61263dd4d8db4e89f508"
+  },
+  {
+    "symbol": "NXPCUSDT",
+    "status": "ok",
+    "rows": 483,
+    "first": "2025-05-15 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "32c03ccf16fd816b7bdbbee304490ea242c5a485c16aa557cba268a8c5f17dae"
+  },
+  {
+    "symbol": "OBOLUSDT",
+    "status": "ok",
+    "rows": 491,
+    "first": "2025-05-07 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "1b4deed094e70abfd5431fd5806a0c9107c3af167bc2ee241cb467f3b6d43081"
+  },
+  {
+    "symbol": "NTRNUSDT",
+    "status": "ok",
+    "rows": 1031,
+    "first": "2023-11-14 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "b6e3cf0896f14f7baf703a4564d06f716809e973b41288c79004688c5bb1a198"
+  },
+  {
+    "symbol": "OGUSDT",
+    "status": "ok",
+    "rows": 486,
+    "first": "2025-05-12 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "9b4924024dcbad66cb66494bf7576942def6487d33d450a7f0c53982312ad5ba"
+  },
+  {
+    "symbol": "OLUSDT",
+    "status": "ok",
+    "rows": 442,
+    "first": "2025-06-25 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "718d8ac1b9d1c86bb884711c6f83912c31831251f482ad95d9a45fe9c5aeb175"
+  },
+  {
+    "symbol": "OGNUSDT",
+    "status": "ok",
+    "rows": 1988,
+    "first": "2021-04-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "68b5db1ac50c8e896a34e0576c49c396aa51b0c1e61a2a7e9630d5eef124775c"
+  },
+  {
+    "symbol": "OCEANUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "550e667e10efbc042f6ad6816b5aacadd15196b74b73dffc1640be96bf7a512e"
+  },
+  {
+    "symbol": "OMNIUSDT",
+    "status": "ok",
+    "rows": 876,
+    "first": "2024-04-17 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "c064dc730b09f00ae053d766ca72add9e6b0674b85f4e8fb9bb25dbd0fae1085"
+  },
+  {
+    "symbol": "OMUSDT",
+    "status": "ok",
+    "rows": 940,
+    "first": "2024-02-13 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "43e160491c500803aeeef7edc2ef3497eb34550d4f8928d23eb8db9bddfa4fc7"
+  },
+  {
+    "symbol": "ONDOUSDT",
+    "status": "ok",
+    "rows": 964,
+    "first": "2024-01-20 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "51b8d4a2747b0e9022c48c096678b27ca08fe86405d2aa7829e3c260c137b117"
+  },
+  {
+    "symbol": "OMGUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "3a8cff155ab55045747ca5c961f489b5912544d4d7fb7e6c737910880dfb8f3a"
+  },
+  {
+    "symbol": "ONUSDT",
+    "status": "ok",
+    "rows": 321,
+    "first": "2025-10-24 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "34f2450d12cfdfe6a21d6ec43ba7adc409d99817cafb7ac30bd518edb714a68c"
+  },
+  {
+    "symbol": "ONGUSDT",
+    "status": "ok",
+    "rows": 1018,
+    "first": "2023-11-27 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "ffea42df301556c23d4c735201f53973dd88f34b2f7ba59b1fd0cc4d3ed69b3c"
+  },
+  {
+    "symbol": "ONEUSDT",
+    "status": "ok",
+    "rows": 2002,
+    "first": "2021-03-18 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "9409c3692272f0929b680224af41c683d84867e372eac9b4780fef09de4fe328"
+  },
+  {
+    "symbol": "OPGUSDT",
+    "status": "ok",
+    "rows": 141,
+    "first": "2026-04-22 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "9ea1eeccd5395d7e242ea0d83a122f651b967ddb3b478fa1cee17165efd007f5"
+  },
+  {
+    "symbol": "OPENUSDT",
+    "status": "ok",
+    "rows": 367,
+    "first": "2025-09-08 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "fbe78170ab3d044b8cf831e62a9dbac6a9d5125dd14d8f8ea5a746b6a115e408"
+  },
+  {
+    "symbol": "ONTUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "d16aeae202d63ef816053e528f62358dedee65d3e78cfee8c54c4c1ef2411015"
+  },
+  {
+    "symbol": "OPNUSDT",
+    "status": "ok",
+    "rows": 201,
+    "first": "2026-02-21 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "63c9e7187141d17ce900fd7c5edd384eb160eb4d432b25529d833fc782398907"
+  },
+  {
+    "symbol": "ORDERUSDT",
+    "status": "ok",
+    "rows": 349,
+    "first": "2025-09-26 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "dd3349ceb6380d0e259bacc14cb652410bcb12345961b145eb7e556663cd4e17"
+  },
+  {
+    "symbol": "ORCAUSDT",
+    "status": "ok",
+    "rows": 643,
+    "first": "2024-12-06 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "758cf23065ac8e570c7fdb3adc9b675f25bc39e46fef88318f992e3127f0bc17"
+  },
+  {
+    "symbol": "ORBSUSDT",
+    "status": "ok",
+    "rows": 1059,
+    "first": "2023-10-17 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "a1496014486f9394b7795a56bc98f4d00407e6fc8519fc45fa0977cecd6c80a4"
+  },
+  {
+    "symbol": "OPUSDT",
+    "status": "ok",
+    "rows": 1562,
+    "first": "2022-06-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "5169577d4fef0da09651d9d9efdc080252c999a1b8123d4bfc19391c803c8559"
+  },
+  {
+    "symbol": "OUSDT",
+    "status": "ok",
+    "rows": 78,
+    "first": "2026-06-24 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "7a1df2d55d2054dd6ef3e742dc614e7bc943809ae65019be7dfc612596a23d72"
+  },
+  {
+    "symbol": "PARTIUSDT",
+    "status": "ok",
+    "rows": 534,
+    "first": "2025-03-25 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "ef5224124ee7909768f0677f7e4fa48279ded93ef142c091ec1d5c0b216283ec"
+  },
+  {
+    "symbol": "PAXGUSDT",
+    "status": "ok",
+    "rows": 532,
+    "first": "2025-03-27 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "5663a0cb2b7a83d44aee8411aa921a2a0c2e752d14af6d947500fdd66ba30bf9"
+  },
+  {
+    "symbol": "ORDIUSDT",
+    "status": "ok",
+    "rows": 1038,
+    "first": "2023-11-07 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "7f4bd775e372776eff47fa5d2d24053fb8dcec592bf342b7cec3d2279890371f"
+  },
+  {
+    "symbol": "OXTUSDT",
+    "status": "ok",
+    "rows": 1126,
+    "first": "2023-08-11 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "7d27169e35a89a09ae9ede3fa7adae1bb6d272d93c7c2c9e3d8f6c526c2cc70f"
+  },
+  {
+    "symbol": "PENGUUSDT",
+    "status": "ok",
+    "rows": 632,
+    "first": "2024-12-17 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "a7226f53169cf7a785503adf47440df9b052e985f8c0df64d03b99fbe487e991"
+  },
+  {
+    "symbol": "PENDLEUSDT",
+    "status": "ok",
+    "rows": 1140,
+    "first": "2023-07-28 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "5971ddf1cf8c8d1b11cda5a3702778294a56c39e21dcea575113a99e525243e2"
+  },
+  {
+    "symbol": "PERPUSDT",
+    "status": "ok",
+    "rows": 1284,
+    "first": "2023-03-06 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "3d7411f33e32f736496bada223bc3c81d7e31fe841132eed6e9db748291117d2"
+  },
+  {
+    "symbol": "PHAROSUSDT",
+    "status": "ok",
+    "rows": 119,
+    "first": "2026-05-14 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "a0da416b205a25316ea4128ca847dc46afd0765bdfb812082d73e60f371f4a4d"
+  },
+  {
+    "symbol": "PEOPLEUSDT",
+    "status": "ok",
+    "rows": 1721,
+    "first": "2021-12-24 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "e60e9043938a76eca9ce237ab7bc1eaabb66d0d684bac447f3bfd74449538e25"
+  },
+  {
+    "symbol": "PHAUSDT",
+    "status": "ok",
+    "rows": 619,
+    "first": "2024-12-30 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "f45b0a482f86cefe96afe7a6757f638c407d462145797148254bd21639b12db1"
+  },
+  {
+    "symbol": "PIEVERSEUSDT",
+    "status": "ok",
+    "rows": 300,
+    "first": "2025-11-14 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "df2808f3eea614aee93dba395ed1c8b74e199e7735dae1d222dfac7fab81c96a"
+  },
+  {
+    "symbol": "PIPPINUSDT",
+    "status": "ok",
+    "rows": 594,
+    "first": "2025-01-24 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "e3f8068336ebb794b0f51c5c8bdd34ac4775a59a6b3bd5fda911d190fa26cd4f"
+  },
+  {
+    "symbol": "PIXELUSDT",
+    "status": "ok",
+    "rows": 934,
+    "first": "2024-02-19 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "22673e639202a9cf55c77f22cec989c7495611f0511fd472a905101befbd5d38"
+  },
+  {
+    "symbol": "PHBUSDT",
+    "status": "ok",
+    "rows": 1302,
+    "first": "2023-02-16 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "af0fff271ba9771811cb540a186226c1483f36fcf8460dd5e501d0ad7f56d2af"
+  },
+  {
+    "symbol": "PLAYUSDT",
+    "status": "ok",
+    "rows": 406,
+    "first": "2025-07-31 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "650e975c9bd1a811df709098096f0a94130bd111c02464a74ebeb78dae021a40"
+  },
+  {
+    "symbol": "PLUMEUSDT",
+    "status": "ok",
+    "rows": 538,
+    "first": "2025-03-21 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "56c02743e48241f02d567e6ba78f32d3b42c0aa5b6c5112113803ff054128298"
+  },
+  {
+    "symbol": "PNUTUSDT",
+    "status": "ok",
+    "rows": 668,
+    "first": "2024-11-11 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "d1239533e570efa4fa07cf59333ae7fd033981e3e10db4e03e26aaf08b4962ac"
+  },
+  {
+    "symbol": "POLUSDT",
+    "status": "ok",
+    "rows": 727,
+    "first": "2024-09-13 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "42c896e2ae5cae5b09e4b417b2d91e89899c3891f713861e6a6ad065e32c8ed9"
+  },
+  {
+    "symbol": "PONKEUSDT",
+    "status": "ok",
+    "rows": 675,
+    "first": "2024-11-04 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "e64bdd190a39b45c81a1c2e8bec90fb55e67c659b81536c9598b356173a26161"
+  },
+  {
+    "symbol": "PONSUSDT",
+    "status": "ok",
+    "rows": 4,
+    "first": "2026-09-06 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "2cef29cd42acb335e3fcb395acb3c47f9a2bf1f82fed5b3114cf579cf79e5251"
+  },
+  {
+    "symbol": "PORT3USDT",
+    "status": "ok",
+    "rows": 463,
+    "first": "2025-06-04 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "52aaba135c1ca5061f3862a36335dd2a59bf5dfa7a4889558e0f5d2bfa36b8a9"
+  },
+  {
+    "symbol": "POLYXUSDT",
+    "status": "ok",
+    "rows": 1051,
+    "first": "2023-10-25 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "e0783623d9a0ecb06f78a182ca9ecd73c4792a6507cfdaabebc9288713713c23"
+  },
+  {
+    "symbol": "POPCATUSDT",
+    "status": "ok",
+    "rows": 749,
+    "first": "2024-08-22 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "86781eb388ed499c0a3306d5924c1368ab92a588240b86a17babbfcae674b2f6"
+  },
+  {
+    "symbol": "PORTALUSDT",
+    "status": "ok",
+    "rows": 924,
+    "first": "2024-02-29 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "5ac2c398e5bdc08de9a6d0b11cc4a9ce3aa2bff302f0aba8863242ed932881f1"
+  },
+  {
+    "symbol": "POWERUSDT",
+    "status": "ok",
+    "rows": 278,
+    "first": "2025-12-06 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "e2a69a1c22ee4982221470b8ba548af72349e44a8642b8ba6d92101297dc5b78"
+  },
+  {
+    "symbol": "PRLUSDT",
+    "status": "ok",
+    "rows": 162,
+    "first": "2026-04-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "c384b01da995368d238d7a0e63da2e85072f39c4ed68b2ff8f2483243a46a227"
+  },
+  {
+    "symbol": "PROMPTUSDT",
+    "status": "ok",
+    "rows": 517,
+    "first": "2025-04-11 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "16e936443a8ebdcc85f8c46f261a1e9d5f6ab7ba6a737f7d44726df2ecd32e10"
+  },
+  {
+    "symbol": "PROVEUSDT",
+    "status": "ok",
+    "rows": 401,
+    "first": "2025-08-05 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "cba895f05e5d1699cbc181cbc0dddc895c166369cdfeb20f13c73c5aeb1d17e2"
+  },
+  {
+    "symbol": "PROMUSDT",
+    "status": "ok",
+    "rows": 603,
+    "first": "2025-01-15 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "983d4f59a4a94871350331e8552aca4ab09f4a3491059305e3801933ebd8cca5"
+  },
+  {
+    "symbol": "POWRUSDT",
+    "status": "ok",
+    "rows": 1049,
+    "first": "2023-10-27 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "6e84c3ab522ff6f4cfe0802f843d26256beee03fbca6a425f005467fd8d7e260"
+  },
+  {
+    "symbol": "PTBUSDT",
+    "status": "ok",
+    "rows": 372,
+    "first": "2025-09-03 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "a663e2f3a30a552e47e6b517829f4256d9bdafa90103b8d26e64df2b23ef0cf5"
+  },
+  {
+    "symbol": "PUFFERUSDT",
+    "status": "ok",
+    "rows": 463,
+    "first": "2025-06-04 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "1a50f55d3e7849396557b44999a4223539f6c0da5f585b534577f4e0ae80a509"
+  },
+  {
+    "symbol": "PUMPBTCUSDT",
+    "status": "ok",
+    "rows": 454,
+    "first": "2025-06-13 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "611f6836093b015c068a9314174b12bbc6fae1283a1c05c1c335f720bb419902"
+  },
+  {
+    "symbol": "PUMPUSDT",
+    "status": "ok",
+    "rows": 427,
+    "first": "2025-07-10 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "c8818f4735862bda2a4939910f0c380a99d149a1c43be1d968fa9ea8c73b3b0b"
+  },
+  {
+    "symbol": "PUNDIXUSDT",
+    "status": "ok",
+    "rows": 498,
+    "first": "2025-04-30 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "e612f8c56ea32d3b99f45f885b2a2e1a6f8a569812e76413887375ebb6e049d7"
+  },
+  {
+    "symbol": "QUICKUSDT",
+    "status": "ok",
+    "rows": 734,
+    "first": "2024-09-06 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "9e1c01b24db7a361a3db1d288c915764f6e07d54abc71bb22b13d0ec61fb8b51"
+  },
+  {
+    "symbol": "PYTHUSDT",
+    "status": "ok",
+    "rows": 1023,
+    "first": "2023-11-22 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "b7a77b928b85360bb83a71061f4714c1de18f6760f8d028d663c85d5b56badbe"
+  },
+  {
+    "symbol": "QNTUSDT",
+    "status": "ok",
+    "rows": 1421,
+    "first": "2022-10-20 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "e2253d4c5c9b29a233f1049cd78caf8f8dbb9a955fef5e864baa6032b9090b7a"
+  },
+  {
+    "symbol": "QUSDT",
+    "status": "ok",
+    "rows": 373,
+    "first": "2025-09-02 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "0b01c332d7efe363531c78f8270f37241fbc9d0b269685dff569b0ba519b9cf2"
+  },
+  {
+    "symbol": "RAVEUSDT",
+    "status": "ok",
+    "rows": 270,
+    "first": "2025-12-14 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "b2aa49a9a734d14d192bb926ec6807a5b6676e3b3ab896661e44cc91134c9dca"
+  },
+  {
+    "symbol": "RAREUSDT",
+    "status": "ok",
+    "rows": 756,
+    "first": "2024-08-15 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "57aec892ebd9c4c3042604b4a5b415e894e41ed72017eccfad67a2c2baac0e96"
+  },
+  {
+    "symbol": "QTUMUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "1290ee498155d91ac745e8b037ca5b4bd39a5c9ce5e421f87261ba2b6ca31b3b"
+  },
+  {
+    "symbol": "RADUSDT",
+    "status": "ok",
+    "rows": 1219,
+    "first": "2023-05-10 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "3bfe7d2dc42c17f8bd378d8c0ff59f95f67cc9dd537a69236f713c28c5143610"
+  },
+  {
+    "symbol": "RAYSOLUSDT",
+    "status": "ok",
+    "rows": 639,
+    "first": "2024-12-10 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "6a00015865086693afe9bfa2cbb236472ab5562cc471754565159cd64da4e310"
+  },
+  {
+    "symbol": "RECALLUSDT",
+    "status": "ok",
+    "rows": 330,
+    "first": "2025-10-15 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "968c92b13714c93d84450a17119d545bc7347225220cffb4349465184335fb10"
+  },
+  {
+    "symbol": "REDUSDT",
+    "status": "ok",
+    "rows": 553,
+    "first": "2025-03-06 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "01f8d20b84c6c01218bf5302abc872b40ba1ea5b58ce8a9cd837b9b35a015e40"
+  },
+  {
+    "symbol": "RAYUSDT",
+    "status": "ok",
+    "rows": 1847,
+    "first": "2021-08-20 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "885c246977d6968dcae60d1b25f02d222513eec04814ff6995ab3a80d91b8ee2"
+  },
+  {
+    "symbol": "RDNTUSDT",
+    "status": "ok",
+    "rows": 1254,
+    "first": "2023-04-05 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "c93ef0e89ccc44fcb66cc1ae0e6e15422e7d8e30b5ce1431b2971470713bc726"
+  },
+  {
+    "symbol": "REIUSDT",
+    "status": "ok",
+    "rows": 713,
+    "first": "2024-09-27 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "956de18b9bf2481559e7a82a699ed9398d10c6569cebc9125b51574bb8e2f43a"
+  },
+  {
+    "symbol": "RENDERUSDT",
+    "status": "ok",
+    "rows": 776,
+    "first": "2024-07-26 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "5d6727d87717044b9415e5342889c68c32705958069bf53245d4e5b011ff0347"
+  },
+  {
+    "symbol": "RESOLVUSDT",
+    "status": "ok",
+    "rows": 457,
+    "first": "2025-06-10 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "eb405c6a08c12cd3645f92b28a04e8faff5c555802a6b689847be96447be8e79"
+  },
+  {
+    "symbol": "REUSDT",
+    "status": "ok",
+    "rows": 84,
+    "first": "2026-06-18 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "9734e218aec6e11ad7e5eb79af12ab141d5e0e1aef29fc879a19dc799da983c9"
+  },
+  {
+    "symbol": "REZUSDT",
+    "status": "ok",
+    "rows": 863,
+    "first": "2024-04-30 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "23b02cbb64b074953917e9c9f0bb5a766be451dac000fc530caa0200ffa47542"
+  },
+  {
+    "symbol": "REEFUSDT",
+    "status": "ok",
+    "rows": 2026,
+    "first": "2021-02-22 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "41174099e837d8cb47fe821baccc82fe203c73f8d2ef412d3121d9c537e606a1"
+  },
+  {
+    "symbol": "RIVERUSDT",
+    "status": "ok",
+    "rows": 328,
+    "first": "2025-10-17 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "b20101f85f6260dabd1b7222a89dc3dc34318ed37e8a923e8423c2daeb54704f"
+  },
+  {
+    "symbol": "RENUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "3b7592b81f9a0e4405581726af25fc5ae76b614711805e0f17342cd27363ecd2"
+  },
+  {
+    "symbol": "RIFUSDT",
+    "status": "ok",
+    "rows": 1055,
+    "first": "2023-10-21 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "b993f8d1ce78ff7b12b2912c7023cef204d8d0a6545177c11e676192b694fef8"
+  },
+  {
+    "symbol": "RLSUSDT",
+    "status": "ok",
+    "rows": 282,
+    "first": "2025-12-02 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "232c9710d7358513ee9feb95a7909a32b9c01a72f7a770b68036659e01444545"
+  },
+  {
+    "symbol": "ROBOUSDT",
+    "status": "ok",
+    "rows": 195,
+    "first": "2026-02-27 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "4db373c283e9609ca6c0c7092eceb4bf44805f4d637831b94e9d712534209441"
+  },
+  {
+    "symbol": "RONINUSDT",
+    "status": "ok",
+    "rows": 947,
+    "first": "2024-02-06 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "2a002995d80779fbc382ac5f3e5128ee2e0e60c57b3508df7756eef13ee84bed"
+  },
+  {
+    "symbol": "RPLUSDT",
+    "status": "ok",
+    "rows": 731,
+    "first": "2024-09-09 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "34abceae0fc42f671df781407f018aec6a1990e90983a08ae210973f5fc88ed9"
+  },
+  {
+    "symbol": "RLCUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "3fd19779eb56b185a6f5ce758f808d21f985086803485545c1bd7158f6349c7e"
+  },
+  {
+    "symbol": "ROSEUSDT",
+    "status": "ok",
+    "rows": 1714,
+    "first": "2021-12-31 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "123ffd784cb099d2491a24d90187ade857ea9f7b43b21e31309c1c4438327c20"
+  },
+  {
+    "symbol": "RVVUSDT",
+    "status": "ok",
+    "rows": 327,
+    "first": "2025-10-18 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "e155e7758b339cf293ddde2b9593adc273b986a551205a4897551061504693c7"
+  },
+  {
+    "symbol": "SAFEUSDT",
+    "status": "ok",
+    "rows": 685,
+    "first": "2024-10-25 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "17fb2d66480642e467fd5165dd66d8504ee703f816ef2adb51da7883fb77ae9b"
+  },
+  {
+    "symbol": "RSRUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "4691f6d2f053a8cef05c72929f42762d6a806c4da7ddcf415632176fcaf1eef6"
+  },
+  {
+    "symbol": "RUNEUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "7e1d48311fa31068ccf8abcddda8212a6817f22882fcbfb7859e611c2d95e972"
+  },
+  {
+    "symbol": "SAGAUSDT",
+    "status": "ok",
+    "rows": 884,
+    "first": "2024-04-09 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "4341cd9707a6f13cd1412fdc952e7e566f2743e4a1545735f148c903b745a304"
+  },
+  {
+    "symbol": "SAHARAUSDT",
+    "status": "ok",
+    "rows": 441,
+    "first": "2025-06-26 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "cc9b9f23ff00564c9c1197bbb7241870b6b8bdc2ba28ef3bd03f2a1180d92e9d"
+  },
+  {
+    "symbol": "RVNUSDT",
+    "status": "ok",
+    "rows": 2025,
+    "first": "2021-02-23 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "cebfd35334d08b6f22a5abd93b9944d19919ee207ccd0f26febee3d23cb08520"
+  },
+  {
+    "symbol": "SANTOSUSDT",
+    "status": "ok",
+    "rows": 682,
+    "first": "2024-10-28 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "9f644dd050c667c85d5884bc5f8b96e7bdde5ff044050d359ddc134c2eb38257"
+  },
+  {
+    "symbol": "SAPIENUSDT",
+    "status": "ok",
+    "rows": 386,
+    "first": "2025-08-20 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "d150b056fc277fa799b00b9dc82019f9d94f71f9f92bfa77460342fdf83ea23f"
+  },
+  {
+    "symbol": "SCRTUSDT",
+    "status": "ok",
+    "rows": 658,
+    "first": "2024-11-21 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "36207bd587916fba334f466c76d7c9b7b2f2700633fd1286eb1f291457931219"
+  },
+  {
+    "symbol": "SCRUSDT",
+    "status": "ok",
+    "rows": 688,
+    "first": "2024-10-22 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "536484eb4b3683d24f11e9d088b117a8ae9ee93fc2759b42eaf45189876d92cc"
+  },
+  {
+    "symbol": "SENTUSDT",
+    "status": "ok",
+    "rows": 300,
+    "first": "2025-11-14 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "d07da6481efbd8cdc2a44b80628b6b39c906c5698150dd1a15afe380de4a307d"
+  },
+  {
+    "symbol": "SCUSDT",
+    "status": "ok",
+    "rows": 1977,
+    "first": "2021-04-12 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "41dedf24e1e25e859dfdd9ee91703d31a3800e3a023b6c3b36ed14aa6a6df90f"
+  },
+  {
+    "symbol": "SANDUSDT",
+    "status": "ok",
+    "rows": 2054,
+    "first": "2021-01-25 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "e12ce0217429bb8a3b7ad82947b71055d4d462d38c1c8ac5f8e76dd4dac3b194"
+  },
+  {
+    "symbol": "SEIUSDT",
+    "status": "ok",
+    "rows": 1120,
+    "first": "2023-08-17 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "14b969f186ecdaa5d366b1a6bf79835081c89d5f7e2fb65d0c4bc63b728bd389"
+  },
+  {
+    "symbol": "SHELLUSDT",
+    "status": "ok",
+    "rows": 570,
+    "first": "2025-02-17 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "824389cd70ba89cefb922c299e15dcd9d51b630faedf56d06423c5850fc8c932"
+  },
+  {
+    "symbol": "SIGNUSDT",
+    "status": "ok",
+    "rows": 500,
+    "first": "2025-04-28 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "67ecdb63a1ddeef403454d66143c7610269dd972f7041907e0cd64f88568c63f"
+  },
+  {
+    "symbol": "SIRENUSDT",
+    "status": "ok",
+    "rows": 537,
+    "first": "2025-03-22 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "c5878f812dc158d9c9d67536c7bb7eca0044101efccbdcd86f8680100517b3bd"
+  },
+  {
+    "symbol": "SKATEUSDT",
+    "status": "ok",
+    "rows": 458,
+    "first": "2025-06-09 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "d11ea6bf70d50e2a10982d26e815ff41301f24f979341f85e82e824fa2f1b60b"
+  },
+  {
+    "symbol": "SKRUSDT",
+    "status": "ok",
+    "rows": 231,
+    "first": "2026-01-22 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "f8cbf6c1f5076834f10cd7c5355e74467c8fdc7dbe5daee4ebf800f6cbbc4bb0"
+  },
+  {
+    "symbol": "SKYAIUSDT",
+    "status": "ok",
+    "rows": 485,
+    "first": "2025-05-13 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "069c73ac79ed060aab53456ba75a1dea038a60726b3fbe374326095b28f69682"
+  },
+  {
+    "symbol": "SFPUSDT",
+    "status": "ok",
+    "rows": 2024,
+    "first": "2021-02-24 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "692d9a8097c433b33d52582e6de65e9d2db04bcc8a2ad3b6e54cd82c60dba044"
+  },
+  {
+    "symbol": "SKYUSDT",
+    "status": "ok",
+    "rows": 366,
+    "first": "2025-09-09 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "9847a97015e6c1693608c1c665259cf941ffd700c5cc882ddff94022ddbb53e1"
+  },
+  {
+    "symbol": "SLPUSDT",
+    "status": "ok",
+    "rows": 414,
+    "first": "2025-07-23 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "272f0d693a3c31a70899129e55b99fcd6ddcebe57dc0c4db0db08f3b65d8a5a6"
+  },
+  {
+    "symbol": "SLXUSDT",
+    "status": "ok",
+    "rows": 101,
+    "first": "2026-06-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "4c022e942c4edd447c96e30937fe8ce2d0033996ae990344fe02a17c50df91e4"
+  },
+  {
+    "symbol": "SLERFUSDT",
+    "status": "ok",
+    "rows": 658,
+    "first": "2024-11-21 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "abd88ee6d9e5acdd2a7c38032f4daea2f23e2559141601b07e941c748d69a72a"
+  },
+  {
+    "symbol": "SKLUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "5f1fb55a67f46a4deb3aef71b5bb2af442c5e3ae2f123581d1842461598fa893"
+  },
+  {
+    "symbol": "SNTUSDT",
+    "status": "ok",
+    "rows": 1043,
+    "first": "2023-11-02 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "ba1338abf5bfbc0054a6c875947fa095ceba679390bacc77a24000cf56088c3c"
+  },
+  {
+    "symbol": "SOLVUSDT",
+    "status": "ok",
+    "rows": 601,
+    "first": "2025-01-17 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "1736b2df22bba1ccf80a4852a6e048336dc0c4f9b7d3440d89efcd8d02a64ac7"
+  },
+  {
+    "symbol": "SOMIUSDT",
+    "status": "ok",
+    "rows": 381,
+    "first": "2025-08-25 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "18e299d54acc8ec3035ac336b397fe5c311b42402d67c973c406aedd7d7cba1b"
+  },
+  {
+    "symbol": "SONICUSDT",
+    "status": "ok",
+    "rows": 610,
+    "first": "2025-01-08 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "cf8ed133784af465a08feffc606d6c9952213a51f6726e5d7aab9dc73ed567d8"
+  },
+  {
+    "symbol": "SOONUSDT",
+    "status": "ok",
+    "rows": 475,
+    "first": "2025-05-23 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "4569d3e69ced9595c9cc0beae522154f1cac317436411bd2e9c0279ded2eb0c4"
+  },
+  {
+    "symbol": "SOLUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "f79cbbe7a97f6fe64f79cfdfd72f370d0b84daf0fdc0444d528b2ae65051c774"
+  },
+  {
+    "symbol": "SNXUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "d4243c6f61901795f74479d2ff4e35141cbf9b5bb42d89ffc945b1c113893ae2"
+  },
+  {
+    "symbol": "SOPHUSDT",
+    "status": "ok",
+    "rows": 470,
+    "first": "2025-05-28 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "d4768a7c8b36121d60f924961b85c22d742d3886b8ce82448bae3195cd78fd9f"
+  },
+  {
+    "symbol": "SPACEUSDT",
+    "status": "ok",
+    "rows": 230,
+    "first": "2026-01-23 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "bc8781b1cf360f76d31e5661e9b23a0777997cf7885518d5bcf3617ac66f7368"
+  },
+  {
+    "symbol": "SPKUSDT",
+    "status": "ok",
+    "rows": 450,
+    "first": "2025-06-17 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "a3d3cc0c075f75a3c3008ea16e7518df5f7b72b6312dba3617106e7f6d9a4fa5"
+  },
+  {
+    "symbol": "SPORTFUNUSDT",
+    "status": "ok",
+    "rows": 237,
+    "first": "2026-01-16 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "143b4c9f9f1d680b4334b03d46e6dba9bc8c2fb5523a651dbdc2c2efe23360cc"
+  },
+  {
+    "symbol": "SPXUSDT",
+    "status": "ok",
+    "rows": 639,
+    "first": "2024-12-10 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "ac0025e50f1314dd672f1ffdc2d43ffc2475bd1464541c6bde54651703095cb9"
+  },
+  {
+    "symbol": "SQDUSDT",
+    "status": "ok",
+    "rows": 456,
+    "first": "2025-06-11 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "a401b1242dac924af73859eb50000e179ba0e21d4076a744905e22becd22f9cb"
+  },
+  {
+    "symbol": "SPELLUSDT",
+    "status": "ok",
+    "rows": 1465,
+    "first": "2022-09-06 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "1d3e09408728b2e52c502e34046f2b6d506265998db837f7603cc141591cd2ec"
+  },
+  {
+    "symbol": "STARUSDT",
+    "status": "ok",
+    "rows": 119,
+    "first": "2026-05-14 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "e65c119a05544cc0c3974c689cf8dc26b3bc4f5b24ebd53b337be26d2c234305"
+  },
+  {
+    "symbol": "STABLEUSDT",
+    "status": "ok",
+    "rows": 308,
+    "first": "2025-11-06 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "7576140e9c210df8df7626d083aafcb10264c07d945c596cc5b1fcbd23ba9049"
+  },
+  {
+    "symbol": "STBLUSDT",
+    "status": "ok",
+    "rows": 358,
+    "first": "2025-09-17 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "bb9b7a2b936b7da58c9ceb9baf50480688759a37800d355432cc1fa178b0e010"
+  },
+  {
+    "symbol": "SSVUSDT",
+    "status": "ok",
+    "rows": 1294,
+    "first": "2023-02-24 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "a612a861abd8a1bec4cbbd5e7016a92ac453a47da8c7e985aa3d09925e0ca2a7"
+  },
+  {
+    "symbol": "STEEMUSDT",
+    "status": "ok",
+    "rows": 1037,
+    "first": "2023-11-08 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "ab02c58d48731b251a4ce1350b357e93bc080930e119befe8cb176ed700fff2e"
+  },
+  {
+    "symbol": "STGUSDT",
+    "status": "ok",
+    "rows": 1477,
+    "first": "2022-08-25 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "82e12f82d335d2dd4c5461603db7d1f8439c770927de095a602e3bb08677915a"
+  },
+  {
+    "symbol": "STOUSDT",
+    "status": "ok",
+    "rows": 516,
+    "first": "2025-04-12 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "8641ce1feb65328517d3f4f38fd3849b202113362a1ce52f328eb944fc5416b9"
+  },
+  {
+    "symbol": "STMXUSDT",
+    "status": "ok",
+    "rows": 1998,
+    "first": "2021-03-22 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "354fa9e5776885ffefbd8e4563c88201bd238fb760ca4c8db2868464684723ec"
+  },
+  {
+    "symbol": "STPTUSDT",
+    "status": "ok",
+    "rows": 1058,
+    "first": "2023-10-18 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "2f8379e441334a2041b326a57abc09a75b3fe5b60afc11086bd8523891fc4c03"
+  },
+  {
+    "symbol": "STRKUSDT",
+    "status": "ok",
+    "rows": 933,
+    "first": "2024-02-20 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "81df20c21600a7a82ea99f884a55c729b458d789ffe4665a0a2d994a8f35f624"
+  },
+  {
+    "symbol": "STRAXUSDT",
+    "status": "ok",
+    "rows": 1065,
+    "first": "2023-10-11 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "3f183752676b03e0ddb7370ec31e00268abf672ad33921aadc21122159c669c6"
+  },
+  {
+    "symbol": "STORJUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "fccb4bd357f01d6ff1ce657c4bcab6b73bd771d84337c7918e827b406fcc70b4"
+  },
+  {
+    "symbol": "SUNUSDT",
+    "status": "ok",
+    "rows": 749,
+    "first": "2024-08-22 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "e369100801b04ee9dfbd49d8383ada7f8791de1e3656557ca35632bd6b3b882c"
+  },
+  {
+    "symbol": "STXUSDT",
+    "status": "ok",
+    "rows": 1297,
+    "first": "2023-02-21 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "346f96d53103e36cc960b1d57ca0349911bf3ac29ccb85514fe30d024abf09b4"
+  },
+  {
+    "symbol": "SUIUSDT",
+    "status": "ok",
+    "rows": 1226,
+    "first": "2023-05-03 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "63a5d74c3f23e94322b3e338b9d0f33f5b7ba4e99b455603a1b3bd21acd4cbaa"
+  },
+  {
+    "symbol": "SUSDT",
+    "status": "ok",
+    "rows": 602,
+    "first": "2025-01-16 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "b0f59b26b76f2875cbfee350ccc7afcb1dc6ffedd3dfa356b595e7ce612207c7"
+  },
+  {
+    "symbol": "SUPERUSDT",
+    "status": "ok",
+    "rows": 1019,
+    "first": "2023-11-26 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "480bcb09da46f513fce74d323490a2528eb06cb0731d1421c8bd1a1fc12e9ebb"
+  },
+  {
+    "symbol": "SWARMSUSDT",
+    "status": "ok",
+    "rows": 611,
+    "first": "2025-01-07 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "f0be8e305f3de07b0ca6151cc358a1aa185edbb3aedd8018b671d1fe34f44e52"
+  },
+  {
+    "symbol": "SWELLUSDT",
+    "status": "ok",
+    "rows": 671,
+    "first": "2024-11-08 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "f2d18ffc7a2bba6d1d7a8d12804a06e72f7e2c1f5ae307ff83402f8fe701c426"
+  },
+  {
+    "symbol": "SXTUSDT",
+    "status": "ok",
+    "rows": 496,
+    "first": "2025-05-02 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "2b11e324c9c01431b66ca08f44bfef56198f69ce0bcf9bbce93121095e006b50"
+  },
+  {
+    "symbol": "SYNUSDT",
+    "status": "ok",
+    "rows": 755,
+    "first": "2024-08-16 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "aed4891665a73035161ceb763c6d02cf41d527c6c0689039ec63380fbb241a58"
+  },
+  {
+    "symbol": "SYRUPUSDT",
+    "status": "ok",
+    "rows": 491,
+    "first": "2025-05-07 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "bdd0ab111f21180031063f6621fcea0a9315d504af529b61ca3b10ad2f30eb75"
+  },
+  {
+    "symbol": "SUSHIUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "db624372fc5f601c1bcdc61022652be227b980aa552bfafad235a346667a370d"
+  },
+  {
+    "symbol": "SYSUSDT",
+    "status": "ok",
+    "rows": 752,
+    "first": "2024-08-19 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "1605e1186a8291550d900d6f3e9a828080d933075db1632330f9851753aba5c6"
+  },
+  {
+    "symbol": "TACUSDT",
+    "status": "ok",
+    "rows": 422,
+    "first": "2025-07-15 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "fa5d9a9bf88fa82be0eeaf2153ec2632cc9652947cd033f259920186a8c7cc58"
+  },
+  {
+    "symbol": "TAGUSDT",
+    "status": "ok",
+    "rows": 412,
+    "first": "2025-07-25 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "6c7e034170f5ba61f2b40cd658f9a01d6c56d3ab9e1115a62847aceb9ad40953"
+  },
+  {
+    "symbol": "TAIKOUSDT",
+    "status": "ok",
+    "rows": 456,
+    "first": "2025-06-11 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "ef80680e932720b5af410618cec10e70971b91dae7d3ffbc24cb3704e1f16cb6"
+  },
+  {
+    "symbol": "TANSSIUSDT",
+    "status": "ok",
+    "rows": 428,
+    "first": "2025-07-09 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "631a64db4f7b411b0456c28ed2336445496cf47bd3cc0fe23655c96b2138a8ba"
+  },
+  {
+    "symbol": "TAKEUSDT",
+    "status": "ok",
+    "rows": 372,
+    "first": "2025-09-03 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "33a9b059dcb8bb102eb2aaf25e058583f64eb2b93fbe24cb1ddcadb0b293ef1d"
+  },
+  {
+    "symbol": "TAUSDT",
+    "status": "ok",
+    "rows": 416,
+    "first": "2025-07-21 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "451b6dd1e68d5e47f0a65aad5327e7b053fe6043ce741d9b39420b22bcc0a416"
+  },
+  {
+    "symbol": "TAOUSDT",
+    "status": "ok",
+    "rows": 882,
+    "first": "2024-04-11 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "5352160b96fda384492e3e7a0a5c8550402a0d3db82d0f78acf87a527d57f650"
+  },
+  {
+    "symbol": "THEUSDT",
+    "status": "ok",
+    "rows": 652,
+    "first": "2024-11-27 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "0332701e98cd9b902b37699167870f36b8f2f315faf9f05381a2be1f25c1ecbf"
+  },
+  {
+    "symbol": "TNSRUSDT",
+    "status": "ok",
+    "rows": 885,
+    "first": "2024-04-08 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "00f3bdd1f764fac665d98d2590767a01774e225a19fc949c6402228944a0c705"
+  },
+  {
+    "symbol": "TLMUSDT",
+    "status": "ok",
+    "rows": 1260,
+    "first": "2023-03-30 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "6d7938b0add97ee08d74d2cdaa8b34c7202054eb3529fa36f7439f0398e6efef"
+  },
+  {
+    "symbol": "TIAUSDT",
+    "status": "ok",
+    "rows": 1045,
+    "first": "2023-10-31 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "9627caa972ec99c172fe175b654bcf933e07122ebdecd549be7eba57c7d84716"
+  },
+  {
+    "symbol": "THETAUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "0206f1e1309df0c381ec998b2f4f8035e100fb3e9e65fe2842f21b82d5ae4720"
+  },
+  {
+    "symbol": "TOSHIUSDT",
+    "status": "ok",
+    "rows": 358,
+    "first": "2025-09-17 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "382d71598ee34332afce28503f2d078c240aa2f894746aa80355668f0677337a"
+  },
+  {
+    "symbol": "TOKENUSDT",
+    "status": "ok",
+    "rows": 1042,
+    "first": "2023-11-03 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "581346c8c511f2c8daa2125c1b98e9d1c5ae75e050e278c91bd5dfa15a027467"
+  },
+  {
+    "symbol": "TONUSDT",
+    "status": "ok",
+    "rows": 923,
+    "first": "2024-03-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "1dc3251e312471c46e968cfdb0e805151f5c39b346e19e952e536a9da9a261e3"
+  },
+  {
+    "symbol": "TOWNSUSDT",
+    "status": "ok",
+    "rows": 401,
+    "first": "2025-08-05 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "2e197a20b10bcf45e8bdb76bffa9a7b2ee11ab923380850780e48da35691c23e"
+  },
+  {
+    "symbol": "TRADOORUSDT",
+    "status": "ok",
+    "rows": 356,
+    "first": "2025-09-19 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "99a1cdc54ae65b63c1553827c65c8e2bf91b3336922ddd5cd444bb1a9da7eadb"
+  },
+  {
+    "symbol": "TREEUSDT",
+    "status": "ok",
+    "rows": 408,
+    "first": "2025-07-29 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "f8b52ab6dd3fa8d747425394cc4bb47b8907776ff6c306d5cff62ee53031b361"
+  },
+  {
+    "symbol": "TRIAUSDT",
+    "status": "ok",
+    "rows": 216,
+    "first": "2026-02-06 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "0db8e90f10c90194a7b8d1390743b93da0b82115baf8d4e6431bb801e17069c2"
+  },
+  {
+    "symbol": "TROYUSDT",
+    "status": "ok",
+    "rows": 679,
+    "first": "2024-10-31 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "7af7bfba4f80939b9bbfc85bdbc8ada30efb7dab9ea295b52397ff0382b7c125"
+  },
+  {
+    "symbol": "TRUMPUSDT",
+    "status": "ok",
+    "rows": 600,
+    "first": "2025-01-18 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "fc0a603ef21ab429540c2d65944e6665858a5e3f0d8e9f4ef12dc8d663634fff"
+  },
+  {
+    "symbol": "TRUSTUSDT",
+    "status": "ok",
+    "rows": 309,
+    "first": "2025-11-05 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "5329078996814353676eb9b2a2ea24a5258fd1f41144d9058459ca5610afc5f0"
+  },
+  {
+    "symbol": "TRUTHUSDT",
+    "status": "ok",
+    "rows": 344,
+    "first": "2025-10-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "442b0a95a565c6b7092f251dbf890049bdc3d231a078455902864ae547b929d7"
+  },
+  {
+    "symbol": "TRBUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "e85848665ece79f07b143dc4780d0932308516c1c299eb1af5b13066a415c0d4"
+  },
+  {
+    "symbol": "TSTUSDT",
+    "status": "ok",
+    "rows": 578,
+    "first": "2025-02-09 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "cab925e08f9fa6e7d7f036b88fed6b39111cc34417386857b3d79ed2bfbcd781"
+  },
+  {
+    "symbol": "TRUUSDT",
+    "status": "ok",
+    "rows": 1283,
+    "first": "2023-03-07 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "5eb55f0e4c60b1cfadccef2e0bb5a2db26aa2260e72de5db9e440bc118e61285"
+  },
+  {
+    "symbol": "TURTLEUSDT",
+    "status": "ok",
+    "rows": 323,
+    "first": "2025-10-22 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "afdb1f32c31d726aaa87a18cf3932f91da968d23cd2e5ff0ba2b50b1a34705bc"
+  },
+  {
+    "symbol": "TURBOUSDT",
+    "status": "ok",
+    "rows": 833,
+    "first": "2024-05-30 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "d7a0aea9f329e585ab81974c54d1acca30f69dd6914f625af646afccd4dfccb0"
+  },
+  {
+    "symbol": "TUTUSDT",
+    "status": "ok",
+    "rows": 539,
+    "first": "2025-03-20 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "db46dc83ca6f8dae5237f0889a4361c1f4c03b0cc3396155c614627bb98ea8d2"
+  },
+  {
+    "symbol": "TRXUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "24d95a8f3db7016f6982b1db2c267f04348f91af11ece52c1c2dfe957522ee4f"
+  },
+  {
+    "symbol": "TUSDT",
+    "status": "ok",
+    "rows": 1317,
+    "first": "2023-02-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "f871a18e8322476abbb2c9de9eeed4c034261bb44b30ed08164e8a2dfb27d8ed"
+  },
+  {
+    "symbol": "UAIUSDT",
+    "status": "ok",
+    "rows": 308,
+    "first": "2025-11-06 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "2789a6f243b5229b7b6cdba0f3e0d24983d723e10e86d92811707918a174ab0f"
+  },
+  {
+    "symbol": "UBUSDT",
+    "status": "ok",
+    "rows": 363,
+    "first": "2025-09-12 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "05912a3271415eac1a1f6e8a7950659a03ec060075cd6d4b4611adfed27cd94b"
+  },
+  {
+    "symbol": "TWTUSDT",
+    "status": "ok",
+    "rows": 1042,
+    "first": "2023-11-03 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "b40a66ba8c6611ed0c3679d09bf7724d7ab4f9da26a8ca3c584a5ba5b6d2549f"
+  },
+  {
+    "symbol": "USELESSUSDT",
+    "status": "ok",
+    "rows": 391,
+    "first": "2025-08-15 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "8197dcaf5544d4057686a01cd9154b0aed2655b54e3628d98831687b24df88f6"
+  },
+  {
+    "symbol": "UMAUSDT",
+    "status": "ok",
+    "rows": 1219,
+    "first": "2023-05-10 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "c40be83c69fee631e41b1ec4e4cdf7a924b73c2205a2b07272deb63aeb45acf6"
+  },
+  {
+    "symbol": "USUALUSDT",
+    "status": "ok",
+    "rows": 631,
+    "first": "2024-12-18 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "f93486ec2df3e202e4f4ac192bb1b1f96e11f6ad963d02601fc78f038ffe97d0"
+  },
+  {
+    "symbol": "UNFIUSDT",
+    "status": "ok",
+    "rows": 2029,
+    "first": "2021-02-19 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "c2cdd4f5913c3739c88f160ccee931a9c79b14954ed9fa38bb3c8650d6b878af"
+  },
+  {
+    "symbol": "USTCUSDT",
+    "status": "ok",
+    "rows": 1018,
+    "first": "2023-11-27 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "882c242bdc96380cddacff0e3061be76725d2d48c40f8055c8949a3a797659b0"
+  },
+  {
+    "symbol": "USUSDT",
+    "status": "ok",
+    "rows": 272,
+    "first": "2025-12-12 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "55c48f96fe37c84dbbaf2c6c625a6d66de07b539806d1102b14bf8102da01fef"
+  },
+  {
+    "symbol": "UNIUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "98d84ebfe4bbaea32003c91f729c99f0da449c42436b9b8ff3fc09dfb4f2c682"
+  },
+  {
+    "symbol": "UXLINKUSDT",
+    "status": "ok",
+    "rows": 725,
+    "first": "2024-09-15 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "471105f050a06839ae3e45f92fe33b2352f36efdb990702320162e1190365f92"
+  },
+  {
+    "symbol": "VANAUSDT",
+    "status": "ok",
+    "rows": 633,
+    "first": "2024-12-16 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "76cd5d23d2508ea0ee4ae03f447ccd7bfb2e4cd75408c35646a8bda467e4a595"
+  },
+  {
+    "symbol": "VANRYUSDT",
+    "status": "ok",
+    "rows": 911,
+    "first": "2024-03-13 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "2ed72f0d75057ab3413ad5a54d89af85c9f3199f0e32070f014cbd9199905b4f"
+  },
+  {
+    "symbol": "VELODROMEUSDT",
+    "status": "ok",
+    "rows": 636,
+    "first": "2024-12-13 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "f9704789436e2bbc35a42bfb60b525e5c93b6ebd21a5db529b9e1cb9ca2c5e45"
+  },
+  {
+    "symbol": "VELVETUSDT",
+    "status": "ok",
+    "rows": 422,
+    "first": "2025-07-15 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "e8d40c763a9f9b3f3cdcdbcda3f2a34b6624c38268e287066e380102307d3def"
+  },
+  {
+    "symbol": "VFYUSDT",
+    "status": "ok",
+    "rows": 345,
+    "first": "2025-09-30 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "6e753f206abe8b355301d0ddd70e6cb457b146a173f85e79f97cbb80d00998a5"
+  },
+  {
+    "symbol": "VICUSDT",
+    "status": "ok",
+    "rows": 547,
+    "first": "2025-03-12 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "c514da8dbe488aafc667640b01b8ec7316c431efd12c7817d011f91ded8ef8ea"
+  },
+  {
+    "symbol": "VIDTUSDT",
+    "status": "ok",
+    "rows": 748,
+    "first": "2024-08-23 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "a4304ad3fd24fc66ded54379ac8c5eaf757495c6230da2c6955d045c125cfa73"
+  },
+  {
+    "symbol": "VINEUSDT",
+    "status": "ok",
+    "rows": 594,
+    "first": "2025-01-24 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "abe3c073b7a65b7e246059849d1eda0fd99bf03d8dd295ac725fd512b91f648e"
+  },
+  {
+    "symbol": "VIRTUALUSDT",
+    "status": "ok",
+    "rows": 639,
+    "first": "2024-12-10 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "7f014acab0f3d9c9871feb200ae346ddaf30c2a16d1d26160dff13220fd1d553"
+  },
+  {
+    "symbol": "VOXELUSDT",
+    "status": "ok",
+    "rows": 751,
+    "first": "2024-08-20 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "60b1f24ea0f5d3b9406b52a3347c7c54fed0e888d813feb51c45c135c5638524"
+  },
+  {
+    "symbol": "VTHOUSDT",
+    "status": "ok",
+    "rows": 596,
+    "first": "2025-01-22 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "0a152cbd10e67f429535b22c6ce81e4c4700cd3161b8808a6d44239488a45768"
+  },
+  {
+    "symbol": "VETUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "ecfbd62a05101a94cc6355bb44b99544d22316eb816a043ba8e3fababd11d62a"
+  },
+  {
+    "symbol": "VVVUSDT",
+    "status": "ok",
+    "rows": 589,
+    "first": "2025-01-29 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "bfabf6352b24099c6a6aea6c7fcbca845d2a83a985d32434dbf9335ad90520cc"
+  },
+  {
+    "symbol": "WALUSDT",
+    "status": "ok",
+    "rows": 532,
+    "first": "2025-03-27 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "9559d4fd16f1be2e512ec8b95e4f9a72a19b378160992a34dc7fdaf7c0ee7968"
+  },
+  {
+    "symbol": "WCTUSDT",
+    "status": "ok",
+    "rows": 513,
+    "first": "2025-04-15 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "8f01b2fcd2d2cfae046cc01fb47a6360c7fa1b0714c14cfef5251ed221c609da"
+  },
+  {
+    "symbol": "WETUSDT",
+    "status": "ok",
+    "rows": 274,
+    "first": "2025-12-10 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "48cd41e9912cd6162906fafcf985275d5e510007e11aa1c59ecd42502db84f2c"
+  },
+  {
+    "symbol": "WAXPUSDT",
+    "status": "ok",
+    "rows": 1058,
+    "first": "2023-10-18 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "54b6007f9593ec5659f7b82956db9093e0aa484729c04a8b51e86f5e4bfdc02d"
+  },
+  {
+    "symbol": "WIFUSDT",
+    "status": "ok",
+    "rows": 966,
+    "first": "2024-01-18 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "9558d1db2a4bded2e217a74f5196bcc566840ab21bcf79f7db44214bfddea604"
+  },
+  {
+    "symbol": "WAVESUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "324a26c7fab19e98284628d0474629efcc83c8ca57e85e9d7e951c149448c158"
+  },
+  {
+    "symbol": "WLFIUSDT",
+    "status": "ok",
+    "rows": 383,
+    "first": "2025-08-23 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "0513e8f1501a70e83d62d053b32cd2614dd880bcf953ea5077d96eb8b0325f03"
+  },
+  {
+    "symbol": "WLDUSDT",
+    "status": "ok",
+    "rows": 1144,
+    "first": "2023-07-24 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "47eb38f09c8ea400b3a26ab88f7a855e65cc4e2fb0762e4ec6e0828f33722ae7"
+  },
+  {
+    "symbol": "WUSDT",
+    "status": "ok",
+    "rows": 890,
+    "first": "2024-04-03 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "d843870308579dd58a973745890ab52f53da58e519738ec239d3040de5f9987b"
+  },
+  {
+    "symbol": "XAIUSDT",
+    "status": "ok",
+    "rows": 975,
+    "first": "2024-01-09 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "91ef7ec92c7b91e371e2c87bb24dac7e5864f915c84aaa15e65fcac2b73d452f"
+  },
+  {
+    "symbol": "WOOUSDT",
+    "status": "ok",
+    "rows": 1616,
+    "first": "2022-04-08 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "2d8e11e34bfbd58937ff249fdd70e4412689c71177a877df64911516ab72d0fa"
+  },
+  {
+    "symbol": "XANUSDT",
+    "status": "ok",
+    "rows": 346,
+    "first": "2025-09-29 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "1b166f5a2b742a8c10a633426604bf1a956dbd85157b0d51fe587e2a77908946"
+  },
+  {
+    "symbol": "XAUTUSDT",
+    "status": "ok",
+    "rows": 168,
+    "first": "2026-03-26 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "b12c28a7e84e06d5bd79d661cfecf460b348e90394b0afb496fc6fa7574a43cd"
+  },
+  {
+    "symbol": "XCNUSDT",
+    "status": "ok",
+    "rows": 517,
+    "first": "2025-04-11 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "45e2a8bc700211afc0fb7cb690e1b301fae41ff856d625bb42169c89ddd97a14"
+  },
+  {
+    "symbol": "XNYUSDT",
+    "status": "ok",
+    "rows": 393,
+    "first": "2025-08-13 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "9c07131a011e5bc28e79f4c0971031702215f487526b182b0432463dc2941c97"
+  },
+  {
+    "symbol": "XPINUSDT",
+    "status": "ok",
+    "rows": 363,
+    "first": "2025-09-12 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "0defdcdf50be1f47773ed44feb969f8152ddef202cab394ea8c5c3b07f4a79fe"
+  },
+  {
+    "symbol": "XEMUSDT",
+    "status": "ok",
+    "rows": 2017,
+    "first": "2021-03-03 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "b07dc804b6ed2f8cc20ae4f6d223a76edce1ab2f91be8195ad43e1cce7f96597"
+  },
+  {
+    "symbol": "XLMUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "806412ccc168de00e21216852e33f4adc49038c4cc7c2195c18641a8f0778858"
+  },
+  {
+    "symbol": "XPLUSDT",
+    "status": "ok",
+    "rows": 384,
+    "first": "2025-08-22 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "d349a37d1e12513bb27c803f2b77ab8ba77e14f70f1257dab485c03a5d7ae6f0"
+  },
+  {
+    "symbol": "XMRUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "672fdc5645b66c4e695ecd480b025deba9ae2571b5622d20ccbadbee53047404"
+  },
+  {
+    "symbol": "XVGUSDT",
+    "status": "ok",
+    "rows": 1163,
+    "first": "2023-07-05 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "dbedf32dca1679e9c9d566350c8616293f8c0c8564f065c594ae236cb8fab0e0"
+  },
+  {
+    "symbol": "XVSUSDT",
+    "status": "ok",
+    "rows": 1246,
+    "first": "2023-04-13 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "b3e362d75fedc3446038be41a96b90b249797ce5ef330f783ef776cc13df6d70"
+  },
+  {
+    "symbol": "XRPUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "58b2228703e9b8d0495162954f0399b218d0696959f3fcd0b08f9e487baf5612"
+  },
+  {
+    "symbol": "YALAUSDT",
+    "status": "ok",
+    "rows": 399,
+    "first": "2025-08-07 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "528e2e460832c7341663ea8a300bad4080a5b3bb7c779f5bfe8ea946a97c8896"
+  },
+  {
+    "symbol": "XTZUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "9e15c3857f953025c2f6b6c37fe55f99a83144928d66b79135f3071219320166"
+  },
+  {
+    "symbol": "YBUSDT",
+    "status": "ok",
+    "rows": 335,
+    "first": "2025-10-10 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "e47916d771f61a41ca8b9cd5ab9eb1d8843a3f7d90121cad97e639b0b23cb61a"
+  },
+  {
+    "symbol": "ZAMAUSDT",
+    "status": "ok",
+    "rows": 244,
+    "first": "2026-01-09 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "c3c774c95201f281b7f5516290dc5e782f804118b5b70c16db9b7b385aea0759"
+  },
+  {
+    "symbol": "ZBTUSDT",
+    "status": "ok",
+    "rows": 328,
+    "first": "2025-10-17 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "d4bb98a05d066eca4170eff87d3949c65ebc7d00feae1f90af9c54af863b278e"
+  },
+  {
+    "symbol": "YGGUSDT",
+    "status": "ok",
+    "rows": 1132,
+    "first": "2023-08-05 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "1910d51a2cb8507fcd568f9c84dd4c199305f02144925725c92edfc592d84947"
+  },
+  {
+    "symbol": "YFIUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "fc7ecb8687c9e199a8874c4536390b636e68933db958d4abe9661a903b61bb48"
+  },
+  {
+    "symbol": "ZEREBROUSDT",
+    "status": "ok",
+    "rows": 616,
+    "first": "2025-01-02 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "e3bb60e76b5b7185bcc80af4da5d74f348719c074b75278431e009e6dac3828d"
+  },
+  {
+    "symbol": "ZESTUSDT",
+    "status": "ok",
+    "rows": 98,
+    "first": "2026-06-04 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "d8b5204c517728a30d59916e4218f190663c10630e1c60169b26eae55d3a5a85"
+  },
+  {
+    "symbol": "ZETAUSDT",
+    "status": "ok",
+    "rows": 951,
+    "first": "2024-02-02 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "71262cf586a125b92868cd8b0854f44e6ba551f586c83ff8d93048cd7b9a7c37"
+  },
+  {
+    "symbol": "ZECUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "336c74c59790046e4ad6fcf2b18d02acbea16fa3533f71d368e4fc515a4c3f2d"
+  },
+  {
+    "symbol": "ZENUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "70a0b1ff4001ef397f499e5f053a37f1f6b71697f0051bbc6df741117890a8c2"
+  },
+  {
+    "symbol": "ZKCUSDT",
+    "status": "ok",
+    "rows": 360,
+    "first": "2025-09-15 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "46c0f5ecf70e16d1d29f618c98bf48a62c1b0cac249aaa9d8d57851cee4afc7f"
+  },
+  {
+    "symbol": "ZKJUSDT",
+    "status": "ok",
+    "rows": 485,
+    "first": "2025-05-13 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "25aa53717c0d5735842364dfec2b7f7db58873dec21695207e0fc7818d8bd154"
+  },
+  {
+    "symbol": "ZKPUSDT",
+    "status": "ok",
+    "rows": 263,
+    "first": "2025-12-21 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "f5f2cd51cc28e376c491d7707179d22e47c461566d134fe6f15c9ce93520bb94"
+  },
+  {
+    "symbol": "ZRCUSDT",
+    "status": "ok",
+    "rows": 408,
+    "first": "2025-07-29 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "b7a333ea66c13931aae372f1cd89cc8d956d93d20f3c7740041f7a735731f042"
+  },
+  {
+    "symbol": "ZORAUSDT",
+    "status": "ok",
+    "rows": 412,
+    "first": "2025-07-25 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "2499900120c583dedd5e854f978c726a683368c6c2afd16d334272103cf06c90"
+  },
+  {
+    "symbol": "ZKUSDT",
+    "status": "ok",
+    "rows": 815,
+    "first": "2024-06-17 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "ef51f9b6c5936e035c2c58ac9929ad33442ba61866149d345dc1873bf68c9a46"
+  },
+  {
+    "symbol": "ZILUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "6d0d3306250c7f87a39e2ee5cd748a4d98683c700f68c5b4c50e873281cc04ce"
+  },
+  {
+    "symbol": "哈基米USDT",
+    "status": "ok",
+    "rows": 4,
+    "first": "2026-09-06 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "a74ea76a6f90b1cf6d9322a8475c24acdb1f03dcbf1e77e8cf0771da8072aa67"
+  },
+  {
+    "symbol": "ZROUSDT",
+    "status": "ok",
+    "rows": 812,
+    "first": "2024-06-20 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "5016dd296881440c14d2306ab7229d833347e67e011e70f6131477a3acecf2a8"
+  },
+  {
+    "symbol": "币安人生USDT",
+    "status": "ok",
+    "rows": 325,
+    "first": "2025-10-20 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "77fdcfa122aa3ec710d5516bf64a6fa12869992ac09bea29e791eab2b9f889e3"
+  },
+  {
+    "symbol": "牛来USDT",
+    "status": "ok",
+    "rows": 11,
+    "first": "2026-08-30 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "0fb96ad25eee58430259d907149f5baabccadcf7ef0fd5188695e968a53ade3d"
+  },
+  {
+    "symbol": "龙虾USDT",
+    "status": "ok",
+    "rows": 183,
+    "first": "2026-03-11 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "a128d0e6da4594f8f8a22e287e3746640140dbb5552214f5c14b40160352ee05"
+  },
+  {
+    "symbol": "我踏马来了USDT",
+    "status": "ok",
+    "rows": 232,
+    "first": "2026-01-21 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "cb9eb7f495c160a3c7d80bfd352696c22f9f4a989bc6006e46568230e8ca59f2"
+  },
+  {
+    "symbol": "ZRXUSDT",
+    "status": "ok",
+    "rows": 2078,
+    "first": "2021-01-01 00:00:00+00:00",
+    "last": "2026-09-09 00:00:00+00:00",
+    "sha256": "69d763e2126a5e249c90a89679c0da6516d9b31244c7ce92b23c0109a07c7893"
+  }
+]

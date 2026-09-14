@@ -1,0 +1,1022 @@
+{
+  "version": "alpha101_crypto_v2.0",
+  "implementation_sha256": "d433f22f6e0b32f5ddc1a04a0c5bce57edc80baab18200f5a66c5986d4b34ec4",
+  "mode": "normalized",
+  "bars_per_day": 1,
+  "normalization": {
+    "calendar_days": 250,
+    "bars": 250,
+    "lag_bars": 1,
+    "min_periods": 250,
+    "volume_source": "base_volume",
+    "adv_source": "quote_volume",
+    "is_legacy_normalization": false
+  },
+  "invalid_nonpositive_prices_or_negative_volumes": {
+    "open": 0,
+    "high": 0,
+    "low": 0,
+    "close": 0,
+    "volume": 0,
+    "quote_volume": 0
+  },
+  "paper_source": {
+    "url": "https://arxiv.org/pdf/1601.00991",
+    "operator_pages": [
+      15,
+      16
+    ],
+    "rank_scale_explicit_in_paper": false,
+    "argextrema_orientation_explicit_in_paper": false,
+    "returns_simple_vs_log_explicit_in_paper": false
+  },
+  "inputs": {
+    "prices": "OHLC / lagged full 250-day raw close mean",
+    "volume": "base volume / lagged full 250-day base-volume mean",
+    "adv": "rolling mean of relative quote-volume activity",
+    "adv_includes_current_bar": true,
+    "returns": "raw close / prior raw close - 1; no filling; unaffected by normalization",
+    "vwap": "quote_volume / base_volume; normalized with prices in normalized mode",
+    "cap_proxy": "raw quote_volume rolling(30,min_periods=30).mean().shift(1); bar-based",
+    "volume_adv_unit_mismatch": false
+  },
+  "operators": {
+    "rank": "eligible-only average-tie ascending rank / valid cross-sectional count",
+    "ts_rank": "full-window average-tie ascending rank of latest observation / window length",
+    "rank_scale_status": "v2 percentile convention; paper does not uniquely specify rank scale",
+    "ts_argmax_argmin": "1-based from oldest to newest; earliest occurrence wins ties",
+    "scale": "eligible-only L1 norm: x*a / sum(abs(x)); no demeaning",
+    "std_cov_ddof": 1,
+    "correlation": "complete paired window; zero variance -> NA; roundoff clipped to [-1,1]",
+    "noninteger_windows": "floor; formula windows stay in bars on hourly grids",
+    "time_series_missing": "complete finite window required; no forward/back/zero fill",
+    "ternary_missing": "missing condition -> NA; selected branch determines value availability",
+    "decay_linear": "oldest weight 1, latest weight d; divided by d*(d+1)/2; complete window",
+    "eligibility": "mask inside every rank/scale/neutralize and final output; retain raw history",
+    "signedpower": "literal Appendix power x**a (formula uses have nonnegative bases)"
+  },
+  "n_factors": 101,
+  "n_without_sector_or_cap_proxy": 82,
+  "n_with_sector_or_cap_proxy": 19,
+  "alpha088_branch_diagnostic": {
+    "both_valid": 8971,
+    "left_strictly_smaller": 5092,
+    "right_strictly_smaller": 2827,
+    "ties": 1052
+  },
+  "factors": {
+    "alpha001": {
+      "number": 1,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 16395,
+      "eligible_cells": 19880,
+      "coverage": 0.8246981891348089
+    },
+    "alpha002": {
+      "number": 2,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 15572,
+      "eligible_cells": 19880,
+      "coverage": 0.7832997987927566
+    },
+    "alpha003": {
+      "number": 3,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 9288,
+      "eligible_cells": 19880,
+      "coverage": 0.46720321931589537
+    },
+    "alpha004": {
+      "number": 4,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 15175,
+      "eligible_cells": 19880,
+      "coverage": 0.7633299798792756
+    },
+    "alpha005": {
+      "number": 5,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 16205,
+      "eligible_cells": 19880,
+      "coverage": 0.8151408450704225
+    },
+    "alpha006": {
+      "number": 6,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 16205,
+      "eligible_cells": 19880,
+      "coverage": 0.8151408450704225
+    },
+    "alpha007": {
+      "number": 7,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 15859,
+      "eligible_cells": 19880,
+      "coverage": 0.7977364185110664
+    },
+    "alpha008": {
+      "number": 8,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 16117,
+      "eligible_cells": 19880,
+      "coverage": 0.8107142857142857
+    },
+    "alpha009": {
+      "number": 9,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 16273,
+      "eligible_cells": 19880,
+      "coverage": 0.8185613682092555
+    },
+    "alpha010": {
+      "number": 10,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 16290,
+      "eligible_cells": 19880,
+      "coverage": 0.8194164989939637
+    },
+    "alpha011": {
+      "number": 11,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 16307,
+      "eligible_cells": 19880,
+      "coverage": 0.8202716297786721
+    },
+    "alpha012": {
+      "number": 12,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 16341,
+      "eligible_cells": 19880,
+      "coverage": 0.8219818913480885
+    },
+    "alpha013": {
+      "number": 13,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 15766,
+      "eligible_cells": 19880,
+      "coverage": 0.7930583501006037
+    },
+    "alpha014": {
+      "number": 14,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 16205,
+      "eligible_cells": 19880,
+      "coverage": 0.8151408450704225
+    },
+    "alpha015": {
+      "number": 15,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 1168,
+      "eligible_cells": 19880,
+      "coverage": 0.05875251509054326
+    },
+    "alpha016": {
+      "number": 16,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 15766,
+      "eligible_cells": 19880,
+      "coverage": 0.7930583501006037
+    },
+    "alpha017": {
+      "number": 17,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 15967,
+      "eligible_cells": 19880,
+      "coverage": 0.803169014084507
+    },
+    "alpha018": {
+      "number": 18,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 16205,
+      "eligible_cells": 19880,
+      "coverage": 0.8151408450704225
+    },
+    "alpha019": {
+      "number": 19,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 16239,
+      "eligible_cells": 19880,
+      "coverage": 0.8168511066398391
+    },
+    "alpha020": {
+      "number": 20,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 16341,
+      "eligible_cells": 19880,
+      "coverage": 0.8219818913480885
+    },
+    "alpha021": {
+      "number": 21,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": true,
+      "valid_cells": 16104,
+      "eligible_cells": 19880,
+      "coverage": 0.8100603621730382
+    },
+    "alpha022": {
+      "number": 22,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 16032,
+      "eligible_cells": 19880,
+      "coverage": 0.8064386317907445
+    },
+    "alpha023": {
+      "number": 23,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 16032,
+      "eligible_cells": 19880,
+      "coverage": 0.8064386317907445
+    },
+    "alpha024": {
+      "number": 24,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 13453,
+      "eligible_cells": 19880,
+      "coverage": 0.6767102615694165
+    },
+    "alpha025": {
+      "number": 25,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 16032,
+      "eligible_cells": 19880,
+      "coverage": 0.8064386317907445
+    },
+    "alpha026": {
+      "number": 26,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 14547,
+      "eligible_cells": 19880,
+      "coverage": 0.7317404426559356
+    },
+    "alpha027": {
+      "number": 27,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": true,
+      "valid_cells": 5839,
+      "eligible_cells": 19880,
+      "coverage": 0.2937122736418511
+    },
+    "alpha028": {
+      "number": 28,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 15967,
+      "eligible_cells": 19880,
+      "coverage": 0.803169014084507
+    },
+    "alpha029": {
+      "number": 29,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 15536,
+      "eligible_cells": 19880,
+      "coverage": 0.7814889336016096
+    },
+    "alpha030": {
+      "number": 30,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 16032,
+      "eligible_cells": 19880,
+      "coverage": 0.8064386317907445
+    },
+    "alpha031": {
+      "number": 31,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 14716,
+      "eligible_cells": 19880,
+      "coverage": 0.7402414486921529
+    },
+    "alpha032": {
+      "number": 32,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 13040,
+      "eligible_cells": 19880,
+      "coverage": 0.6559356136820925
+    },
+    "alpha033": {
+      "number": 33,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 16359,
+      "eligible_cells": 19880,
+      "coverage": 0.8228873239436619
+    },
+    "alpha034": {
+      "number": 34,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 16341,
+      "eligible_cells": 19880,
+      "coverage": 0.8219818913480885
+    },
+    "alpha035": {
+      "number": 35,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 15824,
+      "eligible_cells": 19880,
+      "coverage": 0.7959758551307847
+    },
+    "alpha036": {
+      "number": 36,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 13453,
+      "eligible_cells": 19880,
+      "coverage": 0.6767102615694165
+    },
+    "alpha037": {
+      "number": 37,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 13445,
+      "eligible_cells": 19880,
+      "coverage": 0.6763078470824949
+    },
+    "alpha038": {
+      "number": 38,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 16205,
+      "eligible_cells": 19880,
+      "coverage": 0.8151408450704225
+    },
+    "alpha039": {
+      "number": 39,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 15896,
+      "eligible_cells": 19880,
+      "coverage": 0.7995975855130785
+    },
+    "alpha040": {
+      "number": 40,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 16205,
+      "eligible_cells": 19880,
+      "coverage": 0.8151408450704225
+    },
+    "alpha041": {
+      "number": 41,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 16359,
+      "eligible_cells": 19880,
+      "coverage": 0.8228873239436619
+    },
+    "alpha042": {
+      "number": 42,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 16359,
+      "eligible_cells": 19880,
+      "coverage": 0.8228873239436619
+    },
+    "alpha043": {
+      "number": 43,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 15698,
+      "eligible_cells": 19880,
+      "coverage": 0.7896378269617707
+    },
+    "alpha044": {
+      "number": 44,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 14621,
+      "eligible_cells": 19880,
+      "coverage": 0.7354627766599597
+    },
+    "alpha045": {
+      "number": 45,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 15949,
+      "eligible_cells": 19880,
+      "coverage": 0.8022635814889336
+    },
+    "alpha046": {
+      "number": 46,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 16016,
+      "eligible_cells": 19880,
+      "coverage": 0.8056338028169014
+    },
+    "alpha047": {
+      "number": 47,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 16032,
+      "eligible_cells": 19880,
+      "coverage": 0.8064386317907445
+    },
+    "alpha048": {
+      "number": 48,
+      "family": "input_proxy",
+      "substitutions": [
+        "PIT sector/industry/subindustry -> eligible-market cross-sectional demean"
+      ],
+      "comparison_output": false,
+      "valid_cells": 12789,
+      "eligible_cells": 19880,
+      "coverage": 0.6433098591549296
+    },
+    "alpha049": {
+      "number": 49,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 16016,
+      "eligible_cells": 19880,
+      "coverage": 0.8056338028169014
+    },
+    "alpha050": {
+      "number": 50,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 2192,
+      "eligible_cells": 19880,
+      "coverage": 0.11026156941649899
+    },
+    "alpha051": {
+      "number": 51,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 16016,
+      "eligible_cells": 19880,
+      "coverage": 0.8056338028169014
+    },
+    "alpha052": {
+      "number": 52,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 16205,
+      "eligible_cells": 19880,
+      "coverage": 0.8151408450704225
+    },
+    "alpha053": {
+      "number": 53,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 16205,
+      "eligible_cells": 19880,
+      "coverage": 0.8151408450704225
+    },
+    "alpha054": {
+      "number": 54,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 16359,
+      "eligible_cells": 19880,
+      "coverage": 0.8228873239436619
+    },
+    "alpha055": {
+      "number": 55,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 14285,
+      "eligible_cells": 19880,
+      "coverage": 0.7185613682092555
+    },
+    "alpha056": {
+      "number": 56,
+      "family": "input_proxy",
+      "substitutions": [
+        "market cap -> lagged 30-bar raw quote-volume mean"
+      ],
+      "comparison_output": false,
+      "valid_cells": 19880,
+      "eligible_cells": 19880,
+      "coverage": 1.0
+    },
+    "alpha057": {
+      "number": 57,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 15718,
+      "eligible_cells": 19880,
+      "coverage": 0.7906438631790744
+    },
+    "alpha058": {
+      "number": 58,
+      "family": "input_proxy",
+      "substitutions": [
+        "PIT sector/industry/subindustry -> eligible-market cross-sectional demean"
+      ],
+      "comparison_output": false,
+      "valid_cells": 14596,
+      "eligible_cells": 19880,
+      "coverage": 0.7342052313883299
+    },
+    "alpha059": {
+      "number": 59,
+      "family": "input_proxy",
+      "substitutions": [
+        "PIT sector/industry/subindustry -> eligible-market cross-sectional demean"
+      ],
+      "comparison_output": false,
+      "valid_cells": 12747,
+      "eligible_cells": 19880,
+      "coverage": 0.6411971830985915
+    },
+    "alpha060": {
+      "number": 60,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 16205,
+      "eligible_cells": 19880,
+      "coverage": 0.8151408450704225
+    },
+    "alpha061": {
+      "number": 61,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": true,
+      "valid_cells": 13485,
+      "eligible_cells": 19880,
+      "coverage": 0.6783199195171026
+    },
+    "alpha062": {
+      "number": 62,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": true,
+      "valid_cells": 15520,
+      "eligible_cells": 19880,
+      "coverage": 0.7806841046277666
+    },
+    "alpha063": {
+      "number": 63,
+      "family": "input_proxy",
+      "substitutions": [
+        "PIT sector/industry/subindustry -> eligible-market cross-sectional demean"
+      ],
+      "comparison_output": false,
+      "valid_cells": 12198,
+      "eligible_cells": 19880,
+      "coverage": 0.6135814889336016
+    },
+    "alpha064": {
+      "number": 64,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": true,
+      "valid_cells": 14054,
+      "eligible_cells": 19880,
+      "coverage": 0.7069416498993963
+    },
+    "alpha065": {
+      "number": 65,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": true,
+      "valid_cells": 15070,
+      "eligible_cells": 19880,
+      "coverage": 0.7580482897384306
+    },
+    "alpha066": {
+      "number": 66,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 15977,
+      "eligible_cells": 19880,
+      "coverage": 0.803672032193159
+    },
+    "alpha067": {
+      "number": 67,
+      "family": "input_proxy",
+      "substitutions": [
+        "PIT sector/industry/subindustry -> eligible-market cross-sectional demean"
+      ],
+      "comparison_output": false,
+      "valid_cells": 15310,
+      "eligible_cells": 19880,
+      "coverage": 0.7701207243460765
+    },
+    "alpha068": {
+      "number": 68,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": true,
+      "valid_cells": 861,
+      "eligible_cells": 19880,
+      "coverage": 0.043309859154929575
+    },
+    "alpha069": {
+      "number": 69,
+      "family": "input_proxy",
+      "substitutions": [
+        "PIT sector/industry/subindustry -> eligible-market cross-sectional demean"
+      ],
+      "comparison_output": false,
+      "valid_cells": 15222,
+      "eligible_cells": 19880,
+      "coverage": 0.7656941649899396
+    },
+    "alpha070": {
+      "number": 70,
+      "family": "input_proxy",
+      "substitutions": [
+        "PIT sector/industry/subindustry -> eligible-market cross-sectional demean"
+      ],
+      "comparison_output": false,
+      "valid_cells": 11337,
+      "eligible_cells": 19880,
+      "coverage": 0.5702716297786721
+    },
+    "alpha071": {
+      "number": 71,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 7916,
+      "eligible_cells": 19880,
+      "coverage": 0.3981891348088531
+    },
+    "alpha072": {
+      "number": 72,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 14536,
+      "eligible_cells": 19880,
+      "coverage": 0.7311871227364185
+    },
+    "alpha073": {
+      "number": 73,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 16032,
+      "eligible_cells": 19880,
+      "coverage": 0.8064386317907445
+    },
+    "alpha074": {
+      "number": 74,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": true,
+      "valid_cells": 8828,
+      "eligible_cells": 19880,
+      "coverage": 0.44406438631790746
+    },
+    "alpha075": {
+      "number": 75,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": true,
+      "valid_cells": 6347,
+      "eligible_cells": 19880,
+      "coverage": 0.3192655935613682
+    },
+    "alpha076": {
+      "number": 76,
+      "family": "input_proxy",
+      "substitutions": [
+        "PIT sector/industry/subindustry -> eligible-market cross-sectional demean"
+      ],
+      "comparison_output": false,
+      "valid_cells": 9723,
+      "eligible_cells": 19880,
+      "coverage": 0.48908450704225354
+    },
+    "alpha077": {
+      "number": 77,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 15574,
+      "eligible_cells": 19880,
+      "coverage": 0.7834004024144869
+    },
+    "alpha078": {
+      "number": 78,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 5445,
+      "eligible_cells": 19880,
+      "coverage": 0.27389336016096577
+    },
+    "alpha079": {
+      "number": 79,
+      "family": "input_proxy",
+      "substitutions": [
+        "PIT sector/industry/subindustry -> eligible-market cross-sectional demean"
+      ],
+      "comparison_output": true,
+      "valid_cells": 10707,
+      "eligible_cells": 19880,
+      "coverage": 0.5385814889336016
+    },
+    "alpha080": {
+      "number": 80,
+      "family": "input_proxy",
+      "substitutions": [
+        "PIT sector/industry/subindustry -> eligible-market cross-sectional demean"
+      ],
+      "comparison_output": false,
+      "valid_cells": 15548,
+      "eligible_cells": 19880,
+      "coverage": 0.782092555331992
+    },
+    "alpha081": {
+      "number": 81,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": true,
+      "valid_cells": 5032,
+      "eligible_cells": 19880,
+      "coverage": 0.25311871227364185
+    },
+    "alpha082": {
+      "number": 82,
+      "family": "input_proxy",
+      "substitutions": [
+        "PIT sector/industry/subindustry -> eligible-market cross-sectional demean"
+      ],
+      "comparison_output": false,
+      "valid_cells": 11845,
+      "eligible_cells": 19880,
+      "coverage": 0.5958249496981891
+    },
+    "alpha083": {
+      "number": 83,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 16256,
+      "eligible_cells": 19880,
+      "coverage": 0.8177062374245473
+    },
+    "alpha084": {
+      "number": 84,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 15788,
+      "eligible_cells": 19880,
+      "coverage": 0.7941649899396378
+    },
+    "alpha085": {
+      "number": 85,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 15404,
+      "eligible_cells": 19880,
+      "coverage": 0.7748490945674045
+    },
+    "alpha086": {
+      "number": 86,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": true,
+      "valid_cells": 15376,
+      "eligible_cells": 19880,
+      "coverage": 0.7734406438631791
+    },
+    "alpha087": {
+      "number": 87,
+      "family": "input_proxy",
+      "substitutions": [
+        "PIT sector/industry/subindustry -> eligible-market cross-sectional demean"
+      ],
+      "comparison_output": false,
+      "valid_cells": 11466,
+      "eligible_cells": 19880,
+      "coverage": 0.5767605633802817
+    },
+    "alpha088": {
+      "number": 88,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 8971,
+      "eligible_cells": 19880,
+      "coverage": 0.45125754527162976
+    },
+    "alpha089": {
+      "number": 89,
+      "family": "input_proxy",
+      "substitutions": [
+        "PIT sector/industry/subindustry -> eligible-market cross-sectional demean"
+      ],
+      "comparison_output": false,
+      "valid_cells": 12608,
+      "eligible_cells": 19880,
+      "coverage": 0.63420523138833
+    },
+    "alpha090": {
+      "number": 90,
+      "family": "input_proxy",
+      "substitutions": [
+        "PIT sector/industry/subindustry -> eligible-market cross-sectional demean"
+      ],
+      "comparison_output": false,
+      "valid_cells": 14837,
+      "eligible_cells": 19880,
+      "coverage": 0.7463279678068411
+    },
+    "alpha091": {
+      "number": 91,
+      "family": "input_proxy",
+      "substitutions": [
+        "PIT sector/industry/subindustry -> eligible-market cross-sectional demean"
+      ],
+      "comparison_output": false,
+      "valid_cells": 12275,
+      "eligible_cells": 19880,
+      "coverage": 0.6174547283702213
+    },
+    "alpha092": {
+      "number": 92,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 327,
+      "eligible_cells": 19880,
+      "coverage": 0.016448692152917506
+    },
+    "alpha093": {
+      "number": 93,
+      "family": "input_proxy",
+      "substitutions": [
+        "PIT sector/industry/subindustry -> eligible-market cross-sectional demean"
+      ],
+      "comparison_output": false,
+      "valid_cells": 10692,
+      "eligible_cells": 19880,
+      "coverage": 0.5378269617706237
+    },
+    "alpha094": {
+      "number": 94,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 12694,
+      "eligible_cells": 19880,
+      "coverage": 0.6385311871227364
+    },
+    "alpha095": {
+      "number": 95,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": true,
+      "valid_cells": 13791,
+      "eligible_cells": 19880,
+      "coverage": 0.6937122736418511
+    },
+    "alpha096": {
+      "number": 96,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 0,
+      "eligible_cells": 19880,
+      "coverage": 0.0
+    },
+    "alpha097": {
+      "number": 97,
+      "family": "input_proxy",
+      "substitutions": [
+        "PIT sector/industry/subindustry -> eligible-market cross-sectional demean"
+      ],
+      "comparison_output": false,
+      "valid_cells": 124,
+      "eligible_cells": 19880,
+      "coverage": 0.006237424547283702
+    },
+    "alpha098": {
+      "number": 98,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 5889,
+      "eligible_cells": 19880,
+      "coverage": 0.29622736418511064
+    },
+    "alpha099": {
+      "number": 99,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": true,
+      "valid_cells": 14820,
+      "eligible_cells": 19880,
+      "coverage": 0.7454728370221329
+    },
+    "alpha100": {
+      "number": 100,
+      "family": "input_proxy",
+      "substitutions": [
+        "PIT sector/industry/subindustry -> eligible-market cross-sectional demean"
+      ],
+      "comparison_output": false,
+      "valid_cells": 6651,
+      "eligible_cells": 19880,
+      "coverage": 0.3345573440643863
+    },
+    "alpha101": {
+      "number": 101,
+      "family": "price_volume",
+      "substitutions": [],
+      "comparison_output": false,
+      "valid_cells": 16359,
+      "eligible_cells": 19880,
+      "coverage": 0.8228873239436619
+    }
+  },
+  "limitations": [
+    "paper mode is an explicit implementation convention, not a verified proprietary reproduction",
+    "USD/USDT quote turnover is used as dollar-volume approximation",
+    "19 industry/cap factors are clearly marked substitutes and must be reported separately",
+    "nominal base-volume/dollar-ADV ratios retain the paper's stated units; no silent unit repair"
+  ]
+}

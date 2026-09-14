@@ -1,0 +1,132 @@
+{
+  "qa_time_utc": "2026-09-10T05:54:23.644054+00:00",
+  "symbols": 81,
+  "status_counts": {
+    "missing": 38,
+    "ok": 43
+  },
+  "funding_rows": 416046,
+  "mark_price_source_counts": {
+    "funding_response": 287328,
+    "mark_kline_open_8h": 108415,
+    "missing": 1,
+    "mark_kline_open_4h": 15397,
+    "mark_kline_open_1h": 4905
+  },
+  "proxy_mark_count": 128717,
+  "proxy_mark_fraction": 0.30938165491315867,
+  "missing_mark_count": 1,
+  "invalid_rate_count": 0,
+  "invalid_interval_count": 0,
+  "max_proxy_time_offset_seconds": 0.047,
+  "gap_count": 38,
+  "unexplained_gap_count": 34,
+  "interval_transition_gap_count": 4,
+  "pagination_status_counts": {
+    "available_api_count_and_boundary_verified": 28,
+    "verified": 53
+  },
+  "checks_passed": [
+    "union coverage exactly 81 symbols",
+    "file SHA256 matches manifest",
+    "event timestamps sorted and unique",
+    "all events within [2021-01-01,2026-09-10) UTC",
+    "all observed funding rates finite",
+    "all proxies positive with offsets in [0,1) seconds",
+    "no valid response mark overwritten by proxy",
+    "raw response/cache records retained",
+    "38 flagged event windows independently queried on fapi; 0 actual interior events returned",
+    "76 cross-source boundary events have identical timestamps and funding rates",
+    "28 legacy caches agree with available API counts, earliest/latest boundaries, and 1001 head/tail event samples",
+    "all 81 symbols have no terminal funding gap against min(cutoff,current registry delivery)",
+    "19 initial registry-relative delays all end before sixtieth positive-volume daily bar"
+  ],
+  "remaining_missing_mark": {
+    "symbol": "APTUSDT",
+    "time": "2022-10-18T16:00:00Z",
+    "first_daily_bar": "2022-10-19T00:00:00Z"
+  },
+  "legacy_cache_revalidation_summary": {
+    "symbols": 28,
+    "verified_symbols": 28,
+    "failed_or_inconclusive_symbols": 0,
+    "verified_rows": 112601,
+    "requests": 56,
+    "initial_funding_delays_above_one_interval": 0,
+    "currently_trading_terminal_gaps_above_one_interval": 0,
+    "head_events_compared": 618,
+    "tail_events_compared": 383,
+    "out_of_window_newer_api_records": 54,
+    "registry_onboard_later_than_api_first": [
+      {
+        "symbol": "AKEUSDT",
+        "first_funding_minus_registry_onboard_hours": -0.5,
+        "cache_first": "2025-09-26 12:00:00+00:00",
+        "registry_onboard": "2025-09-26T12:30:00+00:00"
+      },
+      {
+        "symbol": "MYXUSDT",
+        "first_funding_minus_registry_onboard_hours": -0.49999916666666666,
+        "cache_first": "2025-06-18 12:00:00.003000+00:00",
+        "registry_onboard": "2025-06-18T12:30:00+00:00"
+      },
+      {
+        "symbol": "PENGUUSDT",
+        "first_funding_minus_registry_onboard_hours": -0.25,
+        "cache_first": "2024-12-17 16:00:00+00:00",
+        "registry_onboard": "2024-12-17T16:15:00+00:00"
+      },
+      {
+        "symbol": "PUMPUSDT",
+        "first_funding_minus_registry_onboard_hours": -2127.5,
+        "cache_first": "2025-04-12 16:00:00+00:00",
+        "registry_onboard": "2025-07-10T07:30:00+00:00"
+      },
+      {
+        "symbol": "SIRENUSDT",
+        "first_funding_minus_registry_onboard_hours": -41.0,
+        "cache_first": "2025-03-20 16:00:00+00:00",
+        "registry_onboard": "2025-03-22T09:00:00+00:00"
+      },
+      {
+        "symbol": "TONUSDT",
+        "first_funding_minus_registry_onboard_hours": -4.5,
+        "cache_first": "2024-03-01 08:00:00+00:00",
+        "registry_onboard": "2024-03-01T12:30:00+00:00"
+      }
+    ]
+  },
+  "gap_crosscheck_summary": {
+    "probes": 38,
+    "statuses": {
+      "no_interior_event_returned": 38
+    },
+    "actual_interior_events": 0,
+    "returned_event_records": 76,
+    "returned_records_with_exact_cached_timestamp": 76,
+    "returned_rate_conflicts": 0,
+    "unmatched_returned_events": []
+  },
+  "boundary_audit_summary": {
+    "symbols": 81,
+    "initial_flags": 19,
+    "initial_flags_reaching_sixtieth_positive_bar": 0,
+    "terminal_flags": 0,
+    "symbols_with_post_delivery_events": 7
+  },
+  "status_meaning": "missing means unresolved event/price uncertainty; valid source rates and existing price proxies are retained. Unknown funding is not zero.",
+  "artifact_paths": {
+    "gap_crosscheck": "data/funding_gap_crosscheck.json",
+    "legacy_boundary_validation": "data/funding_legacy_boundary_validation.json",
+    "boundary_audit": "data/funding_boundary_audit.json"
+  },
+  "pagination_complete_symbols": 81,
+  "validation_kind_counts": {
+    "full_pagination": 53,
+    "counts_and_boundary_samples": 28
+  },
+  "final_required_symbols": 80,
+  "retained_audit_only_symbols": [
+    "FTTUSDT"
+  ]
+}

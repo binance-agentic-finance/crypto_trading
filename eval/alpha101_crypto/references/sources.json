@@ -1,0 +1,21 @@
+{
+  "retrieved_utc_date": "2026-09-10",
+  "sources": [
+    {
+      "name": "Kakushadze 101 Formulaic Alphas",
+      "url": "https://arxiv.org/pdf/1601.00991",
+      "local_file": "1601.00991.pdf",
+      "sha256": "1f9c21afe32dcb3ee77b31548acdaea00451fbfa1c0ee10c907867bcc736fce9",
+      "pages_read": [
+        15,
+        16
+      ]
+    },
+    {
+      "name": "yli188 public Python comparison only",
+      "url": "https://raw.githubusercontent.com/yli188/WorldQuant_alpha101_code/master/101Alpha_code_1.py",
+      "sha256": "e78cf3b39198a9999e127b977697aa13057a59aba8a6ad5b6b9080433ba6ac3e",
+      "not_used_as_authoritative_semantics": true
+    }
+  ]
+}

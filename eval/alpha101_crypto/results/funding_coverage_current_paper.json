@@ -1,0 +1,838 @@
+[
+  {
+    "schema_version": 3,
+    "symbol": "BTCUSDT",
+    "status": "ok",
+    "source": "bapi_funding_history",
+    "rows": 6234,
+    "first": "2021-01-01 00:00:00.002000+00:00",
+    "last": "2026-09-09 16:00:00.002000+00:00",
+    "total_history_rows": 7671,
+    "intervals_hours": [
+      8
+    ],
+    "sha256": "ababf599c43e8092e39463c5ea4778f3083bd3c7cbe5c9b08f32b066e0de86a6",
+    "queried_through_exclusive": "2026-09-10 00:00:00+00:00",
+    "cache_hit": true,
+    "raw_path": "data/funding_raw/BTCUSDT.json",
+    "raw_sha256": "7774cf7188a82ff2847c49b0307dc561e5032120045690eacfd963d4529e1671",
+    "raw_origin": "bapi_response",
+    "pagination_stop": "reached_start_boundary",
+    "duplicate_time_rows": 0,
+    "pagination_complete": true,
+    "pagination_status": "verified",
+    "cache_rejected_reason": null,
+    "response_missing_mark_count": 3100,
+    "proxy_mark_count": 3100,
+    "missing_mark_count": 0,
+    "invalid_rate_count": 0,
+    "invalid_interval_count": 0,
+    "mark_price_source_counts": {
+      "funding_response": 3134,
+      "mark_kline_open_8h": 3100
+    },
+    "mark_proxy": {
+      "interval": null,
+      "requests": 0,
+      "unaligned_events": 0,
+      "errors": []
+    },
+    "event_gap_diagnostics": {
+      "gap_count": 0,
+      "unexplained_gap_count": 0,
+      "interval_transition_gap_count": 0,
+      "gap_affected_utc_days": [],
+      "unexplained_gap_days_utc": [],
+      "gaps": [],
+      "method": "adjacent actual event gap > current fundingIntervalHours + 1 second; interval switches flagged separately",
+      "leading_boundary": "no gap inferred before first retained event; listing/start boundary is left-censored"
+    },
+    "boundary_audit": {
+      "evidence_path": "data/funding_boundary_audit.json",
+      "evidence_sha256": "25543e3ac029f1f7b8f5a0a6c7d132a2425d9e5a76d9c584352914cf4584148e",
+      "initial_flag_relative_current_registry": false,
+      "initial_flag_reaches_sixtieth_positive_bar": false,
+      "terminal_flag_relative_current_registry": false,
+      "events_after_or_at_delivery": 0,
+      "limitation": "Current registry onboard/delivery metadata is not a complete historical securities master; only eligible lifecycle periods may enter returns."
+    },
+    "validation_kind": "full_pagination",
+    "interior_gap_count": 0,
+    "unknown_funding_days": 0
+  },
+  {
+    "schema_version": 3,
+    "symbol": "ETHUSDT",
+    "status": "ok",
+    "source": "bapi_funding_history",
+    "rows": 6234,
+    "first": "2021-01-01 00:00:00.002000+00:00",
+    "last": "2026-09-09 16:00:00.002000+00:00",
+    "total_history_rows": 7437,
+    "intervals_hours": [
+      8
+    ],
+    "sha256": "8afaed3b64dc868d5190b0bdaee0eca20784df2174d6d3ff28300326fec54193",
+    "queried_through_exclusive": "2026-09-10 00:00:00+00:00",
+    "cache_hit": false,
+    "raw_path": "data/funding_raw/ETHUSDT.json",
+    "raw_sha256": "2f98a2e06995bfbf7b05b9791236909da1074b6a500f56b20fca4b4d37372e13",
+    "raw_origin": "bapi_response",
+    "pagination_stop": "reached_start_boundary",
+    "duplicate_time_rows": 0,
+    "pagination_complete": true,
+    "pagination_status": "verified",
+    "cache_rejected_reason": null,
+    "response_missing_mark_count": 3100,
+    "proxy_mark_count": 3100,
+    "missing_mark_count": 0,
+    "invalid_rate_count": 0,
+    "invalid_interval_count": 0,
+    "mark_price_source_counts": {
+      "funding_response": 3134,
+      "mark_kline_open_8h": 3100
+    },
+    "mark_proxy": {
+      "unaligned_events": 0,
+      "requests": 4,
+      "interval": "8h",
+      "errors": [],
+      "start_ms": 1609459200000,
+      "end_exclusive_ms": 1698739200000,
+      "cache_path": "data/funding_mark_klines/ETHUSDT_8h.parquet",
+      "cache_sha256": "a6b394ae05baa71609b01dbf1db2ec20f6fbcc10c8d4d7bd91c39ad80c18b47a",
+      "resolved_events": 3100
+    },
+    "event_gap_diagnostics": {
+      "gap_count": 0,
+      "unexplained_gap_count": 0,
+      "interval_transition_gap_count": 0,
+      "gap_affected_utc_days": [],
+      "unexplained_gap_days_utc": [],
+      "gaps": [],
+      "method": "adjacent actual event gap > current fundingIntervalHours + 1 second; interval switches flagged separately",
+      "leading_boundary": "no gap inferred before first retained event; listing/start boundary is left-censored"
+    },
+    "boundary_audit": {
+      "evidence_path": "data/funding_boundary_audit.json",
+      "evidence_sha256": "25543e3ac029f1f7b8f5a0a6c7d132a2425d9e5a76d9c584352914cf4584148e",
+      "initial_flag_relative_current_registry": false,
+      "initial_flag_reaches_sixtieth_positive_bar": false,
+      "terminal_flag_relative_current_registry": false,
+      "events_after_or_at_delivery": 0,
+      "limitation": "Current registry onboard/delivery metadata is not a complete historical securities master; only eligible lifecycle periods may enter returns."
+    },
+    "validation_kind": "full_pagination",
+    "interior_gap_count": 0,
+    "unknown_funding_days": 0
+  },
+  {
+    "schema_version": 3,
+    "symbol": "SOLUSDT",
+    "status": "missing",
+    "source": "bapi_funding_history",
+    "rows": 6309,
+    "first": "2021-01-01 00:00:00.002000+00:00",
+    "last": "2026-09-09 16:00:00.002000+00:00",
+    "total_history_rows": 6638,
+    "intervals_hours": [
+      2,
+      4,
+      8
+    ],
+    "sha256": "516b7a76748a80a3a4d1401602a855b2959f519b4ff4272598d2ef54bf16e086",
+    "queried_through_exclusive": "2026-09-10 00:00:00+00:00",
+    "cache_hit": false,
+    "raw_path": "data/funding_raw/SOLUSDT.json",
+    "raw_sha256": "89cfaaea6e6fc196ea78baca3b5e010ae7d608ba2bf8470e8720f5857777e00a",
+    "raw_origin": "bapi_response",
+    "pagination_stop": "reached_start_boundary",
+    "duplicate_time_rows": 0,
+    "pagination_complete": true,
+    "pagination_status": "verified",
+    "cache_rejected_reason": null,
+    "response_missing_mark_count": 3175,
+    "proxy_mark_count": 3175,
+    "missing_mark_count": 0,
+    "invalid_rate_count": 0,
+    "invalid_interval_count": 0,
+    "mark_price_source_counts": {
+      "mark_kline_open_1h": 3175,
+      "funding_response": 3134
+    },
+    "mark_proxy": {
+      "unaligned_events": 0,
+      "requests": 25,
+      "interval": "1h",
+      "errors": [],
+      "start_ms": 1609459200000,
+      "end_exclusive_ms": 1698714000000,
+      "cache_path": "data/funding_mark_klines/SOLUSDT_1h.parquet",
+      "cache_sha256": "68336fc41b5d0024f8e5dcb2ab3500beb1a46a025fcdff146f7b579c2dc0c7a4",
+      "resolved_events": 3175
+    },
+    "event_gap_diagnostics": {
+      "gap_count": 1,
+      "unexplained_gap_count": 0,
+      "interval_transition_gap_count": 1,
+      "gap_affected_utc_days": [
+        "2022-11-10"
+      ],
+      "unexplained_gap_days_utc": [],
+      "gaps": [
+        {
+          "previous_time": "2022-11-10 00:00:00.006000+00:00",
+          "current_time": "2022-11-10 04:00:00.011000+00:00",
+          "elapsed_hours": 4.000001388888888,
+          "previous_interval_hours": 4.0,
+          "current_interval_hours": 2.0,
+          "classification": "interval_transition_ambiguous",
+          "affected_utc_days": [
+            "2022-11-10"
+          ]
+        }
+      ],
+      "method": "adjacent actual event gap > current fundingIntervalHours + 1 second; interval switches flagged separately",
+      "leading_boundary": "no gap inferred before first retained event; listing/start boundary is left-censored"
+    },
+    "event_gap_crosscheck": {
+      "source": "https://fapi.binance.com/fapi/v1/fundingRate",
+      "evidence_path": "data/funding_gap_crosscheck.json",
+      "evidence_sha256": "834b44e2f2d184de78c246bc40f0fcf16ae11c38f8b4e31ded92cd7f9ea7018a",
+      "queried_windows": 1,
+      "actual_interior_events_found": 0,
+      "errors": 0,
+      "conclusion": "No interior event supplied by either public funding-history API; flagged affected days remain unknown."
+    },
+    "boundary_audit": {
+      "evidence_path": "data/funding_boundary_audit.json",
+      "evidence_sha256": "25543e3ac029f1f7b8f5a0a6c7d132a2425d9e5a76d9c584352914cf4584148e",
+      "initial_flag_relative_current_registry": false,
+      "initial_flag_reaches_sixtieth_positive_bar": false,
+      "terminal_flag_relative_current_registry": false,
+      "events_after_or_at_delivery": 0,
+      "limitation": "Current registry onboard/delivery metadata is not a complete historical securities master; only eligible lifecycle periods may enter returns."
+    },
+    "validation_kind": "full_pagination",
+    "interior_gap_count": 0,
+    "unknown_funding_days": 1
+  },
+  {
+    "schema_version": 3,
+    "symbol": "ZECUSDT",
+    "status": "ok",
+    "source": "bapi_funding_history",
+    "rows": 6234,
+    "first": "2021-01-01 00:00:00.002000+00:00",
+    "last": "2026-09-09 16:00:00.002000+00:00",
+    "total_history_rows": 7230,
+    "intervals_hours": [
+      8
+    ],
+    "sha256": "123b153d4682a3d8e0046f70399965f749f705b0409f1a41a4a05a627f24cc6d",
+    "queried_through_exclusive": "2026-09-10 00:00:00+00:00",
+    "cache_hit": false,
+    "raw_path": "data/funding_raw/ZECUSDT.json",
+    "raw_sha256": "404c0d234b307d7ca4c75797f27d39d49d64b59f7d5b2ca8f06adaf8d7df1533",
+    "raw_origin": "bapi_response",
+    "pagination_stop": "reached_start_boundary",
+    "duplicate_time_rows": 0,
+    "pagination_complete": true,
+    "pagination_status": "verified",
+    "cache_rejected_reason": null,
+    "response_missing_mark_count": 3100,
+    "proxy_mark_count": 3100,
+    "missing_mark_count": 0,
+    "invalid_rate_count": 0,
+    "invalid_interval_count": 0,
+    "mark_price_source_counts": {
+      "funding_response": 3134,
+      "mark_kline_open_8h": 3100
+    },
+    "mark_proxy": {
+      "unaligned_events": 0,
+      "requests": 4,
+      "interval": "8h",
+      "errors": [],
+      "start_ms": 1609459200000,
+      "end_exclusive_ms": 1698739200000,
+      "cache_path": "data/funding_mark_klines/ZECUSDT_8h.parquet",
+      "cache_sha256": "b50f2b27b70943200f696ccb4f2f6fc2dc0259eed94e686b7a8411e8cfcbe859",
+      "resolved_events": 3100
+    },
+    "event_gap_diagnostics": {
+      "gap_count": 0,
+      "unexplained_gap_count": 0,
+      "interval_transition_gap_count": 0,
+      "gap_affected_utc_days": [],
+      "unexplained_gap_days_utc": [],
+      "gaps": [],
+      "method": "adjacent actual event gap > current fundingIntervalHours + 1 second; interval switches flagged separately",
+      "leading_boundary": "no gap inferred before first retained event; listing/start boundary is left-censored"
+    },
+    "boundary_audit": {
+      "evidence_path": "data/funding_boundary_audit.json",
+      "evidence_sha256": "25543e3ac029f1f7b8f5a0a6c7d132a2425d9e5a76d9c584352914cf4584148e",
+      "initial_flag_relative_current_registry": false,
+      "initial_flag_reaches_sixtieth_positive_bar": false,
+      "terminal_flag_relative_current_registry": false,
+      "events_after_or_at_delivery": 0,
+      "limitation": "Current registry onboard/delivery metadata is not a complete historical securities master; only eligible lifecycle periods may enter returns."
+    },
+    "validation_kind": "full_pagination",
+    "interior_gap_count": 0,
+    "unknown_funding_days": 0
+  },
+  {
+    "schema_version": 3,
+    "symbol": "XRPUSDT",
+    "status": "ok",
+    "source": "bapi_funding_history",
+    "rows": 6234,
+    "first": "2021-01-01 00:00:00.002000+00:00",
+    "last": "2026-09-09 16:00:00.002000+00:00",
+    "total_history_rows": 7317,
+    "intervals_hours": [
+      8
+    ],
+    "sha256": "e0a10eae4f1ba37c990b59ebc826cc0bea83144eaaaaebdc8145622f63163fae",
+    "queried_through_exclusive": "2026-09-10 00:00:00+00:00",
+    "cache_hit": false,
+    "raw_path": "data/funding_raw/XRPUSDT.json",
+    "raw_sha256": "1b5dfda6e7c6f242717d8f02676336403f4d857095a5e67c6f502c5c3e145a02",
+    "raw_origin": "bapi_response",
+    "pagination_stop": "reached_start_boundary",
+    "duplicate_time_rows": 0,
+    "pagination_complete": true,
+    "pagination_status": "verified",
+    "cache_rejected_reason": null,
+    "response_missing_mark_count": 3100,
+    "proxy_mark_count": 3100,
+    "missing_mark_count": 0,
+    "invalid_rate_count": 0,
+    "invalid_interval_count": 0,
+    "mark_price_source_counts": {
+      "funding_response": 3134,
+      "mark_kline_open_8h": 3100
+    },
+    "mark_proxy": {
+      "unaligned_events": 0,
+      "requests": 4,
+      "interval": "8h",
+      "errors": [],
+      "start_ms": 1609459200000,
+      "end_exclusive_ms": 1698739200000,
+      "cache_path": "data/funding_mark_klines/XRPUSDT_8h.parquet",
+      "cache_sha256": "502d2a21ce15500540783da33657a4622b4d8aa58342522771d5892f5f76d739",
+      "resolved_events": 3100
+    },
+    "event_gap_diagnostics": {
+      "gap_count": 0,
+      "unexplained_gap_count": 0,
+      "interval_transition_gap_count": 0,
+      "gap_affected_utc_days": [],
+      "unexplained_gap_days_utc": [],
+      "gaps": [],
+      "method": "adjacent actual event gap > current fundingIntervalHours + 1 second; interval switches flagged separately",
+      "leading_boundary": "no gap inferred before first retained event; listing/start boundary is left-censored"
+    },
+    "boundary_audit": {
+      "evidence_path": "data/funding_boundary_audit.json",
+      "evidence_sha256": "25543e3ac029f1f7b8f5a0a6c7d132a2425d9e5a76d9c584352914cf4584148e",
+      "initial_flag_relative_current_registry": false,
+      "initial_flag_reaches_sixtieth_positive_bar": false,
+      "terminal_flag_relative_current_registry": false,
+      "events_after_or_at_delivery": 0,
+      "limitation": "Current registry onboard/delivery metadata is not a complete historical securities master; only eligible lifecycle periods may enter returns."
+    },
+    "validation_kind": "full_pagination",
+    "interior_gap_count": 0,
+    "unknown_funding_days": 0
+  },
+  {
+    "schema_version": 3,
+    "symbol": "HYPEUSDT",
+    "status": "missing",
+    "source": "bapi_funding_history",
+    "rows": 2804,
+    "first": "2025-05-30 12:00:00.006000+00:00",
+    "last": "2026-09-09 20:00:00+00:00",
+    "total_history_rows": 2806,
+    "intervals_hours": [
+      4
+    ],
+    "sha256": "0fc8ba09e09a61e2e3dc23cb35ec8b03f261b93816d62707a03075b6cf2bf3eb",
+    "queried_through_exclusive": "2026-09-10 00:00:00+00:00",
+    "cache_hit": true,
+    "raw_path": "data/funding_raw/HYPEUSDT.json",
+    "raw_sha256": "58de6e0b08f1e7fe3e58c93532fdc2b4b55929df28656fb6671900d104548c1f",
+    "raw_origin": "legacy_cached_funding_response",
+    "pagination_stop": "legacy_cache",
+    "duplicate_time_rows": 0,
+    "pagination_complete": true,
+    "pagination_status": "available_api_count_and_boundary_verified",
+    "cache_rejected_reason": null,
+    "response_missing_mark_count": 0,
+    "proxy_mark_count": 0,
+    "missing_mark_count": 0,
+    "invalid_rate_count": 0,
+    "invalid_interval_count": 0,
+    "mark_price_source_counts": {
+      "funding_response": 2804
+    },
+    "mark_proxy": {
+      "interval": null,
+      "requests": 0,
+      "unaligned_events": 0,
+      "errors": []
+    },
+    "event_gap_diagnostics": {
+      "gap_count": 1,
+      "unexplained_gap_count": 1,
+      "interval_transition_gap_count": 0,
+      "gap_affected_utc_days": [
+        "2026-06-24"
+      ],
+      "unexplained_gap_days_utc": [
+        "2026-06-24"
+      ],
+      "gaps": [
+        {
+          "previous_time": "2026-06-24 00:00:00.005000+00:00",
+          "current_time": "2026-06-24 08:00:00.005000+00:00",
+          "elapsed_hours": 8.0,
+          "previous_interval_hours": 4.0,
+          "current_interval_hours": 4.0,
+          "classification": "unexplained",
+          "affected_utc_days": [
+            "2026-06-24"
+          ]
+        }
+      ],
+      "method": "adjacent actual event gap > current fundingIntervalHours + 1 second; interval switches flagged separately",
+      "leading_boundary": "no gap inferred before first retained event; listing/start boundary is left-censored"
+    },
+    "cache_coverage_validation": {
+      "status": "available_api_count_and_boundary_verified",
+      "evidence_path": "data/funding_legacy_boundary_validation.json",
+      "evidence_sha256": "cfa9823d79177f7af5b693d02402720f2f82cc70f816fd37511c4881793206c2",
+      "validated_cache_sha256": "0fc8ba09e09a61e2e3dc23cb35ec8b03f261b93816d62707a03075b6cf2bf3eb",
+      "verified_utc": "2026-09-10T05:45:23.545193+00:00",
+      "rows": 2804,
+      "comparison": {
+        "api_total": 2806,
+        "out_of_window_newer_rows_on_head_page": 2,
+        "head_page_reaches_before_cutoff": true,
+        "api_total_minus_newer_rows": 2804,
+        "count_matches_local_unique": true,
+        "last_api_page": 117,
+        "expected_last_page_rows": 22,
+        "head_in_window_rows_checked": 22,
+        "head_times_all_present": true,
+        "head_rates_match": true,
+        "rate_abs_tolerance": 1e-14,
+        "head_intervals_match": true,
+        "tail_api_total": 2806,
+        "api_total_stable_between_requests": true,
+        "tail_page_rows": 22,
+        "tail_page_expected_row_count_matches": true,
+        "api_first": "2025-05-30T12:00:00.006000+00:00",
+        "api_first_matches_cache": true,
+        "tail_has_no_pre_query_events": true,
+        "tail_times_all_present": true,
+        "tail_rates_match": true,
+        "tail_intervals_match": true
+      },
+      "limitation": "Available API total and head/tail samples verified; interior pages not fully redownloaded. Source-level gaps remain unknown."
+    },
+    "event_gap_crosscheck": {
+      "source": "https://fapi.binance.com/fapi/v1/fundingRate",
+      "evidence_path": "data/funding_gap_crosscheck.json",
+      "evidence_sha256": "834b44e2f2d184de78c246bc40f0fcf16ae11c38f8b4e31ded92cd7f9ea7018a",
+      "queried_windows": 1,
+      "actual_interior_events_found": 0,
+      "errors": 0,
+      "conclusion": "No interior event supplied by either public funding-history API; flagged affected days remain unknown."
+    },
+    "boundary_audit": {
+      "evidence_path": "data/funding_boundary_audit.json",
+      "evidence_sha256": "25543e3ac029f1f7b8f5a0a6c7d132a2425d9e5a76d9c584352914cf4584148e",
+      "initial_flag_relative_current_registry": false,
+      "initial_flag_reaches_sixtieth_positive_bar": false,
+      "terminal_flag_relative_current_registry": false,
+      "events_after_or_at_delivery": 0,
+      "limitation": "Current registry onboard/delivery metadata is not a complete historical securities master; only eligible lifecycle periods may enter returns."
+    },
+    "validation_kind": "counts_and_boundary_samples",
+    "interior_gap_count": 1,
+    "unknown_funding_days": 1
+  },
+  {
+    "schema_version": 3,
+    "symbol": "DOGEUSDT",
+    "status": "ok",
+    "source": "bapi_funding_history",
+    "rows": 6234,
+    "first": "2021-01-01 00:00:00.002000+00:00",
+    "last": "2026-09-09 16:00:00.002000+00:00",
+    "total_history_rows": 6759,
+    "intervals_hours": [
+      8
+    ],
+    "sha256": "62a3a2f5f4d0d2d368414f3adad4b04acc1d0bd36416f97f93ba5bf708dc8b7e",
+    "queried_through_exclusive": "2026-09-10 00:00:00+00:00",
+    "cache_hit": false,
+    "raw_path": "data/funding_raw/DOGEUSDT.json",
+    "raw_sha256": "c2f3e4bf0037bb295bf310b0ed6dd5193b2d8101f46b5a1e6600be03782a37f0",
+    "raw_origin": "bapi_response",
+    "pagination_stop": "reached_start_boundary",
+    "duplicate_time_rows": 0,
+    "pagination_complete": true,
+    "pagination_status": "verified",
+    "cache_rejected_reason": null,
+    "response_missing_mark_count": 3100,
+    "proxy_mark_count": 3100,
+    "missing_mark_count": 0,
+    "invalid_rate_count": 0,
+    "invalid_interval_count": 0,
+    "mark_price_source_counts": {
+      "funding_response": 3134,
+      "mark_kline_open_8h": 3100
+    },
+    "mark_proxy": {
+      "unaligned_events": 0,
+      "requests": 4,
+      "interval": "8h",
+      "errors": [],
+      "start_ms": 1609459200000,
+      "end_exclusive_ms": 1698739200000,
+      "cache_path": "data/funding_mark_klines/DOGEUSDT_8h.parquet",
+      "cache_sha256": "94ed4a3cbd970034017568763ffedd010b3d445ea2a0ee68243f17ba7a7187c7",
+      "resolved_events": 3100
+    },
+    "event_gap_diagnostics": {
+      "gap_count": 0,
+      "unexplained_gap_count": 0,
+      "interval_transition_gap_count": 0,
+      "gap_affected_utc_days": [],
+      "unexplained_gap_days_utc": [],
+      "gaps": [],
+      "method": "adjacent actual event gap > current fundingIntervalHours + 1 second; interval switches flagged separately",
+      "leading_boundary": "no gap inferred before first retained event; listing/start boundary is left-censored"
+    },
+    "boundary_audit": {
+      "evidence_path": "data/funding_boundary_audit.json",
+      "evidence_sha256": "25543e3ac029f1f7b8f5a0a6c7d132a2425d9e5a76d9c584352914cf4584148e",
+      "initial_flag_relative_current_registry": false,
+      "initial_flag_reaches_sixtieth_positive_bar": false,
+      "terminal_flag_relative_current_registry": false,
+      "events_after_or_at_delivery": 0,
+      "limitation": "Current registry onboard/delivery metadata is not a complete historical securities master; only eligible lifecycle periods may enter returns."
+    },
+    "validation_kind": "full_pagination",
+    "interior_gap_count": 0,
+    "unknown_funding_days": 0
+  },
+  {
+    "schema_version": 3,
+    "symbol": "BNBUSDT",
+    "status": "ok",
+    "source": "bapi_funding_history",
+    "rows": 6234,
+    "first": "2021-01-01 00:00:00.002000+00:00",
+    "last": "2026-09-09 16:00:00.002000+00:00",
+    "total_history_rows": 7212,
+    "intervals_hours": [
+      8
+    ],
+    "sha256": "210dad70d5643376c72e8468de1b0e95c8678971f5c6b3fc0872ad45e107bacf",
+    "queried_through_exclusive": "2026-09-10 00:00:00+00:00",
+    "cache_hit": false,
+    "raw_path": "data/funding_raw/BNBUSDT.json",
+    "raw_sha256": "410a72b0a9eb3e5dbf970ef6b328f5181d2bc00f2c9a450fbaf06b412b09ca07",
+    "raw_origin": "bapi_response",
+    "pagination_stop": "reached_start_boundary",
+    "duplicate_time_rows": 0,
+    "pagination_complete": true,
+    "pagination_status": "verified",
+    "cache_rejected_reason": null,
+    "response_missing_mark_count": 3100,
+    "proxy_mark_count": 3100,
+    "missing_mark_count": 0,
+    "invalid_rate_count": 0,
+    "invalid_interval_count": 0,
+    "mark_price_source_counts": {
+      "funding_response": 3134,
+      "mark_kline_open_8h": 3100
+    },
+    "mark_proxy": {
+      "unaligned_events": 0,
+      "requests": 4,
+      "interval": "8h",
+      "errors": [],
+      "start_ms": 1609459200000,
+      "end_exclusive_ms": 1698739200000,
+      "cache_path": "data/funding_mark_klines/BNBUSDT_8h.parquet",
+      "cache_sha256": "5b4dd777a9342acb12d26c89a5b698312283ca8b22664b6f0aa0491e0ad1d578",
+      "resolved_events": 3100
+    },
+    "event_gap_diagnostics": {
+      "gap_count": 0,
+      "unexplained_gap_count": 0,
+      "interval_transition_gap_count": 0,
+      "gap_affected_utc_days": [],
+      "unexplained_gap_days_utc": [],
+      "gaps": [],
+      "method": "adjacent actual event gap > current fundingIntervalHours + 1 second; interval switches flagged separately",
+      "leading_boundary": "no gap inferred before first retained event; listing/start boundary is left-censored"
+    },
+    "boundary_audit": {
+      "evidence_path": "data/funding_boundary_audit.json",
+      "evidence_sha256": "25543e3ac029f1f7b8f5a0a6c7d132a2425d9e5a76d9c584352914cf4584148e",
+      "initial_flag_relative_current_registry": false,
+      "initial_flag_reaches_sixtieth_positive_bar": false,
+      "terminal_flag_relative_current_registry": false,
+      "events_after_or_at_delivery": 0,
+      "limitation": "Current registry onboard/delivery metadata is not a complete historical securities master; only eligible lifecycle periods may enter returns."
+    },
+    "validation_kind": "full_pagination",
+    "interior_gap_count": 0,
+    "unknown_funding_days": 0
+  },
+  {
+    "schema_version": 3,
+    "symbol": "TRUMPUSDT",
+    "status": "missing",
+    "source": "bapi_funding_history",
+    "rows": 3595,
+    "first": "2025-01-18 16:00:00+00:00",
+    "last": "2026-09-09 20:00:00+00:00",
+    "total_history_rows": 3597,
+    "intervals_hours": [
+      4
+    ],
+    "sha256": "2e11b16fac71a8528442b49527bb4374434ef80779ac748445854a2344a8bea6",
+    "queried_through_exclusive": "2026-09-10 00:00:00+00:00",
+    "cache_hit": true,
+    "raw_path": "data/funding_raw/TRUMPUSDT.json",
+    "raw_sha256": "7a614c12b324ac1201d2669f49258ed043ed6226f1f32d9cd19c8aa942b7d07b",
+    "raw_origin": "legacy_cached_funding_response",
+    "pagination_stop": "legacy_cache",
+    "duplicate_time_rows": 0,
+    "pagination_complete": true,
+    "pagination_status": "available_api_count_and_boundary_verified",
+    "cache_rejected_reason": null,
+    "response_missing_mark_count": 0,
+    "proxy_mark_count": 0,
+    "missing_mark_count": 0,
+    "invalid_rate_count": 0,
+    "invalid_interval_count": 0,
+    "mark_price_source_counts": {
+      "funding_response": 3595
+    },
+    "mark_proxy": {
+      "interval": null,
+      "requests": 0,
+      "unaligned_events": 0,
+      "errors": []
+    },
+    "event_gap_diagnostics": {
+      "gap_count": 1,
+      "unexplained_gap_count": 1,
+      "interval_transition_gap_count": 0,
+      "gap_affected_utc_days": [
+        "2026-06-24"
+      ],
+      "unexplained_gap_days_utc": [
+        "2026-06-24"
+      ],
+      "gaps": [
+        {
+          "previous_time": "2026-06-24 00:00:00.005000+00:00",
+          "current_time": "2026-06-24 08:00:00.005000+00:00",
+          "elapsed_hours": 8.0,
+          "previous_interval_hours": 4.0,
+          "current_interval_hours": 4.0,
+          "classification": "unexplained",
+          "affected_utc_days": [
+            "2026-06-24"
+          ]
+        }
+      ],
+      "method": "adjacent actual event gap > current fundingIntervalHours + 1 second; interval switches flagged separately",
+      "leading_boundary": "no gap inferred before first retained event; listing/start boundary is left-censored"
+    },
+    "cache_coverage_validation": {
+      "status": "available_api_count_and_boundary_verified",
+      "evidence_path": "data/funding_legacy_boundary_validation.json",
+      "evidence_sha256": "cfa9823d79177f7af5b693d02402720f2f82cc70f816fd37511c4881793206c2",
+      "validated_cache_sha256": "2e11b16fac71a8528442b49527bb4374434ef80779ac748445854a2344a8bea6",
+      "verified_utc": "2026-09-10T05:45:23.545193+00:00",
+      "rows": 3595,
+      "comparison": {
+        "api_total": 3597,
+        "out_of_window_newer_rows_on_head_page": 2,
+        "head_page_reaches_before_cutoff": true,
+        "api_total_minus_newer_rows": 3595,
+        "count_matches_local_unique": true,
+        "last_api_page": 150,
+        "expected_last_page_rows": 21,
+        "head_in_window_rows_checked": 22,
+        "head_times_all_present": true,
+        "head_rates_match": true,
+        "rate_abs_tolerance": 1e-14,
+        "head_intervals_match": true,
+        "tail_api_total": 3597,
+        "api_total_stable_between_requests": true,
+        "tail_page_rows": 21,
+        "tail_page_expected_row_count_matches": true,
+        "api_first": "2025-01-18T16:00:00+00:00",
+        "api_first_matches_cache": true,
+        "tail_has_no_pre_query_events": true,
+        "tail_times_all_present": true,
+        "tail_rates_match": true,
+        "tail_intervals_match": true
+      },
+      "limitation": "Available API total and head/tail samples verified; interior pages not fully redownloaded. Source-level gaps remain unknown."
+    },
+    "event_gap_crosscheck": {
+      "source": "https://fapi.binance.com/fapi/v1/fundingRate",
+      "evidence_path": "data/funding_gap_crosscheck.json",
+      "evidence_sha256": "834b44e2f2d184de78c246bc40f0fcf16ae11c38f8b4e31ded92cd7f9ea7018a",
+      "queried_windows": 1,
+      "actual_interior_events_found": 0,
+      "errors": 0,
+      "conclusion": "No interior event supplied by either public funding-history API; flagged affected days remain unknown."
+    },
+    "boundary_audit": {
+      "evidence_path": "data/funding_boundary_audit.json",
+      "evidence_sha256": "25543e3ac029f1f7b8f5a0a6c7d132a2425d9e5a76d9c584352914cf4584148e",
+      "initial_flag_relative_current_registry": false,
+      "initial_flag_reaches_sixtieth_positive_bar": false,
+      "terminal_flag_relative_current_registry": false,
+      "events_after_or_at_delivery": 0,
+      "limitation": "Current registry onboard/delivery metadata is not a complete historical securities master; only eligible lifecycle periods may enter returns."
+    },
+    "validation_kind": "counts_and_boundary_samples",
+    "interior_gap_count": 1,
+    "unknown_funding_days": 1
+  },
+  {
+    "schema_version": 3,
+    "symbol": "ENAUSDT",
+    "status": "missing",
+    "source": "bapi_funding_history",
+    "rows": 5341,
+    "first": "2024-04-02 16:00:00+00:00",
+    "last": "2026-09-09 20:00:00+00:00",
+    "total_history_rows": 5343,
+    "intervals_hours": [
+      4
+    ],
+    "sha256": "c9e916f08dc2842843272ef8d109a4cfbaea7ead2253bedaee756b07c75c5164",
+    "queried_through_exclusive": "2026-09-10 00:00:00+00:00",
+    "cache_hit": true,
+    "raw_path": "data/funding_raw/ENAUSDT.json",
+    "raw_sha256": "e8ee7ded7c5d0f77164045fb83d64be94b546d4af912fd07f252a3ca6152cee9",
+    "raw_origin": "legacy_cached_funding_response",
+    "pagination_stop": "legacy_cache",
+    "duplicate_time_rows": 0,
+    "pagination_complete": true,
+    "pagination_status": "available_api_count_and_boundary_verified",
+    "cache_rejected_reason": null,
+    "response_missing_mark_count": 0,
+    "proxy_mark_count": 0,
+    "missing_mark_count": 0,
+    "invalid_rate_count": 0,
+    "invalid_interval_count": 0,
+    "mark_price_source_counts": {
+      "funding_response": 5341
+    },
+    "mark_proxy": {
+      "interval": null,
+      "requests": 0,
+      "unaligned_events": 0,
+      "errors": []
+    },
+    "event_gap_diagnostics": {
+      "gap_count": 1,
+      "unexplained_gap_count": 1,
+      "interval_transition_gap_count": 0,
+      "gap_affected_utc_days": [
+        "2026-06-24"
+      ],
+      "unexplained_gap_days_utc": [
+        "2026-06-24"
+      ],
+      "gaps": [
+        {
+          "previous_time": "2026-06-24 00:00:00.005000+00:00",
+          "current_time": "2026-06-24 08:00:00.005000+00:00",
+          "elapsed_hours": 8.0,
+          "previous_interval_hours": 4.0,
+          "current_interval_hours": 4.0,
+          "classification": "unexplained",
+          "affected_utc_days": [
+            "2026-06-24"
+          ]
+        }
+      ],
+      "method": "adjacent actual event gap > current fundingIntervalHours + 1 second; interval switches flagged separately",
+      "leading_boundary": "no gap inferred before first retained event; listing/start boundary is left-censored"
+    },
+    "cache_coverage_validation": {
+      "status": "available_api_count_and_boundary_verified",
+      "evidence_path": "data/funding_legacy_boundary_validation.json",
+      "evidence_sha256": "cfa9823d79177f7af5b693d02402720f2f82cc70f816fd37511c4881793206c2",
+      "validated_cache_sha256": "c9e916f08dc2842843272ef8d109a4cfbaea7ead2253bedaee756b07c75c5164",
+      "verified_utc": "2026-09-10T05:45:23.545193+00:00",
+      "rows": 5341,
+      "comparison": {
+        "api_total": 5343,
+        "out_of_window_newer_rows_on_head_page": 2,
+        "head_page_reaches_before_cutoff": true,
+        "api_total_minus_newer_rows": 5341,
+        "count_matches_local_unique": true,
+        "last_api_page": 223,
+        "expected_last_page_rows": 15,
+        "head_in_window_rows_checked": 22,
+        "head_times_all_present": true,
+        "head_rates_match": true,
+        "rate_abs_tolerance": 1e-14,
+        "head_intervals_match": true,
+        "tail_api_total": 5343,
+        "api_total_stable_between_requests": true,
+        "tail_page_rows": 15,
+        "tail_page_expected_row_count_matches": true,
+        "api_first": "2024-04-02T16:00:00+00:00",
+        "api_first_matches_cache": true,
+        "tail_has_no_pre_query_events": true,
+        "tail_times_all_present": true,
+        "tail_rates_match": true,
+        "tail_intervals_match": true
+      },
+      "limitation": "Available API total and head/tail samples verified; interior pages not fully redownloaded. Source-level gaps remain unknown."
+    },
+    "event_gap_crosscheck": {
+      "source": "https://fapi.binance.com/fapi/v1/fundingRate",
+      "evidence_path": "data/funding_gap_crosscheck.json",
+      "evidence_sha256": "834b44e2f2d184de78c246bc40f0fcf16ae11c38f8b4e31ded92cd7f9ea7018a",
+      "queried_windows": 1,
+      "actual_interior_events_found": 0,
+      "errors": 0,
+      "conclusion": "No interior event supplied by either public funding-history API; flagged affected days remain unknown."
+    },
+    "boundary_audit": {
+      "evidence_path": "data/funding_boundary_audit.json",
+      "evidence_sha256": "25543e3ac029f1f7b8f5a0a6c7d132a2425d9e5a76d9c584352914cf4584148e",
+      "initial_flag_relative_current_registry": false,
+      "initial_flag_reaches_sixtieth_positive_bar": false,
+      "terminal_flag_relative_current_registry": false,
+      "events_after_or_at_delivery": 0,
+      "limitation": "Current registry onboard/delivery metadata is not a complete historical securities master; only eligible lifecycle periods may enter returns."
+    },
+    "validation_kind": "counts_and_boundary_samples",
+    "interior_gap_count": 1,
+    "unknown_funding_days": 1
+  }
+]
