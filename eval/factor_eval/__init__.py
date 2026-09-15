@@ -37,6 +37,7 @@ import numpy as np
 import pandas as pd
 
 from .baselines import baseline_signals, cross_sectional_rank, residualise
+from .capability import capability_factor, read_port
 from .bundle import DEFAULT_BUNDLE, Panel, load_bundle, to_long
 from .causality import check_prefix_invariance
 from .engine import DAY, DEFAULT_SPLITS, _split_bounds, evaluate_factor
@@ -52,7 +53,9 @@ __all__ = ["evaluate", "Scorecard", "Panel", "load_bundle", "to_long",
            "baseline_signals", "DEFAULT_BUNDLE", "DEFAULT_SPLITS", "VERDICTS",
            # helpers for writing a factor, same role as jqfactor_analyzer.preprocess
            "winsorize_mad", "winsorize_quantile", "zscore", "neutralize",
-           "signal_persistence"]
+           "signal_persistence",
+           # adapter: capability node output -> panel the matrix can score
+           "capability_factor", "read_port"]
 
 PRIMARY_H = 3
 HORIZONS = (1, 3, 5)
