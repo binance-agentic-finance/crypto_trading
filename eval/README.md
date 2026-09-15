@@ -225,7 +225,8 @@ python eval/factor_eval/build_bundle.py --pool historical --out my_bundle.parque
 | `factor_eval/causality.py` | 可重跑因子的前缀一致性抽查 |
 | `factor_eval/matrix.py` | 检查、门槛来源与裁决 |
 | `factor_eval/targets.py` / `statistics.py` | 四目标、共同样本、日期等权关系及块 bootstrap/HAC |
-| `factor_eval/diagnostics.py` / `plots.py` | 14 维证据盘点、八组离线图与报告 |
+| `factor_eval/diagnostics.py` / `plots.py` | 14 维证据盘点、秩自相关与分箱换手、八组离线图与报告 |
+| `factor_eval/preprocess.py` | 写因子时可选的 `winsorize_mad` / `winsorize_quantile` / `zscore` / `neutralize` |
 | `factor_eval/examples/example_factors.py` | 可直接运行的示例因子 |
 | `factor_eval/data/` / `calibration/` | 默认面板、来源元数据和随机信号标定 |
 | `alpha101_crypto/` | Alpha101 参考研究及其历史实验结果 |

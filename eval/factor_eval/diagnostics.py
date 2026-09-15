@@ -119,9 +119,48 @@ def _extremes(signal, raw, panel, bounds, h, lag):
             "reason": "val post-hoc cases selected using future outcomes; not an estimate of live win rate; thresholds frozen on dev; no padding to six cases"}
 
 
+def signal_persistence(signal, mask, lags=(1, 3, 5), bins=3):
+    """How long the ranking survives — the leading indicator of turnover cost.
+
+    Two measurements alphalens / jqfactor_analyzer report and the cost gate needs
+    *before* any P&L exists:
+
+    * ``rank_autocorr`` — cross-sectional rank correlation with the same factor
+      ``lag`` days earlier. Near 1 the ranking barely moves; near 0 it is redrawn
+      every cycle and full turnover is structural rather than a tuning choice.
+    * ``quantile_turnover`` — the share of the top (and bottom) bin that was not
+      in it one cycle ago. Rank autocorrelation says whether the whole ordering is
+      stable; this says how much of the part actually traded gets replaced.
+
+    Neither is gated hard: a fast factor is allowed, it just has to pay for itself
+    in the net figures. They explain *why* the cost gate lands where it does.
+    """
+    ranks = signal.where(mask).rank(axis=1, pct=True)
+    autocorr = {f"lag{int(lag)}": float(ranks.corrwith(ranks.shift(int(lag)), axis=1).mean())
+                for lag in sorted({int(l) for l in lags if int(l) >= 1})}
+    top = ranks > (bins - 1) / bins
+    bottom = ranks <= 1 / bins
+    lag = max(1, int(min(lags)) if len(lags) == 1 else int(sorted(lags)[len(lags) // 2]))
+
+    def churn(member):
+        # The first `lag` rows have no earlier cycle to compare against; counting
+        # them as "everything is new" would make every factor look churny at the start.
+        previous = member.shift(lag, fill_value=False)
+        entered = (member & ~previous).sum(axis=1)
+        held = member.sum(axis=1).replace(0, np.nan)
+        return float((entered / held).iloc[lag:].mean())
+
+    return {"rank_autocorr": autocorr,
+            "quantile_turnover": {"top": churn(top), "bottom": churn(bottom),
+                                  "lag": lag, "bins": int(bins)},
+            "reason": "full sample; ranks inside the eligible mask; no direction applied "
+                      "because persistence is sign-invariant"}
+
+
 def build_diagnostics(signal, panel, *, primary_h, entry_lag, splits, sign, metrics, periods, cost_bps,
                       gates, trials_seen=1, n_bootstrap=100, seed=20260914,
-                      ftr_horizons=tuple(range(1, 61)), benchmark_symbol="BTCUSDT", spread=None):
+                      ftr_horizons=tuple(range(1, 61)), benchmark_symbol="BTCUSDT", spread=None,
+                      persistence=None):
     """Return JSON-ready evidence for every first-stage matrix dimension.
 
     ``spread`` is optional decision-time full log(ask/bid), aligned to the panel.
@@ -306,6 +345,8 @@ def build_diagnostics(signal, panel, *, primary_h, entry_lag, splits, sign, metr
     ]
     return {"version": "factor-eval.diagnostics/v1", "matrix": matrix,
             "distribution": _distribution(signal, panel.mask),
+            "persistence": persistence if persistence is not None
+                           else signal_persistence(signal, panel.mask, (1, primary_h, 5)),
             "target_comparison": {"rows": target_rows, "metadata": primary["metadata"],
                                   "coverage": primary["coverage"], "availability": primary["availability"]},
             "bins": bins,

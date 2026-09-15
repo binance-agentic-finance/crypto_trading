@@ -40,15 +40,19 @@ from .baselines import baseline_signals, cross_sectional_rank, residualise
 from .bundle import DEFAULT_BUNDLE, Panel, load_bundle, to_long
 from .causality import check_prefix_invariance
 from .engine import DAY, DEFAULT_SPLITS, _split_bounds, evaluate_factor
-from .diagnostics import build_diagnostics
+from .diagnostics import build_diagnostics, signal_persistence
 from .matrix import (Gate, VERDICTS, gate_cost, gate_data, gate_incremental,
                      gate_information, gate_robustness, gate_structure,
                      load_calibration, verdict_from)
+from .preprocess import neutralize, winsorize_mad, winsorize_quantile, zscore
 from .report import scorecard_markdown, scorecard_text
 from .provenance import calibration_contract, validate_calibration
 
 __all__ = ["evaluate", "Scorecard", "Panel", "load_bundle", "to_long",
-           "baseline_signals", "DEFAULT_BUNDLE", "DEFAULT_SPLITS", "VERDICTS"]
+           "baseline_signals", "DEFAULT_BUNDLE", "DEFAULT_SPLITS", "VERDICTS",
+           # helpers for writing a factor, same role as jqfactor_analyzer.preprocess
+           "winsorize_mad", "winsorize_quantile", "zscore", "neutralize",
+           "signal_persistence"]
 
 PRIMARY_H = 3
 HORIZONS = (1, 3, 5)
@@ -275,11 +279,15 @@ def evaluate(factor, panel: Panel | None = None, *, name: str = "factor",
     incremental = (_incremental(signal, panel, primary_h, cost_bps, splits, entry_lag, metrics)
                    if with_incremental else {})
 
+    # Computed once and consumed twice: the cost gate reads it, the diagnostics
+    # export it. Persistence is sign-invariant, so the frozen direction is irrelevant.
+    persistence = signal_persistence(signal, panel.mask, (1, primary_h, 5))
+
     gates = {
         "G0_data": gate_data(metrics, primary_h),
         "G1_information": gate_information(metrics, primary_h, cal),
         "G2_structure": gate_structure(structure, metrics, primary_h, tuple(horizons)),
-        "G3_cost": gate_cost(metrics, primary_h, cost_bps, cal),
+        "G3_cost": gate_cost(metrics, primary_h, cost_bps, cal, persistence=persistence),
         "G4_robustness": gate_robustness(metrics, yearly, primary_h, cal),
     }
     if with_incremental:
@@ -292,7 +300,8 @@ def evaluate(factor, panel: Panel | None = None, *, name: str = "factor",
                                     splits=splits, sign=frozen_sign, metrics=metrics, periods=result["periods"],
                                     cost_bps=cost_bps, gates=gates, trials_seen=trials_seen,
                                     n_bootstrap=n_bootstrap, ftr_horizons=diagnostic_horizons,
-                                    benchmark_symbol=benchmark_symbol, spread=spread)
+                                    benchmark_symbol=benchmark_symbol, spread=spread,
+                                    persistence=persistence)
                    if with_diagnostics else {})
     return Scorecard(name=name, verdict=verdict, blocking=blocking, gates=gates,
                      metrics=metrics, primary_h=primary_h, cost_bps=cost_bps,

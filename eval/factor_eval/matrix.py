@@ -189,7 +189,7 @@ def gate_structure(structure, metrics, h, horizons):
 
 
 # --------------------------------------------------------------------------- G3
-def gate_cost(metrics, h, cost_bps, cal, safety=2.0):
+def gate_cost(metrics, h, cost_bps, cal, safety=2.0, persistence=None):
     g = Gate("G3_cost", "成本 / cost (hard veto)",
              "does anything survive fees and actual funding?")
     for split in ("val", "oot"):
@@ -218,6 +218,25 @@ def gate_cost(metrics, h, cost_bps, cal, safety=2.0):
                           "reported, not gated: 2.0 means a full close-and-reopen every cycle",
                           f"cost drag ≈ {turnover * cost_bps:.1f} bp/cycle at {cost_bps} bp one-way",
                           required=False))
+    if persistence:
+        # Available before any P&L: if the ranking is redrawn every cycle, paying
+        # full turnover is structural, and the net figures above cannot improve
+        # by trading the same factor more patiently.
+        autocorr = persistence.get("rank_autocorr", {})
+        key = f"lag{h}" if f"lag{h}" in autocorr else (next(iter(autocorr), None))
+        if key is not None:
+            g.checks.append(_check(
+                "rank_autocorr_at_h", autocorr[key], 0.2, ">=",
+                "convention: cross-sectional rank correlation with itself h days ago; near "
+                "zero means the ordering is redrawn each cycle", warn_only=True,
+                note=f"measured at {key}"))
+        churn = persistence.get("quantile_turnover", {})
+        if churn:
+            g.checks.append(Check(
+                "top_bin_turnover", churn.get("top"), None, ">", NA,
+                "reported: share of the traded top bin replaced after one cycle",
+                f"bottom bin {churn.get('bottom'):.3f}; {churn.get('bins')} bins, "
+                f"lag {churn.get('lag')}", required=False))
     return g
 
 
