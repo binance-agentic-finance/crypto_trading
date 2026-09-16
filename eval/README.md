@@ -227,6 +227,9 @@ python eval/factor_eval/build_bundle.py --pool historical --out my_bundle.parque
 | `factor_eval/targets.py` / `statistics.py` | 四目标、共同样本、日期等权关系及块 bootstrap/HAC |
 | `factor_eval/diagnostics.py` / `plots.py` | 14 维证据盘点、秩自相关与分箱换手、八组离线图与报告 |
 | `factor_eval/preprocess.py` | 写因子时可选的 `winsorize_mad` / `winsorize_quantile` / `zscore` / `neutralize` |
+| `factor_eval/blueprint.py` | **策略蓝图**：触发 → 硬门 → 分层打分 → 裁决 → 方向 → 仓位 → 出场 |
+| `factor_eval/strategy.py` | 因子合成、定仓（等名义/等风险）、滚动在线选因子 |
+| `factor_eval/portfolio.py` | 组合模拟器：目标权重 + 现金，净额调仓、逐日资金费、组合层风控 |
 | `factor_eval/examples/example_factors.py` | 可直接运行的示例因子 |
 | `factor_eval/data/` / `calibration/` | 默认面板、来源元数据和随机信号标定 |
 | `alpha101_crypto/` | Alpha101 参考研究及其历史实验结果 |
