@@ -35,7 +35,8 @@ from .baselines import cross_sectional_rank
 from .portfolio import Risk, simulate
 from .strategy import realised_vol
 
-__all__ = ["Gate", "Tier", "Exits", "Blueprint", "compile_targets", "run_blueprint"]
+__all__ = ["Gate", "Tier", "Exits", "Blueprint", "compile_targets", "blueprint_targets",
+           "run_blueprint"]
 
 Signal = Callable[[object], pd.DataFrame]     # Panel -> 日期 × 标的
 
@@ -247,14 +248,19 @@ def apply_exits(targets: pd.DataFrame, panel, exits: Exits) -> pd.DataFrame:
     return out
 
 
-def run_blueprint(bp: Blueprint, panel, *, entry_lag: int = 2, cost_bps: float = 6.5,
-                  risk: Risk | None = None, start="2022-04-01") -> dict:
-    """编译 → 叠加出场 → 模拟。返回 ``{"targets", "score", "book"}``。"""
+def blueprint_targets(bp: Blueprint, panel, *, start="2022-04-01") -> pd.DataFrame:
+    """编译 → 截掉预热期 → 叠加出场。**不含模拟**，因此可以被组合后再一次性记账。"""
     targets = compile_targets(bp, panel)
     if start is not None:
         bound = pd.Timestamp(start, tz=panel.index.tz)
         targets = targets.copy()
         targets.loc[targets.index < bound] = np.nan   # 预热期不交易
-    targets = apply_exits(targets, panel, bp.exits)
+    return apply_exits(targets, panel, bp.exits)
+
+
+def run_blueprint(bp: Blueprint, panel, *, entry_lag: int = 2, cost_bps: float = 6.5,
+                  risk: Risk | None = None, start="2022-04-01") -> dict:
+    """编译 → 叠加出场 → 模拟。返回 ``{"targets", "score", "book"}``。"""
+    targets = blueprint_targets(bp, panel, start=start)
     return {"targets": targets, "score": bp.score(panel),
             "book": simulate(targets, panel, entry_lag=entry_lag, cost_bps=cost_bps, risk=risk)}
