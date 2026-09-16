@@ -130,7 +130,11 @@ def build_ledger(build: Callable[..., Blueprint], axes: Mapping[str, Sequence], 
                  risk: Risk | None = None) -> Ledger:
     """把整个网格跑一遍，留下账本。
 
-    ``build`` 接收一组关键字参数（轴名 → 取值），返回一张 :class:`Blueprint`。
+    ``build`` 接收一组关键字参数（轴名 → 取值），返回**一张 Blueprint 或一张目标权重表**。
+    后者让整条链路（评测 → 准入 → 合成 → 定仓）也能被同一套调参机制检验，而不是只有
+    蓝图那一侧可调 —— 用 :mod:`factor_eval.pipeline` 时把 ``build`` 写成返回
+    ``strategy.weights`` 即可。
+
     某个参数点跑崩了不会中断整体搜索，但**会被记进 ``failures``** —— 悄悄跳过失败的
     候选会让试验计数偏小，DSR 就被高估了。
     """
@@ -141,9 +145,14 @@ def build_ledger(build: Callable[..., Blueprint], axes: Mapping[str, Sequence], 
     columns, failures = {}, {}
     for i, point in enumerate(points):
         try:
-            book = run_blueprint(build(**point), panel, entry_lag=entry_lag,
-                                 cost_bps=cost_bps, risk=risk, start=start)["book"]
-            columns[i] = book.returns
+            made = build(**point)
+            if isinstance(made, pd.DataFrame):          # 已经是目标权重表
+                columns[i] = simulate(made, panel, entry_lag=entry_lag,
+                                      cost_bps=cost_bps, risk=risk).returns
+            else:
+                columns[i] = run_blueprint(made, panel, entry_lag=entry_lag,
+                                           cost_bps=cost_bps, risk=risk,
+                                           start=start)["book"].returns
         except Exception as exc:                                   # noqa: BLE001
             failures[i] = f"{type(exc).__name__}: {exc}"
             columns[i] = pd.Series(np.nan, index=panel.index)
@@ -239,7 +248,12 @@ def ensemble_targets(build: Callable[..., Blueprint], points: Sequence[Mapping],
     """
     from .blueprint import blueprint_targets           # 局部导入避免循环依赖
 
-    stack = [blueprint_targets(build(**dict(p)), panel, start=start).ffill() for p in points]
+    def one(point):
+        made = build(**dict(point))
+        return (made if isinstance(made, pd.DataFrame)
+                else blueprint_targets(made, panel, start=start)).ffill()
+
+    stack = [one(p) for p in points]
     if not stack:
         raise ValueError("empty ensemble")
     values = np.stack([t.to_numpy(dtype=float) for t in stack])

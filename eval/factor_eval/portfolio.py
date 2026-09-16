@@ -83,6 +83,7 @@ class Book:
     equity: pd.Series                    # 逐日权益（以执行价计）
     returns: pd.Series                   # 逐日净收益率
     weights: pd.DataFrame                # 逐日**实际**持仓权重（随价格漂移）
+    fills: pd.DataFrame                  # 逐日逐标的成交额 / 权益（正买负卖）
     trades: pd.Series                    # 逐日成交名义 / 权益
     costs: pd.Series                     # 逐日交易成本（占权益）
     funding: pd.Series                   # 逐日资金费（占权益，正为支出）
@@ -161,6 +162,9 @@ def simulate(targets: pd.DataFrame, panel, *, entry_lag: int = 2, cost_bps: floa
     daily_cost = np.zeros(n_days)
     daily_funding = np.zeros(n_days)
     weights_out = np.full((n_days, n_assets), np.nan)
+    # 逐标的成交额 / 权益。订单清单从这里出，与损益共用同一笔账 —— 另算一遍
+    # 就会出现"报表上的单子"和"回测真交的单子"对不上。
+    fills_out = np.zeros((n_days, n_assets))
     leverage_out = np.ones(n_days)
     previous_equity = np.nan
     peak_equity = -np.inf
@@ -217,6 +221,7 @@ def simulate(targets: pd.DataFrame, panel, *, entry_lag: int = 2, cost_bps: floa
         leverage_out[i] = scale
 
         traded = 0.0
+        filled = None
         if i >= entry_lag and rebalance[i - entry_lag] and value > 0:
             want = np.nan_to_num(target_values[i - entry_lag], nan=0.0) * scale
             want = np.where(tradable, want, 0.0)
@@ -224,6 +229,7 @@ def simulate(targets: pd.DataFrame, panel, *, entry_lag: int = 2, cost_bps: floa
             current_notional = np.where(tradable, units * price, 0.0)  # 不可交易的仓位动不了
             delta = target_notional - current_notional
             traded = float(np.abs(delta).sum())
+            filled = delta.copy()          # 分母要和 daily_trade 一致,见下方
             cost = traded * cost_bps / 1e4
             new_units = np.where(tradable, target_notional / np.where(tradable, price, 1.0), units)
             cash -= float((new_units - units)[tradable] @ price[tradable]) + cost
@@ -238,6 +244,10 @@ def simulate(targets: pd.DataFrame, panel, *, entry_lag: int = 2, cost_bps: floa
             cash = 0.0
             value = 0.0
         daily_trade[i] = traded / value if value > 0 else 0.0
+        if filled is not None and value > 0:
+            # 与 daily_trade 用**同一个**扣费后权益做分母。分母差一点,订单清单的
+            # 合计就对不上换手率,而这种对不上只会在事后核账时才被发现。
+            fills_out[i] = filled / value
         equity[i] = value
         peak_equity = max(peak_equity, value)
         weights_out[i] = (units * mark) / value if value > 0 else np.nan
@@ -250,6 +260,7 @@ def simulate(targets: pd.DataFrame, panel, *, entry_lag: int = 2, cost_bps: floa
         equity=pd.Series(equity, index=index),
         returns=pd.Series(daily_return, index=index),
         weights=pd.DataFrame(weights_out, index=index, columns=panel.symbols),
+        fills=pd.DataFrame(fills_out, index=index, columns=panel.symbols),
         trades=pd.Series(daily_trade, index=index),
         costs=pd.Series(daily_cost, index=index),
         funding=pd.Series(daily_funding, index=index),

@@ -49,6 +49,48 @@ def test_tier_scores_zero_outside_every_band(panel):
     assert (tier.score(panel).dropna() == 0).all().all()
 
 
+def test_raw_bands_break_when_the_factor_scale_changes(panel):
+    """同一套 band 换个量纲就废 —— 这正是接"别人给的因子"时不能用 raw 的原因。"""
+    from factor_eval.examples import example_factors as ex
+    band = [(0.5, 9e9, 1)]
+    counts = {}
+    for name in ("reversal_5d", "low_volatility", "volume_shock"):
+        f = getattr(ex, name)(panel)
+        tier = Tier("f", lambda q, g=f: g, band)
+        counts[name] = int((tier.score(panel).fillna(0) > 0).to_numpy().sum())
+    assert counts["low_volatility"] == 0, "全负值的因子在这条 band 上一次都不会触发"
+    assert max(counts.values()) > 1000, "另一些因子却几乎天天触发"
+
+
+def test_rank_bands_mean_the_same_thing_for_every_factor(panel):
+    """排名之后 band 的含义是"在截面里排多前",与因子量纲无关。"""
+    from factor_eval.examples import example_factors as ex
+    counts = []
+    for name in ("reversal_5d", "low_volatility", "volume_shock"):
+        f = getattr(ex, name)(panel)
+        tier = Tier("f", lambda q, g=f: g, [(0.5, 9e9, 1)], normalize="rank")
+        counts.append(int((tier.score(panel).fillna(0) > 0).to_numpy().sum()))
+    assert min(counts) > 0
+    assert max(counts) / min(counts) < 1.5, f"各因子入选量应当同量级: {counts}"
+
+
+def test_rank_normalisation_does_not_peek(panel):
+    """截面标准化只用当天同一批标的。截断未来不能改变此前任何一天的分数。"""
+    from factor_eval.examples import example_factors as ex
+    f = ex.volume_shock(panel)
+    cut = panel.__class__(**{name: getattr(panel, name).iloc[:800] for name in
+                             ("open", "high", "low", "close", "volume", "quote_volume",
+                              "funding", "mask")}, meta=panel.meta)
+    tier = Tier("f", lambda q, g=f: g.iloc[:len(q.index)], [(0.0, 9e9, 1)], normalize="rank")
+    pd.testing.assert_frame_equal(tier.score(panel).iloc[:800], tier.score(cut),
+                                  check_dtype=False)
+
+
+def test_unknown_normalisation_is_rejected(panel):
+    with pytest.raises(ValueError, match="normalize"):
+        Tier("t", const(5), [(0, 10, 1)], normalize="minmax").score(panel)
+
+
 def test_tier_weight_scales_the_points(panel):
     a = Tier("a", const(5), [(0, 10, 2)]).score(panel)
     b = Tier("b", const(5), [(0, 10, 2)], weight=3.0).score(panel)

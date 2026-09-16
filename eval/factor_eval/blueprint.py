@@ -84,15 +84,39 @@ class Tier:
     ``bands`` 是 ``(下界, 上界, 分数)`` 的列表，左闭右开，命中第一个就停；都不命中记 0。
     分档而不是线性映射，是因为现成策略基本都这么写（"RSI 在 40~60 给 +2"），而且分档
     对异常值天然稳健。
+
+    ``normalize`` 决定分档之前先把信号变成什么：
+
+    ``"raw"``
+        按原始值分档。写 "RSI 在 40~60" 这类**量纲已知**的规则时用它。
+    ``"rank"``
+        先做截面百分位排名、去均值、除以截面标准差（与评测层 :func:`cross_sectional_rank`
+        同一口径）。**接别人给的因子时用它** —— 因子的量纲你事先不知道，
+        ``volume_shock`` 落在 [0.11, 17.1]、``low_volatility`` 落在 [-0.56, -0.005]，
+        同一套 band 换个因子就全废。排名之后 band 的含义变成"在截面里排多前"，与量纲无关。
+    ``"zscore"``
+        截面均值方差标准化。保留取值间距（rank 只保留次序），对连续型因子更敏感，
+        但异常值会把整列压扁。
+
+    注意 ``rank`` / ``zscore`` 都是**截面内**的，只用当天同一批标的，不跨期，因此不引入
+    前视。
     """
 
     name: str
     signal: Signal
     bands: Sequence[tuple[float, float, float]]
     weight: float = 1.0
+    normalize: str = "raw"
 
     def score(self, panel) -> pd.DataFrame:
         x = self.signal(panel)
+        if self.normalize == "rank":
+            x = cross_sectional_rank(x, panel.mask)
+        elif self.normalize == "zscore":
+            x = x.replace([np.inf, -np.inf], np.nan).where(panel.mask)
+            x = x.sub(x.mean(axis=1), axis=0).div(x.std(axis=1).replace(0, np.nan), axis=0)
+        elif self.normalize != "raw":
+            raise ValueError(f"tier {self.name}: unknown normalize {self.normalize!r}")
         out = pd.DataFrame(0.0, index=x.index, columns=x.columns)
         assigned = pd.DataFrame(False, index=x.index, columns=x.columns)
         for lo, hi, points in self.bands:
