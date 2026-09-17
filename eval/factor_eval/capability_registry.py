@@ -388,7 +388,8 @@ def _trim(panel, bars: int):
     from .bundle import Panel, PRICE_FIELDS
     n = min(int(bars), len(panel.index))
     cut = {f: getattr(panel, f).iloc[-n:] for f in (*PRICE_FIELDS, "funding", "mask")}
-    return Panel(**cut, meta=dict(panel.meta))
+    return Panel(**cut, meta=dict(panel.meta), cell_scheme=panel.cell_scheme,
+                 extras={k: v.iloc[-n:] for k, v in panel.extras.items()})
 
 
 def capability_factors(index: CapabilityIndex | None = None, *,

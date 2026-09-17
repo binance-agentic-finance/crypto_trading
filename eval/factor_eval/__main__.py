@@ -155,6 +155,13 @@ def cmd_capabilities(args):
     return 0
 
 
+def cmd_stages(args):
+    """Print the pipeline stages with the input and output format of each."""
+    from factor_eval.framework import describe_stages
+    print(describe_stages())
+    return 0
+
+
 def cmd_compare(args):
     """Candidates -> matrix -> construction -> comparison against the baselines."""
     from factor_eval.experiment import run_comparison, write_report
@@ -222,6 +229,9 @@ def main(argv=None):
     p.add_argument("--index", default=None, help="path to a capability index snapshot")
     p.add_argument("--rejected", action="store_true", help="also show what could not run and why")
     p.set_defaults(func=cmd_capabilities)
+
+    g = sub.add_parser("stages", help="print the pipeline stages and their I/O formats")
+    g.set_defaults(func=cmd_stages)
 
     x = sub.add_parser("compare", help="run the full chain and compare against baselines")
     x.add_argument("--source", default="capability", choices=("capability", "alpha101"))

@@ -49,6 +49,19 @@ class Panel:
     funding: pd.DataFrame
     mask: pd.DataFrame
     meta: dict = field(default_factory=dict)
+    #: Optional aligned frames beyond OHLCV+funding: taker_buy/taker_sell,
+    #: open_interest, long_short_ratio, liq_buy/liq_sell, as-of aligned event
+    #: pulses. Same cells x symbols grid, same "missing is NaN" rule. Deliberately
+    #: outside the panel fingerprint (see provenance.panel_fingerprint) so adding
+    #: one does not invalidate a calibration computed on price and funding alone.
+    extras: dict = field(default_factory=dict)
+    #: Which cell-sampling scheme the index came from, and therefore what
+    #: ``validate`` demands of it. ``daily_utc`` (default) is the shipped bundle's
+    #: contract and what ``engine.evaluate_factor`` requires. ``regular`` is any
+    #: other fixed cell width (1h bars, 4h bars). ``irregular`` is volume/dollar/
+    #: vol bars, where uneven spacing is the whole point. Defaulting to the strict
+    #: option keeps every existing panel and the shipped calibration unaffected.
+    cell_scheme: str = "daily_utc"
 
     @property
     def symbols(self):
@@ -57,6 +70,27 @@ class Panel:
     @property
     def index(self):
         return self.close.index
+
+    def field(self, name: str) -> pd.DataFrame:
+        """Read a panel frame by name, core field or extra.
+
+        Lets an adapter ask for ``taker_buy`` the same way it asks for ``close``
+        without knowing which of the two carries it.
+        """
+        if name in (*PRICE_FIELDS, "funding", "mask"):
+            return getattr(self, name)
+        if name in self.extras:
+            return self.extras[name]
+        raise KeyError(f"panel has no field {name!r}; core fields are "
+                       f"{[*PRICE_FIELDS, 'funding', 'mask']}, "
+                       f"extras are {sorted(self.extras)}")
+
+    def with_extras(self, **frames: pd.DataFrame) -> "Panel":
+        """Return a copy carrying additional aligned frames."""
+        merged = {**self.extras, **frames}
+        return Panel(**{f: getattr(self, f) for f in PRICE_FIELDS},
+                     funding=self.funding, mask=self.mask, meta=dict(self.meta),
+                     extras=merged, cell_scheme=self.cell_scheme)
 
     def describe(self) -> str:
         first, last = self.index[0].date(), self.index[-1].date()
@@ -73,10 +107,24 @@ class Panel:
         if not len(ref.index) or not ref.index.is_unique or not ref.index.is_monotonic_increasing:
             raise ValueError("panel index must be nonempty, unique, and increasing")
         utc = ref.index.tz_convert("UTC")
-        if (not ref.index.tz_localize(None).equals(utc.tz_localize(None))
-                or not utc.equals(utc.normalize())
-                or (len(utc) > 1 and not (utc[1:] - utc[:-1] == pd.Timedelta(days=1)).all())):
-            raise ValueError("panel requires a complete daily UTC midnight grid")
+        if self.cell_scheme == "daily_utc":
+            if (not ref.index.tz_localize(None).equals(utc.tz_localize(None))
+                    or not utc.equals(utc.normalize())
+                    or (len(utc) > 1 and not (utc[1:] - utc[:-1] == pd.Timedelta(days=1)).all())):
+                raise ValueError("panel requires a complete daily UTC midnight grid")
+        elif self.cell_scheme == "regular":
+            # Any fixed cell width. Still has to be gapless and evenly spaced: a
+            # cell index with holes makes "h cells forward" mean different amounts
+            # of time in different places, and every horizon claim stops meaning
+            # one thing.
+            steps = np.diff(utc.asi8)
+            if len(steps) and not (steps == steps[0]).all():
+                raise ValueError("a 'regular' panel requires evenly spaced cells with no gaps")
+        elif self.cell_scheme == "irregular":
+            pass        # volume/dollar/vol bars: spacing is the point, nothing to check
+        else:
+            raise ValueError(f"unknown cell_scheme {self.cell_scheme!r}; "
+                             f"use 'daily_utc', 'regular' or 'irregular'")
         if (not len(ref.columns) or not ref.columns.is_unique
                 or any(not isinstance(s, str) or not s.strip() for s in ref.columns)):
             raise ValueError("panel requires unique, nonempty string symbol columns")
@@ -88,6 +136,15 @@ class Panel:
                 raise ValueError(f"panel frame '{name}' is not aligned with 'close'")
         if not all(is_bool_dtype(dtype) for dtype in self.mask.dtypes) or self.mask.isna().any().any():
             raise ValueError("panel mask must be boolean with no missing values")
+        for name, frame in self.extras.items():
+            if not isinstance(frame, pd.DataFrame):
+                raise TypeError(f"panel extra '{name}' must be a DataFrame")
+            if not frame.index.equals(ref.index) or list(frame.columns) != list(ref.columns):
+                raise ValueError(f"panel extra '{name}' is not aligned with 'close'")
+            if any(not is_numeric_dtype(d) or is_complex_dtype(d) for d in frame.dtypes):
+                raise ValueError(f"panel extra '{name}' must contain real numeric values")
+            if np.isinf(frame.to_numpy(dtype=float, na_value=np.nan)).any():
+                raise ValueError(f"panel extra '{name}' contains infinite values")
 
         # NaN is an unknown observation, including when a position is held.
         # Preserve it for coverage/PnL diagnostics; zero or infinity is never
