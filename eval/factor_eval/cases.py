@@ -107,7 +107,11 @@ TIER_SIGNALS: tuple[tuple[str, Callable], ...] = (
     # Before the generic trend rule: `funding_bias` contains "bias" and was
     # resolving to trend strength, which silently turned two different cases into
     # the same strategy with identical numbers.
-    (r"funding|carry|basis", _funding_z()),
+    # `derivatives` tiers are specified as "funding rate + open interest". Only
+    # the funding half exists on this panel; resolving to it is better than
+    # dropping the tier, but the OI half is genuinely absent and is recorded as
+    # a partial in `assumed` rather than passed off as the whole tier.
+    (r"funding|carry|basis|derivativ", _funding_z()),
     (r"trend|resonance|alignment|bias|direction", _capability("trend_strength", "value")),
     (r"order_block", _capability("order_block_detect", "ob_top")),
     (r"fvg|fair_value", _capability("fair_value_gap", "fvg_top")),
@@ -259,6 +263,9 @@ def build_blueprint(spec: CaseSpec, resolved: Mapping[str, Callable], *,
                           normalize="rank"))
         assumed[f"{name}.bands"] = ("spec declares band names but no boundaries; "
                                     "cross-sectional quintiles used")
+        if re.search(r"derivativ", name, re.I):
+            assumed[f"{name}.partial"] = ("spec pairs funding with open interest; "
+                                          "only the funding half exists on this panel")
         if config.get("is_hard_gate"):
             # Bottom quintile of the cross-section fails the gate. The spec's own
             # threshold is not in the config.
