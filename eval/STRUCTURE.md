@@ -81,7 +81,7 @@ val 是强牛市。多头偏置变体年化低于 BTC，但 **Sharpe 更高、�
 python -m factor_eval capabilities --rejected
 ```
 
-清单快照取自 [`be/binance-ai-platform`](https://git.toolsfdg.net/be/binance-ai-platform) 的 `feat/nodesdk` @ `48a5a5c5`，
+清单快照取自内网 GHE 的 `be/binance-ai-platform`，分支 `feat/nodesdk` @ `48a5a5c5`，
 `capability-sdk/src/binance/strategy/node/capabilities`。244 份 manifest 里 **76 个是因子形状**（有序列/bar 输入且有数值输出），其中 72 个在本面板上可跑。
 
 三件在接入时才暴露的事：

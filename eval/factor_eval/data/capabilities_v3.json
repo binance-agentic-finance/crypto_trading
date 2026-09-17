@@ -2,12 +2,12 @@
  "schema": "factor-eval.capability-index/v1",
  "manifest_schema_version": "3.0.0",
  "source": {
-  "host": "git.toolsfdg.net",
   "repo": "be/binance-ai-platform",
   "branch": "feat/nodesdk",
   "commit": "48a5a5c53615dbaf7c5b8711548d72d4431276ba",
   "path": "capability-sdk/src/binance/strategy/node/capabilities",
-  "fetched_at_utc": "2026-09-17T02:01:26+00:00"
+  "fetched_at_utc": "2026-09-17T02:01:26+00:00",
+  "note": "internal GHE host intentionally omitted: this is a public repo and tests/test_no_leaked_secrets.py rejects it. owner/repo/branch/commit are enough to identify the snapshot from inside the network."
  },
  "note": "只收录因子形状的 analysis 能力（有序列/bar 输入且有数值输出）。upstream 为 null 表示本地解析不到实现，需安装 capability SDK 才能执行。",
  "capabilities": [
