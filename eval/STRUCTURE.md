@@ -1,199 +1,119 @@
-# `eval/` 代码结构与实测结果
+# `eval/` — 结构与用法
 
-仓库 [`binance-agentic-finance/crypto_trading`](https://github.com/binance-agentic-finance/crypto_trading)，分支 `eval-alpha101/construct`。
-以下链接全部指向该分支上的文件。
-
----
-
-## 一、这条链路做完了什么
-
-```
-capability 节点 / Alpha101 公式
-      │  前置加工     形状（按标的 → 日期×标的）、量纲（价位 → 可跨标的比较）、有效性
-  候选因子
-      │  评测矩阵     六道闸门、14 维证据、dev 段冻结方向
-  评估卡
-      │  准入         G0 失败剔除；dev |IC| 低于标定噪声地板剔除；REJECT 裁决剔除
-      │  去重         dev 段秩相关 > 0.8 的近重复剔除
-  准入因子
-      │  策略构建     合成 → 定仓 → 上限 → 调仓 → 模拟
-  策略
-      │  对比         买入持有 BTC / 等权一篮子 / 现金 / 单因子裸用
-  结论
-```
-
-**所有做选择的动作只用 dev 段。val 与 oot 只用于记账，从不参与筛选。**
-
----
-
-## 二、实测结果（Alpha101，99 个候选全量）
-
-一条命令复现：
+因子评估矩阵 + 策略构建，八个阶段，每个阶段的输入输出格式是显式的。
 
 ```bash
 cd eval
+python -m factor_eval stages          # 阶段表与每阶段 I/O
+python -m factor_eval capabilities    # capability 清单里哪些能在本面板上跑
 python -m factor_eval compare --source alpha101 --out report/
 ```
 
-候选池 99，准入 14（dev |IC| ≥ 0.0396），单因子基准取 dev 段最强的 `alpha042`。
+---
 
-### oot（2025-10-01 … 2026-09-08，343 天）—— 构建组合全面胜出
+## 一、八个阶段
 
-| 组合 | 年化 | Sharpe | 最大回撤 | Calmar |
+| # | 阶段 | 输入 | 输出 | 实现 |
 |---|---|---|---|---|
-| **构建组合（中性）** | **+61.7%** | **2.13** | **−13.3%** | **4.64** |
-| 构建组合（多头偏置） | +35.6% | 1.07 | −26.5% | 1.34 |
-| 单因子裸用 `alpha042` | +39.3% | 1.35 | −14.8% | 2.67 |
-| 等权一篮子 | −2.8% | 0.26 | −49.9% | −0.06 |
-| 买入持有 BTC | −34.4% | −0.71 | −53.8% | −0.64 |
-| 现金 | 0.0% | — | 0.0% | — |
+| 0 | sample | 每标的细粒度 bar | `dict[symbol, DataFrame]` | `bars.sample_bars` |
+| 1 | panel | bars + extras + 资格 | `Panel`（cells × symbols） | `bars.build_panel` |
+| 2 | factors | `Panel` | `dict[name, DataFrame]` | `capability_registry` / `library` |
+| 3 | preprocess | 同上 | 同上 | `preprocess` |
+| 4 | forecast | factors + `Panel` | `DataFrame`（期望收益 μ） | `forecast` |
+| 5 | sizing | μ + mask | `DataFrame`（目标仓位 W） | `forecast.positions_from_forecast` |
+| 6 | backtest | W + `Panel` | `BacktestResult` | `framework.backtest_weights` |
+| 7 | compare | 结果 + 基准 | 分段 `DataFrame` | `benchmarks.compare` |
 
-三条都成立：
+阶段 2–5 是**无状态映射**：`value[t] = h(截至 t 的输入, t 的截面)`。所以回测是一次矩阵运算，而 `W` 的最后一行**直接就是实盘目标仓位**，研究与实盘走同一段代码。止盈止损、加减仓路径需要跨格状态，属执行层，不在这条链上。
 
-- **对 BTC 买入持有**：多赚 96 个百分点，回撤浅 40 个百分点。这一段 BTC 在跌，中性组合不吃方向。
-- **对等权一篮子**：+61.7% vs −2.8%，回撤 −13.3% vs −49.9%。
-- **对"随便拿最强的因子去买卖"**：+61.7% vs +39.3%，Sharpe 2.13 vs 1.35，回撤还更浅。
-  这一条最关键 —— 它说明赢的是**构建**，不只是因子挑得好。
+`framework.check_stateless()` 用截断重算验证这个声明，而不是相信它。四类泄漏（`shift(-1)` / `shift(-3)` / 全样本标准化 / 中心窗口）都会被拒绝，因果因子通过 —— 检测器自带故意泄漏的对照组，否则不知道它是不是永远返回通过。
 
-### val（2024-07-01 … 2025-09-30，457 天）—— 多头偏置变体的风险调整后更优
-
-| 组合 | 年化 | Sharpe | 最大回撤 | Calmar |
-|---|---|---|---|---|
-| 构建组合（多头偏置） | +40.4% | **1.33** | **−23.2%** | 1.75 |
-| 买入持有 BTC | +51.4% | 1.18 | −29.4% | 1.75 |
-| 等权一篮子 | +93.5% | 1.33 | −50.7% | 1.84 |
-| 构建组合（中性） | −11.8% | −0.38 | −38.8% | −0.30 |
-
-val 是强牛市。多头偏置变体年化低于 BTC，但 **Sharpe 更高、回撤浅 6 个百分点** —— 同样的钱承担更少的波动。
-
-### 必须一并读的四条
-
-1. **val 段的中性组合是输的（−11.8%）。** 牛市里多空对冲跑输市场是结构性的，不是策略失灵。拿中性组合的绝对收益去比买入持有，比的是市场暴露而不是能力 —— 所以上面两张表分开列。
-2. **dev 段构建不如单因子**（+5.1% vs +13.3%）。构建的优势出现在 val/oot 而不是 dev，这个方向是对的（dev 是用来做决定的，不是用来报成绩的），但也说明单次结果不宜外推。
-3. **99 个候选的搜索没有做选择偏差校正。** 矩阵如实收到 `trials_seen=99`，因此裁决会落到 `HOLD_SEARCH`。[`optimize.py`](https://github.com/binance-agentic-finance/crypto_trading/blob/eval-alpha101/construct/eval/factor_eval/optimize.py) 里的 DSR / PBO 尚未接进这条链路。
-4. **换 capability 目录当候选源，结论相反。** 72 个可跑候选里只有 3 个通过完整矩阵，且全是波动率代理（`atr` / `atr_ratio` / `range_gain_pct`），方向互相对冲，合成后反而**稀释**了最强的那个（oot −45% vs 单因子 +47.9%）。这不是构建层的问题，是候选多样性的问题 —— 见下一节。
+**所有做选择的动作只用 dev 段；val 与 oot 只用于记账。**
 
 ---
 
-## 三、承接 capability 的实测发现
+## 二、执行与记账口径
 
-```bash
-python -m factor_eval capabilities --rejected
+```
+决策日 t 收盘出信号 → 等 entry_lag=2 格 → open[t+entry_lag] 成交 → 持有 h 格（非重叠）
+net = W·R − 换手×成本 − 逐次资金费
 ```
 
-清单快照取自内网 GHE 的 `be/binance-ai-platform`，分支 `feat/nodesdk` @ `48a5a5c5`，
-`capability-sdk/src/binance/strategy/node/capabilities`。244 份 manifest 里 **76 个是因子形状**（有序列/bar 输入且有数值输出），其中 72 个在本面板上可跑。
+持仓标的**缺价或缺资金费，整期记 NaN 不记 0** —— 未知的成本不是零成本，这些期单独计数。
 
-三件在接入时才暴露的事：
+两个引擎，职责不同、口径一致：`engine.evaluate_factor` 评**一个因子**（自己构组合），`framework.backtest_weights` 跑**调用方给定的任意 W**。
 
-1. **`rows`（bar 字典列表）是主导输入形状**，52/76。原先的适配器只会喂 `list[float]`，
-   也就是说大部分能力**根本接不进来**。已补上。
-2. **一批能力输出的是价位**（`ema`、`sma`、`pivot_points.pp`、`supertrend`…）。按价位给币种做截面排序 =
-   按币价高低排序，BTC 永远在 DOGE 前面。它能刷出稳定的 RankIC ≈ 0.12 却不含任何 alpha。
-   处理办法不是猜，是对每个能力同时产出 `raw` 与 `ts_zscore` 两个候选交给矩阵判，候选数翻倍并如实计入 `trials_seen`。
-   **G5 基线闸门正是识别它的那道闸门** —— 快速筛选默认关掉 G5，所以链路里加了一道 `confirm` 全量复评。
-3. **清单与上游实现已经漂移**：`macd` 清单写 `fast_period` 上游是 `fast`；`bollinger` 清单声明 5 个输出端口而上游只回 3 路；
-   `rsi` 清单有 `method` 上游没有。参数对不上时**报错而不是静默丢掉** —— 丢掉 `period=20` 让上游用默认的 14，
-   会算出一个看着完全正常、但不是你要的那个因子。
-
-另有 12 个能力需要面板没有的数据（`buy_volume` / `oi` / `spot_close`），如实记为不可跑，不做近似替代。
+> ⚠️ **不要改 `engine.py`** —— 它的源码 sha256 写进了 `provenance.calibration_contract`，改了随库标定失配，每次 `evaluate()` 都会抛异常。
 
 ---
 
-## 四、目录
+## 三、目录
 
 ### 数据与契约
-
 | 文件 | 职责 |
 |---|---|
-| [`bundle.py`](https://github.com/binance-agentic-finance/crypto_trading/blob/eval-alpha101/construct/eval/factor_eval/bundle.py) | 面板定义、输入校验、随库前十永续 bundle 的加载 |
-| [`build_bundle.py`](https://github.com/binance-agentic-finance/crypto_trading/blob/eval-alpha101/construct/eval/factor_eval/build_bundle.py) | 重建 bundle |
-| [`provenance.py`](https://github.com/binance-agentic-finance/crypto_trading/blob/eval-alpha101/construct/eval/factor_eval/provenance.py) | 面板身份与标定契约（改 `engine.py` 会使随库标定失配） |
-| [`data/top10_daily.parquet`](https://github.com/binance-agentic-finance/crypto_trading/blob/eval-alpha101/construct/eval/factor_eval/data) | 默认面板：10 个 USDⓈ-M 永续，2078 根日线 |
-| [`calibration/null_top10_h3.json`](https://github.com/binance-agentic-finance/crypto_trading/blob/eval-alpha101/construct/eval/factor_eval/calibration) | 随机信号标定，噪声地板的来源 |
+| `bundle.py` | `Panel` 定义与校验；`extras`（衍生品/事件附加帧）、`cell_scheme`（`daily_utc`/`regular`/`irregular`） |
+| `bars.py` | 格子采样（time / volume / dollar / vol）、跨标的对齐、建面板 |
+| `provenance.py` | 面板身份与标定契约 |
+| `data/` `calibration/` | 默认面板、capability 清单快照、随机信号标定 |
 
-### 因子接入 — **本次新增的主线**
-
+### 因子接入
 | 文件 | 职责 |
 |---|---|
-| [`capability.py`](https://github.com/binance-agentic-finance/crypto_trading/blob/eval-alpha101/construct/eval/factor_eval/capability.py) | 形状适配：按标的的算子 → 面板因子。**新增 `rows`（bar 列表）输入支持** |
-| [`capability_registry.py`](https://github.com/binance-agentic-finance/crypto_trading/blob/eval-alpha101/construct/eval/factor_eval/capability_registry.py) | **新增。** manifest v3 → 面板因子：清单驱动接线、量纲归一、上游解析、`impl.py` 离线运行替身、两条执行路的一致性核对 |
-| [`data/capabilities_v3.json`](https://github.com/binance-agentic-finance/crypto_trading/blob/eval-alpha101/construct/eval/factor_eval/data) | **新增。** capability 清单快照（含来源提交），只记契约不复制实现 |
-| [`library.py`](https://github.com/binance-agentic-finance/crypto_trading/blob/eval-alpha101/construct/eval/factor_eval/library.py) | **新增。** Alpha101 适配、播种抽样、dev 段秩相关去重 |
-| [`preprocess.py`](https://github.com/binance-agentic-finance/crypto_trading/blob/eval-alpha101/construct/eval/factor_eval/preprocess.py) | 写因子时可选的截尾 / 标准化 / 中性化 |
-| [`examples/example_factors.py`](https://github.com/binance-agentic-finance/crypto_trading/blob/eval-alpha101/construct/eval/factor_eval/examples/example_factors.py) | 示例因子，含一个故意读未来的对照 |
+| `capability.py` | 形状适配：按标的的算子 → 面板因子。支持 `list[float]` 与 `rows`（bar 字典列表）两种输入 |
+| `capability_registry.py` | manifest v3 → 面板因子：清单驱动接线、量纲归一（`raw` / `ts_zscore`）、上游解析、两条执行路的一致性核对 |
+| `library.py` | Alpha101 适配、播种抽样、dev 段秩相关去重 |
+| `cases.py` | 外部**分层策略规格**（硬门 + 分层打分 + 裁决阈值）→ blueprint → 回测 |
+| `preprocess.py` | 截尾 / 标准化 / 中性化 |
 
 ### 评测矩阵
-
 | 文件 | 职责 |
 |---|---|
-| [`__init__.py`](https://github.com/binance-agentic-finance/crypto_trading/blob/eval-alpha101/construct/eval/factor_eval/__init__.py) | `evaluate()` 入口、评估卡、复现身份 |
-| [`engine.py`](https://github.com/binance-agentic-finance/crypto_trading/blob/eval-alpha101/construct/eval/factor_eval/engine.py) | 时间约定、冻结方向、IC、完整周期现金流。**不要改，源码哈希写进了标定契约** |
-| [`matrix.py`](https://github.com/binance-agentic-finance/crypto_trading/blob/eval-alpha101/construct/eval/factor_eval/matrix.py) | 六道闸门、门槛来源、裁决 |
-| [`targets.py`](https://github.com/binance-agentic-finance/crypto_trading/blob/eval-alpha101/construct/eval/factor_eval/targets.py) / [`statistics.py`](https://github.com/binance-agentic-finance/crypto_trading/blob/eval-alpha101/construct/eval/factor_eval/statistics.py) | 四目标、共同样本、HAC 与块 bootstrap |
-| [`baselines.py`](https://github.com/binance-agentic-finance/crypto_trading/blob/eval-alpha101/construct/eval/factor_eval/baselines.py) | 五个公开基线与残差化（G5 用它识别"这只是已知风格"） |
-| [`causality.py`](https://github.com/binance-agentic-finance/crypto_trading/blob/eval-alpha101/construct/eval/factor_eval/causality.py) | 可重跑因子的前缀一致性抽查 |
-| [`diagnostics.py`](https://github.com/binance-agentic-finance/crypto_trading/blob/eval-alpha101/construct/eval/factor_eval/diagnostics.py) / [`plots.py`](https://github.com/binance-agentic-finance/crypto_trading/blob/eval-alpha101/construct/eval/factor_eval/plots.py) / [`report.py`](https://github.com/binance-agentic-finance/crypto_trading/blob/eval-alpha101/construct/eval/factor_eval/report.py) | 14 维证据盘点、离线图、评估卡输出 |
+| `__init__.py` | `evaluate()` 入口、评估卡、复现身份 |
+| `engine.py` | 时间约定、冻结方向、IC、完整周期现金流（**勿改**） |
+| `matrix.py` | 六道闸门、门槛来源、裁决 |
+| `baselines.py` | 五个公开基线与残差化（G5 用它识别"这只是已知风格"） |
+| `causality.py` | 前缀一致性抽查 |
+| `targets.py` `statistics.py` | 四目标、HAC、块 bootstrap |
+| `diagnostics.py` `plots.py` `report.py` | 14 维证据、离线图、评估卡输出 |
 
-### 策略构建
-
+### 构建与回测
 | 文件 | 职责 |
 |---|---|
-| [`pipeline.py`](https://github.com/binance-agentic-finance/crypto_trading/blob/eval-alpha101/construct/eval/factor_eval/pipeline.py) | 完整链路：评测 → 准入 → 合成 → 权重 → 调仓单。**本次修掉一个缺失值 bug，合成只留一份实现** |
-| [`strategy.py`](https://github.com/binance-agentic-finance/crypto_trading/blob/eval-alpha101/construct/eval/factor_eval/strategy.py) | 因子合成、定仓（等名义/等风险）、滚动在线选因子 |
-| [`portfolio.py`](https://github.com/binance-agentic-finance/crypto_trading/blob/eval-alpha101/construct/eval/factor_eval/portfolio.py) | 组合模拟器：净额调仓、逐日资金费、组合层风控 |
-| [`blueprint.py`](https://github.com/binance-agentic-finance/crypto_trading/blob/eval-alpha101/construct/eval/factor_eval/blueprint.py) | 策略蓝图：触发 → 硬门 → 分层打分 → 裁决 → 方向 → 仓位 → 出场 |
-| [`optimize.py`](https://github.com/binance-agentic-finance/crypto_trading/blob/eval-alpha101/construct/eval/factor_eval/optimize.py) | 调参：试验账本、滚动前推、平台选择、DSR / PBO |
+| `framework.py` | 阶段定义与编排、`backtest_weights`、无状态校验 |
+| `forecast.py` | dev 段冻结系数（ic / equal / ridge + shrink）、仓位（中性 / 上限 / gross 三者同时成立） |
+| `pipeline.py` | 评测 → 准入 → 合成 → 权重 → 调仓单 |
+| `strategy.py` `portfolio.py` | 合成定仓、净额调仓模拟器 |
+| `blueprint.py` | 触发 → 硬门 → 分层打分 → 裁决 → 方向 → 仓位 → 出场 |
+| `optimize.py` | 试验账本、滚动前推、平台选择、DSR / PBO |
+| `benchmarks.py` | 买入持有 / 等权一篮子 / 现金 / 单因子裸用 / 单资产择时 + 分段指标表 |
+| `experiment.py` | 端到端可复现实验与报告 |
 
-### 对比与实验 — **本次新增**
+---
 
-| 文件 | 职责 |
-|---|---|
-| [`benchmarks.py`](https://github.com/binance-agentic-finance/crypto_trading/blob/eval-alpha101/construct/eval/factor_eval/benchmarks.py) | **新增。** 买入持有 / 等权一篮子 / 现金 / 单因子裸用 / 单资产择时，以及按 dev-val-oot 分段的并排指标表 |
-| [`experiment.py`](https://github.com/binance-agentic-finance/crypto_trading/blob/eval-alpha101/construct/eval/factor_eval/experiment.py) | **新增。** 端到端可复现实验：候选 → 矩阵 → 准入 → 去重 → 构建 → 对比 → 报告 |
-| [`__main__.py`](https://github.com/binance-agentic-finance/crypto_trading/blob/eval-alpha101/construct/eval/factor_eval/__main__.py) | CLI。**新增 `compare` 与 `capabilities` 两个子命令** |
+## 四、两处要读的口径
 
-### 测试
+**承接 capability。** 清单快照记录契约（数据口、参数、输出端口）与来源提交，不复制实现。三件接入时才暴露的事：`rows`（bar 字典列表）是主导输入形状，原先喂不进去；一批能力输出的是**价位**，按价位给币种排序＝按币价排序，所以每个能力同时产出 `raw` 与 `ts_zscore` 两个候选交给矩阵判，候选数翻倍并如实计入 `trials_seen`；清单与上游实现已有漂移，参数对不上时**报错而不是静默丢掉**（丢掉 `period=20` 让上游用默认的 14，会算出一个看着正常但不是你要的因子）。
 
-[`tests/eval/`](https://github.com/binance-agentic-finance/crypto_trading/tree/eval-alpha101/construct/tests/eval) —— 本次新增
-[`test_capability_registry.py`](https://github.com/binance-agentic-finance/crypto_trading/blob/eval-alpha101/construct/tests/eval/test_capability_registry.py)、
-[`test_benchmarks.py`](https://github.com/binance-agentic-finance/crypto_trading/blob/eval-alpha101/construct/tests/eval/test_benchmarks.py)、
-[`test_library.py`](https://github.com/binance-agentic-finance/crypto_trading/blob/eval-alpha101/construct/tests/eval/test_library.py)、
-[`test_experiment.py`](https://github.com/binance-agentic-finance/crypto_trading/blob/eval-alpha101/construct/tests/eval/test_experiment.py)。
+**接外部策略规格。** `cases.py` 默认**降级模式**：能算多少跑多少，并把放弃了什么说清楚。缺 tier 时按存活满分份额等比缩放裁决门槛（满分 10 要 5 分 → 满分 4 要 2 分，选择性不变），否则门槛永远够不着、回测出来是一条平线加 0.0，读起来像"这策略不赚钱"而不是"这个面板跑不了这个策略"。丢掉的硬门记在 `coverage` 与 `assumed` 里 —— 结果是**有筛选策略的无筛选版本**，报告要一直这么说。`strict=True` 回到拒绝行为，问的是另一个问题："这是不是当初写下来的那个策略"。
 
-钉住的几条关键不变式：
-
-- 单因子 + 不设上限的构建结果必须与 naive 基准**逐格相同** —— 否则"构建 vs 单因子"比的是记账差异而不是权重算法；
-- 因子取负号，构建出的权重必须不变（方向由 dev 冻结）；
-- 去重的相关性只在 dev 段算，val/oot 段改成什么样都不影响去重结果；
-- 上游参数对不上时必须报错，不能静默使用默认值；
-- 清单端口数与上游返回路数不符时必须报错，不能按位置猜。
-
-```bash
-python -m pytest tests/eval -q
+```python
+r = run_case(load_case("path/to/scoring_config.json"), panel)
+r.coverage["unavailable"]       # 哪些 tier 算不了、为什么
+r.coverage["entry_score_used"]  # 实际用的门槛（缩放/夹取后）
+r.assumed                       # 替代了哪些阈值、丢了哪些硬门
+r.backtest.metrics              # dev / val / oot 分段
 ```
 
 ---
 
-## 五、复现
+## 五、验证
 
 ```bash
-cd eval
-
-# 承接 capability：看清单里有什么、什么能跑、什么不能跑及原因
-python -m factor_eval capabilities --rejected
-
-# 主结果
-python -m factor_eval compare --source alpha101 --out report/
-
-# 换候选源
-python -m factor_eval compare --source capability --out report_cap/
-
-# 反事实：关掉声称在起作用的机制，看结果变不变
-python -m factor_eval compare --source alpha101 --no-dedupe   --out report_a/
-python -m factor_eval compare --source alpha101 --no-confirm  --out report_b/
-python -m factor_eval compare --source alpha101 --no-ic-floor --out report_c/
-
-# 抽样模式（换种子看结论稳不稳，一个种子赢不算数）
-python -m factor_eval compare --source alpha101 --k 12 --seed 1234 --out report_d/
+python -m pytest tests/eval -q        # 415 passed
+python -m pytest tests/test_no_leaked_secrets.py -q
 ```
+
+钉住的关键不变式：单因子 + 不设上限的构建必须与 naive 基准**逐格相同**；因子取负号权重不变（方向由 dev 冻结）；去重只看 dev 段；上游参数对不上必须报错；清单端口数与上游返回路数不符必须报错；`ts_zscore` 必须滞后；一条从未开仓的规格必须报成拒绝而不是 0.0 收益。
+
+测试通过证明这些约定得到执行，**不证明任何因子或策略具有未来超额收益**。

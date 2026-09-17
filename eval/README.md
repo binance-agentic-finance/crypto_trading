@@ -308,6 +308,10 @@ out["book"]       # 整片网格净额集成的可部署组合
 | `factor_eval/baselines.py` | 五个公开基线与残差化，G5 用它判断"这只是已知风格" |
 | `factor_eval/capability.py` | 形状适配：按标的的算子 → 面板因子，支持 `list[float]` 与 `rows` 两种输入 |
 | `factor_eval/capability_registry.py` | **承接 capability**：manifest v3 → 面板因子，清单驱动接线、量纲归一、上游解析与一致性核对 |
+| `factor_eval/cases.py` | **外部分层策略规格**（硬门 + 分层打分 + 裁决阈值）→ blueprint → 回测 |
+| `factor_eval/framework.py` | **八阶段定义与编排**、任意 W 的向量化回测、无状态契约校验 |
+| `factor_eval/bars.py` | 格子采样（time/volume/dollar/vol）、跨标的对齐、建面板 |
+| `factor_eval/forecast.py` | dev 段冻结系数的 forecast，以及 forecast → 目标仓位 |
 | `factor_eval/library.py` | **因子库**：Alpha101 适配、播种抽样、dev 段秩相关去重 |
 | `factor_eval/benchmarks.py` | **基准**：买入持有、等权一篮子、现金、单因子裸用、单资产择时，及分段并排指标表 |
 | `factor_eval/experiment.py` | **端到端实验**：候选 → 矩阵 → 准入 → 去重 → 构建 → 对比 → 报告 |
@@ -321,6 +325,7 @@ out["book"]       # 整片网格净额集成的可部署组合
 的完整对比结果，见 [STRUCTURE.md](STRUCTURE.md)。一条命令复现：
 
 ```bash
+python -m factor_eval stages                       # 八个阶段与每阶段的输入输出格式
 python -m factor_eval capabilities --rejected      # 清单里有什么、什么能跑、不能跑的原因
 python -m factor_eval compare --source alpha101 --out report/
 ```
