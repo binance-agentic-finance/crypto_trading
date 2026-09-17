@@ -97,18 +97,25 @@ def _direction(metrics: pd.DataFrame, primary_h: int) -> float:
 
 
 def screen(factors: dict, panel, *, primary_h: int = 3, fast: bool = True,
+           trials_seen: int | None = None,
            **evaluate_kwargs) -> dict[str, FactorCard]:
     """对每个因子跑一遍评测矩阵，回收构建需要的结论。
 
     ``fast=True`` 关掉诊断图与增量闸门（每个因子 ~0.03s 对 ~3s），闸门裁决与冻结方向不受
     影响；要完整的 14 维证据就关掉它。
 
-    ``trials_seen`` 会**按因子个数**如实上报：一次丢进来 20 个因子就是 20 个候选，
+    ``trials_seen`` 默认**按因子个数**如实上报：一次丢进来 20 个因子就是 20 个候选，
     评测那侧的搜索校正得知道这件事。
+
+    候选是从一个更大的池子里挑出来的时候必须显式传：从 101 个里抽 8 个跑，看过的是
+    101 个而不是 8 个，按 8 上报会把搜索宽度说小一个数量级。
     """
     from . import evaluate                                   # 延迟导入，避免循环依赖
 
-    n = len(factors)
+    n = len(factors) if trials_seen is None else int(trials_seen)
+    if n < len(factors):
+        raise ValueError(f"trials_seen={n} is smaller than the {len(factors)} factors "
+                         f"being screened; the pool cannot be smaller than the sample")
     out: dict[str, FactorCard] = {}
     for name, factor in factors.items():
         card = evaluate(factor, panel, name=name, primary_h=primary_h,
@@ -175,36 +182,37 @@ def combine_scores(factors: dict, cards: dict[str, FactorCard], panel, *,
     注意不存在"按 IC 符号筛选"这种 scheme：方向已经在 dev 段冻结过，dev 段的 IC 取号
     之后按构造必然非负，拿它筛等于什么都没筛。要筛强弱请用 ``admit(min_ic_dev=...)``，
     那里比的是**幅度**与标定出来的噪声地板。
+
+    加权求和本身**转调** :func:`factor_eval.strategy.combine` —— 这里原来另有一份实现，
+    而且两份的缺失值处理不一致：那一份把缺失当 0 计入分子、却按**总**权重做分母，正是
+    本函数注释声称要避免的"替没数据的标的投一票中性"。合成只留一份实现。
     """
+    from .strategy import combine                     # 延迟导入，避免循环依赖
+
     usable = {n: c for n, c in cards.items() if c.admitted}
     if not usable:
         raise ValueError("没有因子通过准入，无法组合")
+    if scheme not in ("equal", "ic"):
+        raise ValueError(f"unknown scheme {scheme!r}")
 
-    total, weight_sum = None, 0.0
+    signed, weights = {}, {}
     for name, card in usable.items():
         raw = factors[name]
         frame = raw(panel) if callable(raw) else raw
-        z = cross_sectional_rank(frame, panel.mask) * card.direction
-        if scheme == "equal":
-            w = 1.0
-        elif scheme == "ic":
-            w = abs(card.ic_dev) if np.isfinite(card.ic_dev) else 0.0
-        else:
-            raise ValueError(f"unknown scheme {scheme!r}")
+        w = 1.0 if scheme == "equal" else (
+            abs(card.ic_dev) if np.isfinite(card.ic_dev) else 0.0)
         if w <= 0:
             continue
-        contribution = z * w
-        total = contribution if total is None else total.add(contribution, fill_value=0.0)
-        weight_sum += w
-    if total is None or weight_sum <= 0:
+        # 方向在 dev 段冻结，合成前乘上去；量纲由 combine 内部的截面排名消掉。
+        signed[name] = frame * card.direction
+        weights[name] = w
+    if not signed:
         raise ValueError("加权之后没有有效分量")
-    # 缺失不投票，也不当成 0 —— 当成 0 等于替一个没数据的标的投了"中性"那一票。
-    #
     # 末位取整**不是**美观处理，是必需的。合成分数是若干条离散排名之和，精确并列非常
     # 常见；而下游还要再排一次名，1e-16 的浮点差异就会把一个并列打破、排名跳一档，
     # 在十个标的的截面上放大成 0.25 的权重差异。实测：把每个因子取负号（数学上完全
     # 等价，因为方向已由评测冻结）本应得到同一组权重，不取整时有 581 格对不上。
-    return (total / weight_sum).where(panel.mask).round(12)
+    return combine(signed, panel.mask, weights=weights).round(12)
 
 
 # ------------------------------------------------------------------- 调仓信号

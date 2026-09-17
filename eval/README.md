@@ -305,9 +305,25 @@ out["book"]       # 整片网格净额集成的可部署组合
 | `factor_eval/portfolio.py` | 组合模拟器：目标权重 + 现金，净额调仓、逐日资金费、组合层风控 |
 | `factor_eval/pipeline.py` | **完整链路**：评测 → 准入 → 合成 → 权重 → 调仓买卖信号 |
 | `factor_eval/optimize.py` | **调参**：试验账本、滚动前推、平台选择、参数集成、有效试验数/DSR/PBO |
+| `factor_eval/baselines.py` | 五个公开基线与残差化，G5 用它判断"这只是已知风格" |
+| `factor_eval/capability.py` | 形状适配：按标的的算子 → 面板因子，支持 `list[float]` 与 `rows` 两种输入 |
+| `factor_eval/capability_registry.py` | **承接 capability**：manifest v3 → 面板因子，清单驱动接线、量纲归一、上游解析与一致性核对 |
+| `factor_eval/library.py` | **因子库**：Alpha101 适配、播种抽样、dev 段秩相关去重 |
+| `factor_eval/benchmarks.py` | **基准**：买入持有、等权一篮子、现金、单因子裸用、单资产择时，及分段并排指标表 |
+| `factor_eval/experiment.py` | **端到端实验**：候选 → 矩阵 → 准入 → 去重 → 构建 → 对比 → 报告 |
+| `factor_eval/report.py` | 评估卡的文本与 Markdown 输出 |
+| `factor_eval/build_bundle.py` | 重建默认面板 |
 | `factor_eval/examples/example_factors.py` | 可直接运行的示例因子 |
-| `factor_eval/data/` / `calibration/` | 默认面板、来源元数据和随机信号标定 |
+| `factor_eval/data/` / `calibration/` | 默认面板、capability 清单快照、来源元数据和随机信号标定 |
 | `alpha101_crypto/` | Alpha101 参考研究及其历史实验结果 |
+
+代码结构树、承接 capability 的实测发现，以及"构建组合 vs 买入持有 BTC / 等权一篮子 / 单因子裸用"
+的完整对比结果，见 [STRUCTURE.md](STRUCTURE.md)。一条命令复现：
+
+```bash
+python -m factor_eval capabilities --rejected      # 清单里有什么、什么能跑、不能跑的原因
+python -m factor_eval compare --source alpha101 --out report/
+```
 
 `alpha101_crypto/` 是框架的参考研究，既有 [REPORT.md](alpha101_crypto/REPORT.md) 及结果文件保留其原实验口径。本轮框架修复不表示重新完成了整套 Alpha101 实验；需要重跑时应明确记录新引擎、数据与标定版本。
 

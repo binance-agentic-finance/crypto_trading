@@ -1,0 +1,1763 @@
+{
+ "schema": "factor-eval.capability-index/v1",
+ "manifest_schema_version": "3.0.0",
+ "source": {
+  "host": "git.toolsfdg.net",
+  "repo": "be/binance-ai-platform",
+  "branch": "feat/nodesdk",
+  "commit": "48a5a5c53615dbaf7c5b8711548d72d4431276ba",
+  "path": "capability-sdk/src/binance/strategy/node/capabilities",
+  "fetched_at_utc": "2026-09-17T02:01:26+00:00"
+ },
+ "note": "只收录因子形状的 analysis 能力（有序列/bar 输入且有数值输出）。upstream 为 null 表示本地解析不到实现，需安装 capability SDK 才能执行。",
+ "capabilities": [
+  {
+   "id": "official.compute.additive_combine",
+   "name": "additive_combine",
+   "group": "analysis",
+   "display_name": "Additive Combine",
+   "description": "Sum signals with direction sign. Bullish adds, bearish subtracts.",
+   "function_name": "additive_combine",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.verdicts.additive_combine",
+   "upstream": "cyqnt_trd.blocks.verdicts.additive_combine",
+   "series_inputs": [],
+   "rows_input": "signals",
+   "user_params": {},
+   "value_outputs": [
+    "value"
+   ],
+   "series_outputs": []
+  },
+  {
+   "id": "official.compute.additive_combine_series",
+   "name": "additive_combine_series",
+   "group": "analysis",
+   "display_name": "Additive Combine",
+   "description": "Additive sum of signed score contributions per bar.",
+   "function_name": "additive_combine_series",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.scoring.additive_combine",
+   "upstream": "cyqnt_trd.blocks.scoring.additive_combine",
+   "series_inputs": [],
+   "rows_input": "signals",
+   "user_params": {},
+   "value_outputs": [
+    "value"
+   ],
+   "series_outputs": [
+    "series"
+   ]
+  },
+  {
+   "id": "official.compute.adx",
+   "name": "adx",
+   "group": "analysis",
+   "display_name": "Average Directional Index plus +DI / -DI",
+   "description": "Average Directional Index plus +DI / -DI.",
+   "function_name": "adx",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.indicators.adx",
+   "upstream": "cyqnt_trd.blocks.indicators.adx",
+   "series_inputs": [],
+   "rows_input": "rows",
+   "user_params": {
+    "period": 14
+   },
+   "value_outputs": [
+    "adx",
+    "plus_di",
+    "minus_di"
+   ],
+   "series_outputs": [
+    "adx_series",
+    "plus_di_series",
+    "minus_di_series"
+   ]
+  },
+  {
+   "id": "official.compute.aroon",
+   "name": "aroon",
+   "group": "analysis",
+   "display_name": "Aroon Up, Aroon Down, and Aroon Oscillator",
+   "description": "Aroon Up, Aroon Down, and Aroon Oscillator (Tushar Chande, 1995).",
+   "function_name": "aroon",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.indicators.aroon",
+   "upstream": "cyqnt_trd.blocks.indicators.aroon",
+   "series_inputs": [],
+   "rows_input": "rows",
+   "user_params": {
+    "period": 14
+   },
+   "value_outputs": [
+    "aroon_up",
+    "aroon_down",
+    "aroon_oscillator"
+   ],
+   "series_outputs": [
+    "aroon_up_series",
+    "aroon_down_series",
+    "aroon_oscillator_series"
+   ]
+  },
+  {
+   "id": "official.compute.atr",
+   "name": "atr",
+   "group": "analysis",
+   "display_name": "ATR Volatility",
+   "description": "Compute the average true range (ATR) and its ratio to price; used to size volatility, filter abnormal markets and estimate stop distance.",
+   "function_name": "atr",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": null,
+   "upstream": "cyqnt_trd.blocks.indicators.atr",
+   "series_inputs": [
+    "high",
+    "low",
+    "close"
+   ],
+   "rows_input": null,
+   "user_params": {
+    "period": 14
+   },
+   "value_outputs": [
+    "atr",
+    "atr_pct"
+   ],
+   "series_outputs": []
+  },
+  {
+   "id": "official.compute.atr_ratio",
+   "name": "atr_ratio",
+   "group": "analysis",
+   "display_name": "ATR as a percentage of the current close price",
+   "description": "ATR as a percentage of the current close price.",
+   "function_name": "atr_ratio",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.indicators.atr_ratio",
+   "upstream": "cyqnt_trd.blocks.indicators.atr_ratio",
+   "series_inputs": [],
+   "rows_input": "rows",
+   "user_params": {
+    "period": 14
+   },
+   "value_outputs": [
+    "value"
+   ],
+   "series_outputs": [
+    "series"
+   ]
+  },
+  {
+   "id": "official.compute.awesome_oscillator",
+   "name": "awesome_oscillator",
+   "group": "analysis",
+   "display_name": "Awesome Oscillator",
+   "description": "Awesome Oscillator (Bill Williams).",
+   "function_name": "awesome_oscillator",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.indicators.awesome_oscillator",
+   "upstream": "cyqnt_trd.blocks.indicators.awesome_oscillator",
+   "series_inputs": [],
+   "rows_input": "rows",
+   "user_params": {},
+   "value_outputs": [
+    "value"
+   ],
+   "series_outputs": [
+    "series"
+   ]
+  },
+  {
+   "id": "official.compute.basis",
+   "name": "basis",
+   "group": "analysis",
+   "display_name": "Basis in basis points",
+   "description": "Basis in basis points: (futures - spot) / spot * 10_000.",
+   "function_name": "basis",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.derivatives.basis",
+   "upstream": "cyqnt_trd.blocks.derivatives.basis",
+   "series_inputs": [
+    "spot_close",
+    "futures_close"
+   ],
+   "rows_input": null,
+   "user_params": {},
+   "value_outputs": [
+    "value"
+   ],
+   "series_outputs": [
+    "series"
+   ]
+  },
+  {
+   "id": "official.compute.basis_zscore",
+   "name": "basis_zscore",
+   "group": "analysis",
+   "display_name": "Rolling z-score of the basis",
+   "description": "Rolling z-score of the basis (1d on 15m bars when period=96).",
+   "function_name": "basis_zscore",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.derivatives.basis_zscore",
+   "upstream": "cyqnt_trd.blocks.derivatives.basis_zscore",
+   "series_inputs": [
+    "spot_close",
+    "futures_close"
+   ],
+   "rows_input": null,
+   "user_params": {
+    "period": 96
+   },
+   "value_outputs": [
+    "value"
+   ],
+   "series_outputs": [
+    "series"
+   ]
+  },
+  {
+   "id": "official.compute.bb_bandwidth",
+   "name": "bb_bandwidth",
+   "group": "analysis",
+   "display_name": "Bollinger Band bandwidth",
+   "description": "Bollinger Band bandwidth: (upper - lower) / middle * 100.",
+   "function_name": "bb_bandwidth",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.indicators.bb_bandwidth",
+   "upstream": "cyqnt_trd.blocks.indicators.bb_bandwidth",
+   "series_inputs": [
+    "series"
+   ],
+   "rows_input": null,
+   "user_params": {
+    "period": 20,
+    "std_mult": 2.0
+   },
+   "value_outputs": [
+    "value"
+   ],
+   "series_outputs": [
+    "series"
+   ]
+  },
+  {
+   "id": "official.compute.bb_pct_b",
+   "name": "bb_pct_b",
+   "group": "analysis",
+   "display_name": "Bollinger %B",
+   "description": "Bollinger %B: position of price within the band, (price - lower) / (upper - lower).",
+   "function_name": "bb_pct_b",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.indicators.bb_pct_b",
+   "upstream": "cyqnt_trd.blocks.indicators.bb_pct_b",
+   "series_inputs": [
+    "series"
+   ],
+   "rows_input": null,
+   "user_params": {
+    "period": 20,
+    "std_mult": 2.0
+   },
+   "value_outputs": [
+    "value"
+   ],
+   "series_outputs": [
+    "series"
+   ]
+  },
+  {
+   "id": "official.compute.bollinger",
+   "name": "bollinger",
+   "group": "analysis",
+   "display_name": "Bollinger Bands",
+   "description": "Compute the Bollinger middle band, upper and lower bands, bandwidth and %B over a close series; used to judge band-riding, breakouts and volatility contraction or expansion. The middle band is a period-bar SMA; the outer bands are the middle band ± multiplier × population standard deviation.",
+   "function_name": "bollinger",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": null,
+   "upstream": "cyqnt_trd.blocks.indicators.bollinger",
+   "series_inputs": [
+    "series"
+   ],
+   "rows_input": null,
+   "user_params": {
+    "period": 20,
+    "stddev_multiplier": 2.0
+   },
+   "value_outputs": [
+    "middle",
+    "upper",
+    "lower",
+    "bandwidth",
+    "percent_b"
+   ],
+   "series_outputs": []
+  },
+  {
+   "id": "official.compute.bos_choch_detect",
+   "name": "bos_choch_detect",
+   "group": "analysis",
+   "display_name": "Detect Break of Structure",
+   "description": "Detect Break of Structure (BOS) and Change of Character (CHoCH) events.",
+   "function_name": "bos_choch_detect",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.smc_structure.bos_choch_detect",
+   "upstream": "cyqnt_trd.blocks.smc_structure.bos_choch_detect",
+   "series_inputs": [],
+   "rows_input": "rows",
+   "user_params": {
+    "swing_lookback": 5
+   },
+   "value_outputs": [
+    "broken_level"
+   ],
+   "series_outputs": []
+  },
+  {
+   "id": "official.compute.candle_body_measure",
+   "name": "candle_body_measure",
+   "group": "analysis",
+   "display_name": "Candle Body",
+   "description": "Candle body size; unit=absolute (|close-open|) or pct (body as a share of the full range).",
+   "function_name": "candle_body_measure",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "merged: candle_body · candle_body_pct",
+   "upstream": null,
+   "series_inputs": [],
+   "rows_input": "rows",
+   "user_params": {
+    "unit": null
+   },
+   "value_outputs": [
+    "value"
+   ],
+   "series_outputs": [
+    "series"
+   ]
+  },
+  {
+   "id": "official.compute.candle_lower_shadow_measure",
+   "name": "candle_lower_shadow_measure",
+   "group": "analysis",
+   "display_name": "Candle Lower Shadow",
+   "description": "Lower shadow length; unit=absolute or pct.",
+   "function_name": "candle_lower_shadow_measure",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "merged: candle_lower_shadow · candle_lower_shadow_pct",
+   "upstream": null,
+   "series_inputs": [],
+   "rows_input": "rows",
+   "user_params": {
+    "unit": null
+   },
+   "value_outputs": [
+    "value"
+   ],
+   "series_outputs": [
+    "series"
+   ]
+  },
+  {
+   "id": "official.compute.candle_range",
+   "name": "candle_range",
+   "group": "analysis",
+   "display_name": "Bar high-low range",
+   "description": "Bar high-low range.",
+   "function_name": "candle_range",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.patterns.candle_range",
+   "upstream": "cyqnt_trd.blocks.patterns.candle_range",
+   "series_inputs": [],
+   "rows_input": "rows",
+   "user_params": {},
+   "value_outputs": [
+    "value"
+   ],
+   "series_outputs": [
+    "series"
+   ]
+  },
+  {
+   "id": "official.compute.candle_upper_shadow_measure",
+   "name": "candle_upper_shadow_measure",
+   "group": "analysis",
+   "display_name": "Candle Upper Shadow",
+   "description": "Upper shadow length; unit=absolute or pct.",
+   "function_name": "candle_upper_shadow_measure",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "merged: candle_upper_shadow · candle_upper_shadow_pct",
+   "upstream": null,
+   "series_inputs": [],
+   "rows_input": "rows",
+   "user_params": {
+    "unit": null
+   },
+   "value_outputs": [
+    "value"
+   ],
+   "series_outputs": [
+    "series"
+   ]
+  },
+  {
+   "id": "official.compute.cci",
+   "name": "cci",
+   "group": "analysis",
+   "display_name": "Commodity Channel Index",
+   "description": "Commodity Channel Index — Lambert (1980).",
+   "function_name": "cci",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.indicators.cci",
+   "upstream": "cyqnt_trd.blocks.indicators.cci",
+   "series_inputs": [],
+   "rows_input": "rows",
+   "user_params": {
+    "period": 20
+   },
+   "value_outputs": [
+    "value"
+   ],
+   "series_outputs": [
+    "series"
+   ]
+  },
+  {
+   "id": "official.compute.circuit_breaker_check",
+   "name": "circuit_breaker_check",
+   "group": "analysis",
+   "display_name": "Aggregate risk checks; halt if any fired",
+   "description": "Aggregate risk checks; halt if any fired.",
+   "function_name": "circuit_breaker_check",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.limits.circuit_breaker_check",
+   "upstream": "cyqnt_trd.blocks.limits.circuit_breaker_check",
+   "series_inputs": [],
+   "rows_input": "checks",
+   "user_params": {},
+   "value_outputs": [
+    "failed_count",
+    "total_checks"
+   ],
+   "series_outputs": []
+  },
+  {
+   "id": "official.compute.cmf",
+   "name": "cmf",
+   "group": "analysis",
+   "display_name": "Chaikin Money Flow",
+   "description": "Chaikin Money Flow — accumulation/distribution over `period`.",
+   "function_name": "cmf",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.indicators.cmf",
+   "upstream": "cyqnt_trd.blocks.indicators.cmf",
+   "series_inputs": [],
+   "rows_input": "rows",
+   "user_params": {
+    "period": 20
+   },
+   "value_outputs": [
+    "value"
+   ],
+   "series_outputs": [
+    "series"
+   ]
+  },
+  {
+   "id": "official.compute.conflict_detect",
+   "name": "conflict_detect",
+   "group": "analysis",
+   "display_name": "Conflict Detect",
+   "description": "Detect direction conflicts between two sets of dict-shaped signals.",
+   "function_name": "conflict_detect",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.verdicts.conflict_detect",
+   "upstream": "cyqnt_trd.blocks.verdicts.conflict_detect",
+   "series_inputs": [],
+   "rows_input": "signals_a",
+   "user_params": {},
+   "value_outputs": [
+    "conflict_count"
+   ],
+   "series_outputs": []
+  },
+  {
+   "id": "official.compute.cross_validate",
+   "name": "cross_validate",
+   "group": "analysis",
+   "display_name": "Cross Validate",
+   "description": "Check if multiple :class:`AtomicScore` objects agree on direction.",
+   "function_name": "cross_validate",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.verdicts.cross_validate",
+   "upstream": "cyqnt_trd.blocks.verdicts.cross_validate",
+   "series_inputs": [],
+   "rows_input": "scores",
+   "user_params": {},
+   "value_outputs": [
+    "agreement_pct"
+   ],
+   "series_outputs": []
+  },
+  {
+   "id": "official.compute.cvd",
+   "name": "cvd",
+   "group": "analysis",
+   "display_name": "Cumulative Volume Delta = cumsum(buy",
+   "description": "Cumulative Volume Delta = cumsum(buy - sell).",
+   "function_name": "cvd",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.derivatives.cvd",
+   "upstream": "cyqnt_trd.blocks.derivatives.cvd",
+   "series_inputs": [
+    "buy_volume",
+    "sell_volume"
+   ],
+   "rows_input": null,
+   "user_params": {},
+   "value_outputs": [
+    "value"
+   ],
+   "series_outputs": [
+    "series"
+   ]
+  },
+  {
+   "id": "official.compute.dual_speed_atr",
+   "name": "dual_speed_atr",
+   "group": "analysis",
+   "display_name": "Dual Speed Atr",
+   "description": "Compare fast vs slow ATR to detect volatility expansion / contraction.",
+   "function_name": "dual_speed_atr",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.indicators.dual_speed_atr",
+   "upstream": "cyqnt_trd.blocks.indicators.dual_speed_atr",
+   "series_inputs": [],
+   "rows_input": "rows",
+   "user_params": {
+    "fast_period": 7,
+    "slow_period": 21
+   },
+   "value_outputs": [
+    "fast_atr",
+    "slow_atr",
+    "ratio"
+   ],
+   "series_outputs": [
+    "fast_atr_series",
+    "slow_atr_series",
+    "ratio_series"
+   ]
+  },
+  {
+   "id": "official.compute.ema",
+   "name": "ema",
+   "group": "analysis",
+   "display_name": "EMA Exponential Moving Average",
+   "description": "Compute the EMA of a close series (SMA seeded, then advanced bar by bar); used for trend judgment and comparisons such as price falling below the moving average.",
+   "function_name": "ema",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": null,
+   "upstream": "cyqnt_trd.blocks.indicators.ema",
+   "series_inputs": [
+    "series"
+   ],
+   "rows_input": null,
+   "user_params": {
+    "period": 20
+   },
+   "value_outputs": [
+    "ema"
+   ],
+   "series_outputs": []
+  },
+  {
+   "id": "official.compute.equal_highs_lows",
+   "name": "equal_highs_lows",
+   "group": "analysis",
+   "display_name": "Equal Highs Lows",
+   "description": "Identify equal-highs and equal-lows clusters in a rolling pivot window.",
+   "function_name": "equal_highs_lows",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.smc_liquidity.equal_highs_lows",
+   "upstream": "cyqnt_trd.blocks.smc_liquidity.equal_highs_lows",
+   "series_inputs": [],
+   "rows_input": "rows",
+   "user_params": {
+    "swing_lookback": 5,
+    "tolerance_pct": 0.1,
+    "max_pivots": 20
+   },
+   "value_outputs": [
+    "eqh_level",
+    "eqh_count",
+    "eql_level",
+    "eql_count"
+   ],
+   "series_outputs": []
+  },
+  {
+   "id": "official.compute.fair_value_gap",
+   "name": "fair_value_gap",
+   "group": "analysis",
+   "display_name": "Identify Fair Value Gap",
+   "description": "Identify Fair Value Gap (FVG / imbalance) zones.",
+   "function_name": "fair_value_gap",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.smc_structure.fair_value_gap",
+   "upstream": "cyqnt_trd.blocks.smc_structure.fair_value_gap",
+   "series_inputs": [],
+   "rows_input": "rows",
+   "user_params": {},
+   "value_outputs": [
+    "fvg_top",
+    "fvg_bottom",
+    "fvg_size_pct"
+   ],
+   "series_outputs": []
+  },
+  {
+   "id": "official.compute.fractal_pivot",
+   "name": "fractal_pivot",
+   "group": "analysis",
+   "display_name": "Fractal Pivot",
+   "description": "SMC fractal pivot detection; side=high or low.",
+   "function_name": "fractal_pivot",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "merged: fractal_pivot_high · fractal_pivot_low",
+   "upstream": null,
+   "series_inputs": [],
+   "rows_input": "rows",
+   "user_params": {
+    "side": null,
+    "lookback": 5
+   },
+   "value_outputs": [
+    "value"
+   ],
+   "series_outputs": [
+    "series"
+   ]
+  },
+  {
+   "id": "official.compute.heikin_ashi",
+   "name": "heikin_ashi",
+   "group": "analysis",
+   "display_name": "Heikin Ashi candle transformation",
+   "description": "Heikin Ashi candle transformation.",
+   "function_name": "heikin_ashi",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.indicators.heikin_ashi",
+   "upstream": "cyqnt_trd.blocks.indicators.heikin_ashi",
+   "series_inputs": [],
+   "rows_input": "rows",
+   "user_params": {},
+   "value_outputs": [
+    "ha_open",
+    "ha_high",
+    "ha_low",
+    "ha_close"
+   ],
+   "series_outputs": []
+  },
+  {
+   "id": "official.compute.hierarchical_combine",
+   "name": "hierarchical_combine",
+   "group": "analysis",
+   "display_name": "Hierarchical Combine",
+   "description": "Hierarchical tiered scoring. Two calling conventions:.",
+   "function_name": "hierarchical_combine",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.verdicts.hierarchical_combine",
+   "upstream": "cyqnt_trd.blocks.verdicts.hierarchical_combine",
+   "series_inputs": [],
+   "rows_input": "tiers_or_signals",
+   "user_params": {},
+   "value_outputs": [
+    "value"
+   ],
+   "series_outputs": []
+  },
+  {
+   "id": "official.compute.ichimoku",
+   "name": "ichimoku",
+   "group": "analysis",
+   "display_name": "Ichimoku Cloud",
+   "description": "Ichimoku Cloud (5 components).",
+   "function_name": "ichimoku",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.indicators.ichimoku",
+   "upstream": "cyqnt_trd.blocks.indicators.ichimoku",
+   "series_inputs": [],
+   "rows_input": "rows",
+   "user_params": {
+    "tenkan": 9,
+    "kijun": 26,
+    "senkou_b": 52,
+    "displacement": 26
+   },
+   "value_outputs": [
+    "tenkan_sen",
+    "kijun_sen",
+    "senkou_span_a",
+    "senkou_span_b",
+    "chikou_span"
+   ],
+   "series_outputs": []
+  },
+  {
+   "id": "official.compute.large_print_zscore",
+   "name": "large_print_zscore",
+   "group": "analysis",
+   "display_name": "Rolling z-score of bar volume",
+   "description": "Rolling z-score of bar volume — useful for tagging unusually large prints.",
+   "function_name": "large_print_zscore",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.microstructure.large_print_zscore",
+   "upstream": "cyqnt_trd.blocks.microstructure.large_print_zscore",
+   "series_inputs": [
+    "volume"
+   ],
+   "rows_input": null,
+   "user_params": {
+    "period": 96
+   },
+   "value_outputs": [
+    "value"
+   ],
+   "series_outputs": [
+    "series"
+   ]
+  },
+  {
+   "id": "official.compute.liquidation_imbalance",
+   "name": "liquidation_imbalance",
+   "group": "analysis",
+   "display_name": "Rolling long-liq vs short-liq imbalance ratio",
+   "description": "Rolling long-liq vs short-liq imbalance ratio.",
+   "function_name": "liquidation_imbalance",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.derivatives.liquidation_imbalance",
+   "upstream": "cyqnt_trd.blocks.derivatives.liquidation_imbalance",
+   "series_inputs": [
+    "long_liq_usd",
+    "short_liq_usd"
+   ],
+   "rows_input": null,
+   "user_params": {
+    "lookback": 12
+   },
+   "value_outputs": [
+    "value"
+   ],
+   "series_outputs": [
+    "series"
+   ]
+  },
+  {
+   "id": "official.compute.liquidity_sweep_detect",
+   "name": "liquidity_sweep_detect",
+   "group": "analysis",
+   "display_name": "Detect bearish and bullish liquidity sweeps",
+   "description": "Detect bearish and bullish liquidity sweeps.",
+   "function_name": "liquidity_sweep_detect",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.smc_liquidity.liquidity_sweep_detect",
+   "upstream": "cyqnt_trd.blocks.smc_liquidity.liquidity_sweep_detect",
+   "series_inputs": [],
+   "rows_input": "rows",
+   "user_params": {
+    "swing_lookback": 5
+   },
+   "value_outputs": [
+    "sweep_level",
+    "sweep_wick_pct",
+    "sweep_strength"
+   ],
+   "series_outputs": []
+  },
+  {
+   "id": "official.compute.macd",
+   "name": "macd",
+   "group": "analysis",
+   "display_name": "MACD Moving Average Convergence Divergence",
+   "description": "Compute the MACD line, signal line and histogram over a close series; used for trend following and momentum reversals. A histogram turning from negative to positive is the familiar golden cross. The EMA definition matches official.compute.ema (SMA seeded).",
+   "function_name": "macd",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": null,
+   "upstream": "cyqnt_trd.blocks.indicators.macd",
+   "series_inputs": [
+    "series"
+   ],
+   "rows_input": null,
+   "user_params": {
+    "fast_period": 12,
+    "slow_period": 26,
+    "signal_period": 9
+   },
+   "value_outputs": [
+    "macd",
+    "signal",
+    "histogram"
+   ],
+   "series_outputs": []
+  },
+  {
+   "id": "official.compute.majority_vote",
+   "name": "majority_vote",
+   "group": "analysis",
+   "display_name": "Direction by majority vote. Score =",
+   "description": "Direction by majority vote. Score = (bullish - bearish) / total.",
+   "function_name": "majority_vote",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.verdicts.majority_vote",
+   "upstream": "cyqnt_trd.blocks.verdicts.majority_vote",
+   "series_inputs": [],
+   "rows_input": "signals",
+   "user_params": {
+    "min_strength": 0.0
+   },
+   "value_outputs": [
+    "value"
+   ],
+   "series_outputs": []
+  },
+  {
+   "id": "official.compute.majority_vote_series",
+   "name": "majority_vote_series",
+   "group": "analysis",
+   "display_name": "Majority direction vote per bar",
+   "description": "Majority direction vote per bar.",
+   "function_name": "majority_vote_series",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.scoring.majority_vote",
+   "upstream": "cyqnt_trd.blocks.scoring.majority_vote",
+   "series_inputs": [],
+   "rows_input": "signals",
+   "user_params": {},
+   "value_outputs": [
+    "value"
+   ],
+   "series_outputs": [
+    "series"
+   ]
+  },
+  {
+   "id": "official.compute.mfi",
+   "name": "mfi",
+   "group": "analysis",
+   "display_name": "Money Flow Index",
+   "description": "Money Flow Index — RSI computed on typical price × volume.",
+   "function_name": "mfi",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.indicators.mfi",
+   "upstream": "cyqnt_trd.blocks.indicators.mfi",
+   "series_inputs": [],
+   "rows_input": "rows",
+   "user_params": {
+    "period": 14
+   },
+   "value_outputs": [
+    "value"
+   ],
+   "series_outputs": [
+    "series"
+   ]
+  },
+  {
+   "id": "official.compute.moving_average",
+   "name": "moving_average",
+   "group": "analysis",
+   "display_name": "Extended Moving Averages",
+   "description": "Extended moving averages: dema (double EMA) / tema (triple EMA) / wma (linearly weighted) / hma (Hull) / rma (Wilder) / trix (rate of change of a triple EMA), dispatched by kind. sma and ema stay separate — their output field names differ.",
+   "function_name": "moving_average",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "merged: dema · tema · wma · hma · rma · trix",
+   "upstream": null,
+   "series_inputs": [
+    "series"
+   ],
+   "rows_input": null,
+   "user_params": {
+    "kind": null,
+    "period": 20
+   },
+   "value_outputs": [
+    "value"
+   ],
+   "series_outputs": [
+    "series"
+   ]
+  },
+  {
+   "id": "official.compute.nbar_trailing_tp",
+   "name": "nbar_trailing_tp",
+   "group": "analysis",
+   "display_name": "Trail stop to lowest-low",
+   "description": "Trail stop to lowest-low (long) / highest-high (short) of last *n_bars*.",
+   "function_name": "nbar_trailing_tp",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.stop_loss.nbar_trailing_tp",
+   "upstream": "cyqnt_trd.blocks.stop_loss.nbar_trailing_tp",
+   "series_inputs": [],
+   "rows_input": "candles",
+   "user_params": {
+    "n_bars": 3,
+    "existing_stop": 0.0
+   },
+   "value_outputs": [
+    "stop_price"
+   ],
+   "series_outputs": []
+  },
+  {
+   "id": "official.compute.obv",
+   "name": "obv",
+   "group": "analysis",
+   "display_name": "On-Balance Volume",
+   "description": "On-Balance Volume.",
+   "function_name": "obv",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.indicators.obv",
+   "upstream": "cyqnt_trd.blocks.indicators.obv",
+   "series_inputs": [],
+   "rows_input": "rows",
+   "user_params": {},
+   "value_outputs": [
+    "value"
+   ],
+   "series_outputs": [
+    "series"
+   ]
+  },
+  {
+   "id": "official.compute.oi_change_pct",
+   "name": "oi_change_pct",
+   "group": "analysis",
+   "display_name": "Change in open interest over *periods* bars",
+   "description": "Change in open interest over *periods* bars.",
+   "function_name": "oi_change_pct",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.derivatives.oi_change_pct",
+   "upstream": "cyqnt_trd.blocks.derivatives.oi_change_pct",
+   "series_inputs": [
+    "oi"
+   ],
+   "rows_input": null,
+   "user_params": {
+    "periods": 1,
+    "as_percent": false
+   },
+   "value_outputs": [
+    "value"
+   ],
+   "series_outputs": [
+    "series"
+   ]
+  },
+  {
+   "id": "official.compute.order_block_detect",
+   "name": "order_block_detect",
+   "group": "analysis",
+   "display_name": "Detect Order Blocks",
+   "description": "Detect Order Blocks (OB) formed at Break-of-Structure events.",
+   "function_name": "order_block_detect",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.smc_structure.order_block_detect",
+   "upstream": "cyqnt_trd.blocks.smc_structure.order_block_detect",
+   "series_inputs": [],
+   "rows_input": "rows",
+   "user_params": {
+    "swing_lookback": 5
+   },
+   "value_outputs": [
+    "ob_index",
+    "ob_top",
+    "ob_bottom"
+   ],
+   "series_outputs": []
+  },
+  {
+   "id": "official.compute.order_imbalance",
+   "name": "order_imbalance",
+   "group": "analysis",
+   "display_name": "Per-bar buy/sell imbalance in [-1, 1]",
+   "description": "Per-bar buy/sell imbalance in [-1, 1].",
+   "function_name": "order_imbalance",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.microstructure.order_imbalance",
+   "upstream": "cyqnt_trd.blocks.microstructure.order_imbalance",
+   "series_inputs": [
+    "buy_volume",
+    "sell_volume"
+   ],
+   "rows_input": null,
+   "user_params": {},
+   "value_outputs": [
+    "value"
+   ],
+   "series_outputs": [
+    "series"
+   ]
+  },
+  {
+   "id": "official.compute.orderbook_slippage",
+   "name": "orderbook_slippage",
+   "group": "analysis",
+   "display_name": "Order Book Slippage Estimate",
+   "description": "Walk the order book level by level to estimate the average fill price and slippage in bps, and judge whether it stays within an acceptable range; used to avoid dumping into very thin liquidity.",
+   "function_name": "orderbook_slippage",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": null,
+   "upstream": null,
+   "series_inputs": [],
+   "rows_input": "orderbook",
+   "user_params": {
+    "side": "SELL",
+    "max_slippage_bps": 30.0
+   },
+   "value_outputs": [
+    "est_slippage_bps",
+    "avg_price",
+    "filled_size"
+   ],
+   "series_outputs": []
+  },
+  {
+   "id": "official.compute.parabolic_sar",
+   "name": "parabolic_sar",
+   "group": "analysis",
+   "display_name": "Parabolic SAR",
+   "description": "Parabolic SAR (Wilder).",
+   "function_name": "parabolic_sar",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.indicators.parabolic_sar",
+   "upstream": "cyqnt_trd.blocks.indicators.parabolic_sar",
+   "series_inputs": [],
+   "rows_input": "rows",
+   "user_params": {
+    "af_start": 0.02,
+    "af_step": 0.02,
+    "af_max": 0.2
+   },
+   "value_outputs": [
+    "sar",
+    "trend"
+   ],
+   "series_outputs": [
+    "sar_series",
+    "trend_series"
+   ]
+  },
+  {
+   "id": "official.compute.pct_change",
+   "name": "pct_change",
+   "group": "analysis",
+   "display_name": "Windowed Percent Change",
+   "description": "Compute the percent change of a price series over a given window; used for window tests such as down more than 1.2% in 30 minutes or VIX up more than 8%.",
+   "function_name": "pct_change",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": null,
+   "upstream": null,
+   "series_inputs": [
+    "series"
+   ],
+   "rows_input": null,
+   "user_params": {
+    "window": 6
+   },
+   "value_outputs": [
+    "change_pct",
+    "first",
+    "last"
+   ],
+   "series_outputs": []
+  },
+  {
+   "id": "official.compute.pivot_points",
+   "name": "pivot_points",
+   "group": "analysis",
+   "display_name": "Standard",
+   "description": "Standard (Floor) Pivot Points + R1/R2/R3 + S1/S2/S3.",
+   "function_name": "pivot_points",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.indicators.pivot_points",
+   "upstream": "cyqnt_trd.blocks.indicators.pivot_points",
+   "series_inputs": [],
+   "rows_input": "rows",
+   "user_params": {},
+   "value_outputs": [
+    "pp",
+    "r1",
+    "r2",
+    "r3",
+    "s1",
+    "s2",
+    "s3"
+   ],
+   "series_outputs": []
+  },
+  {
+   "id": "official.compute.premium_discount_zone",
+   "name": "premium_discount_zone",
+   "group": "analysis",
+   "display_name": "Premium Discount Zone",
+   "description": "Label each bar as PREMIUM, DISCOUNT, or EQUILIBRIUM.",
+   "function_name": "premium_discount_zone",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.smc_liquidity.premium_discount_zone",
+   "upstream": "cyqnt_trd.blocks.smc_liquidity.premium_discount_zone",
+   "series_inputs": [],
+   "rows_input": "rows",
+   "user_params": {
+    "swing_lookback": 5
+   },
+   "value_outputs": [
+    "premium_top",
+    "discount_bottom",
+    "equilibrium"
+   ],
+   "series_outputs": []
+  },
+  {
+   "id": "official.compute.pvt",
+   "name": "pvt",
+   "group": "analysis",
+   "display_name": "Price-Volume Trend",
+   "description": "Price-Volume Trend (PVT, Joseph Granville's modification of OBV).",
+   "function_name": "pvt",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.indicators.pvt",
+   "upstream": "cyqnt_trd.blocks.indicators.pvt",
+   "series_inputs": [],
+   "rows_input": "rows",
+   "user_params": {},
+   "value_outputs": [
+    "value"
+   ],
+   "series_outputs": [
+    "series"
+   ]
+  },
+  {
+   "id": "official.compute.range_gain_pct",
+   "name": "range_gain_pct",
+   "group": "analysis",
+   "display_name": "Range Gain Pct",
+   "description": "How far the window's HIGH sits above the window's LOW, in percent.",
+   "function_name": "range_gain_pct",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.indicators.range_gain_pct",
+   "upstream": "cyqnt_trd.blocks.indicators.range_gain_pct",
+   "series_inputs": [],
+   "rows_input": "rows",
+   "user_params": {
+    "period": 90
+   },
+   "value_outputs": [
+    "value"
+   ],
+   "series_outputs": [
+    "series"
+   ]
+  },
+  {
+   "id": "official.compute.rolling_extreme",
+   "name": "rolling_extreme",
+   "group": "analysis",
+   "display_name": "Rolling Extreme",
+   "description": "Rolling N-bar extreme; op=max (highest) or min (lowest).",
+   "function_name": "rolling_extreme",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "merged: highest · lowest",
+   "upstream": null,
+   "series_inputs": [
+    "series"
+   ],
+   "rows_input": null,
+   "user_params": {
+    "op": null,
+    "period": null
+   },
+   "value_outputs": [
+    "value"
+   ],
+   "series_outputs": [
+    "series"
+   ]
+  },
+  {
+   "id": "official.compute.rolling_quantile",
+   "name": "rolling_quantile",
+   "group": "analysis",
+   "display_name": "Rolling quantile",
+   "description": "Rolling quantile (0 <= q <= 1).",
+   "function_name": "rolling_quantile",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.indicators.rolling_quantile",
+   "upstream": "cyqnt_trd.blocks.indicators.rolling_quantile",
+   "series_inputs": [
+    "series"
+   ],
+   "rows_input": null,
+   "user_params": {
+    "period": null,
+    "q": null
+   },
+   "value_outputs": [
+    "value"
+   ],
+   "series_outputs": [
+    "series"
+   ]
+  },
+  {
+   "id": "official.compute.rolling_zscore",
+   "name": "rolling_zscore",
+   "group": "analysis",
+   "display_name": "Rolling z-score",
+   "description": "Rolling z-score: (x - mean) / std over *period* bars.",
+   "function_name": "rolling_zscore",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.indicators.rolling_zscore",
+   "upstream": "cyqnt_trd.blocks.indicators.rolling_zscore",
+   "series_inputs": [
+    "series"
+   ],
+   "rows_input": null,
+   "user_params": {
+    "period": null
+   },
+   "value_outputs": [
+    "value"
+   ],
+   "series_outputs": [
+    "series"
+   ]
+  },
+  {
+   "id": "official.compute.rsi",
+   "name": "rsi",
+   "group": "analysis",
+   "display_name": "RSI Relative Strength Index",
+   "description": "Compute the RSI (0-100) of a close series; used to judge overbought and oversold conditions and momentum exhaustion. Defaults to Wilder recursive smoothing, matching mainstream charting software; method=simple uses a plain average over the window instead.",
+   "function_name": "rsi",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": null,
+   "upstream": "cyqnt_trd.blocks.indicators.rsi",
+   "series_inputs": [
+    "series"
+   ],
+   "rows_input": null,
+   "user_params": {
+    "period": 14,
+    "method": "wilder"
+   },
+   "value_outputs": [
+    "rsi",
+    "avg_gain",
+    "avg_loss"
+   ],
+   "series_outputs": []
+  },
+  {
+   "id": "official.compute.sequential_filter",
+   "name": "sequential_filter",
+   "group": "analysis",
+   "display_name": "Sequential Filter",
+   "description": "Count signals passing min_strength; fire when bullish/bearish quota met.",
+   "function_name": "sequential_filter",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.verdicts.sequential_filter",
+   "upstream": "cyqnt_trd.blocks.verdicts.sequential_filter",
+   "series_inputs": [],
+   "rows_input": "signals",
+   "user_params": {
+    "required_bullish": 0,
+    "required_bearish": 0,
+    "min_strength": 0.3
+   },
+   "value_outputs": [
+    "value"
+   ],
+   "series_outputs": []
+  },
+  {
+   "id": "official.compute.sequential_filter_series",
+   "name": "sequential_filter_series",
+   "group": "analysis",
+   "display_name": "Sequential Filter",
+   "description": "Count of signals passing the minimum strength threshold per bar.",
+   "function_name": "sequential_filter_series",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.scoring.sequential_filter",
+   "upstream": "cyqnt_trd.blocks.scoring.sequential_filter",
+   "series_inputs": [],
+   "rows_input": "signals",
+   "user_params": {
+    "min_strength": 0.3
+   },
+   "value_outputs": [
+    "value"
+   ],
+   "series_outputs": [
+    "series"
+   ]
+  },
+  {
+   "id": "official.compute.sma",
+   "name": "sma",
+   "group": "analysis",
+   "display_name": "SMA Simple Moving Average",
+   "description": "Compute the arithmetic mean of the last period bars of a close series, current bar included; used as a trend baseline and for comparisons such as price holding above or falling below the average. For exponential weighting use official.compute.ema.",
+   "function_name": "sma",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": null,
+   "upstream": "cyqnt_trd.blocks.indicators.sma",
+   "series_inputs": [
+    "series"
+   ],
+   "rows_input": null,
+   "user_params": {
+    "period": 20
+   },
+   "value_outputs": [
+    "sma"
+   ],
+   "series_outputs": []
+  },
+  {
+   "id": "official.compute.smart_money_inflow",
+   "name": "smart_money_inflow",
+   "group": "analysis",
+   "display_name": "Rolling net taker-buy USD over *period* bars",
+   "description": "Rolling net taker-buy USD over *period* bars.",
+   "function_name": "smart_money_inflow",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.microstructure.smart_money_inflow",
+   "upstream": "cyqnt_trd.blocks.microstructure.smart_money_inflow",
+   "series_inputs": [
+    "buy_volume",
+    "sell_volume"
+   ],
+   "rows_input": null,
+   "user_params": {
+    "period": 12
+   },
+   "value_outputs": [
+    "value"
+   ],
+   "series_outputs": [
+    "series"
+   ]
+  },
+  {
+   "id": "official.compute.soft_factor",
+   "name": "soft_factor",
+   "group": "analysis",
+   "display_name": "Soft Factor",
+   "description": "Tiered scoring factor; first matching threshold wins.",
+   "function_name": "soft_factor",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.verdicts.soft_factor",
+   "upstream": "cyqnt_trd.blocks.verdicts.soft_factor",
+   "series_inputs": [],
+   "rows_input": "thresholds",
+   "user_params": {
+    "name": "factor"
+   },
+   "value_outputs": [
+    "score"
+   ],
+   "series_outputs": []
+  },
+  {
+   "id": "official.compute.stochastic",
+   "name": "stochastic",
+   "group": "analysis",
+   "display_name": "Stochastic Oscillator",
+   "description": "Stochastic Oscillator (slow).",
+   "function_name": "stochastic",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.indicators.stochastic",
+   "upstream": "cyqnt_trd.blocks.indicators.stochastic",
+   "series_inputs": [],
+   "rows_input": "rows",
+   "user_params": {
+    "k_period": 14,
+    "d_period": 3,
+    "smooth_k": 3
+   },
+   "value_outputs": [
+    "k",
+    "d"
+   ],
+   "series_outputs": [
+    "k_series",
+    "d_series"
+   ]
+  },
+  {
+   "id": "official.compute.stochrsi",
+   "name": "stochrsi",
+   "group": "analysis",
+   "display_name": "Stochastic RSI",
+   "description": "Stochastic RSI — momentum oscillator combining RSI and Stochastic.",
+   "function_name": "stochrsi",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.indicators.stochrsi",
+   "upstream": "cyqnt_trd.blocks.indicators.stochrsi",
+   "series_inputs": [
+    "series"
+   ],
+   "rows_input": null,
+   "user_params": {
+    "rsi_period": 14,
+    "stoch_period": 14,
+    "k_period": 3,
+    "d_period": 3
+   },
+   "value_outputs": [
+    "k",
+    "d"
+   ],
+   "series_outputs": [
+    "k_series",
+    "d_series"
+   ]
+  },
+  {
+   "id": "official.compute.supertrend",
+   "name": "supertrend",
+   "group": "analysis",
+   "display_name": "SuperTrend indicator",
+   "description": "SuperTrend indicator (canonical implementation).",
+   "function_name": "supertrend",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.indicators.supertrend",
+   "upstream": "cyqnt_trd.blocks.indicators.supertrend",
+   "series_inputs": [],
+   "rows_input": "rows",
+   "user_params": {
+    "period": 10,
+    "multiplier": 3.0
+   },
+   "value_outputs": [
+    "supertrend",
+    "direction"
+   ],
+   "series_outputs": [
+    "supertrend_series",
+    "direction_series"
+   ]
+  },
+  {
+   "id": "official.compute.swing_pivot",
+   "name": "swing_pivot",
+   "group": "analysis",
+   "display_name": "Swing Pivot",
+   "description": "Swing high/low detection; side=high or low.",
+   "function_name": "swing_pivot",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "merged: swing_high · swing_low",
+   "upstream": null,
+   "series_inputs": [],
+   "rows_input": "rows",
+   "user_params": {
+    "side": null,
+    "lookback": 20
+   },
+   "value_outputs": [
+    "value"
+   ],
+   "series_outputs": [
+    "series"
+   ]
+  },
+  {
+   "id": "official.compute.trend_channel",
+   "name": "trend_channel",
+   "group": "analysis",
+   "display_name": "Trend Channel",
+   "description": "Upper/middle/lower channel: donchian (rolling high/low/mid) or keltner (EMA plus ATR bands). config is the union of both — donchian reads only period, keltner also reads atr_period and multiplier.",
+   "function_name": "trend_channel",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "merged: donchian · keltner",
+   "upstream": null,
+   "series_inputs": [],
+   "rows_input": "rows",
+   "user_params": {
+    "kind": null,
+    "period": 20,
+    "atr_period": 10,
+    "multiplier": 2.0
+   },
+   "value_outputs": [
+    "upper",
+    "lower",
+    "middle"
+   ],
+   "series_outputs": [
+    "upper_series",
+    "lower_series",
+    "middle_series"
+   ]
+  },
+  {
+   "id": "official.compute.trend_strength",
+   "name": "trend_strength",
+   "group": "analysis",
+   "display_name": "Composite trend strength",
+   "description": "Composite trend strength: 0.0 (choppy) → 1.0 (strong directional move).",
+   "function_name": "trend_strength",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.indicators.trend_strength",
+   "upstream": "cyqnt_trd.blocks.indicators.trend_strength",
+   "series_inputs": [],
+   "rows_input": "rows",
+   "user_params": {
+    "lookback": 10
+   },
+   "value_outputs": [
+    "value"
+   ],
+   "series_outputs": [
+    "series"
+   ]
+  },
+  {
+   "id": "official.compute.true_range",
+   "name": "true_range",
+   "group": "analysis",
+   "display_name": "True Range",
+   "description": "Wilder's True Range = max(H-L, |H-Cprev|, |L-Cprev|).",
+   "function_name": "true_range",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.indicators.true_range",
+   "upstream": "cyqnt_trd.blocks.indicators.true_range",
+   "series_inputs": [],
+   "rows_input": "rows",
+   "user_params": {},
+   "value_outputs": [
+    "value"
+   ],
+   "series_outputs": [
+    "series"
+   ]
+  },
+  {
+   "id": "official.compute.vectorized_backtest",
+   "name": "vectorized_backtest",
+   "group": "analysis",
+   "display_name": "Vectorized Backtest",
+   "description": "Run one backtest over a set of klines and a pair of precomputed long/short signal series, reporting total return, Sharpe ratio, max drawdown, win rate, trade count and net PnL after fees and slippage; used for historical validation and cost simulation before a strategy trades real money. The signals are computed by other capabilities and passed in — this capability only matches trades and tallies the result.",
+   "function_name": "vectorized_backtest",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": null,
+   "upstream": null,
+   "series_inputs": [],
+   "rows_input": "rows",
+   "user_params": {
+    "timeframe": "1h",
+    "size": 0.5,
+    "fee_bps": 4.0,
+    "slippage_bps": 2.0,
+    "initial_capital": 10000.0,
+    "long_only": false,
+    "exit_type": "opposite_signal",
+    "max_bars": 9999,
+    "stop_pct": 0.02,
+    "tp_pct": 0.04,
+    "atr_period": 14,
+    "atr_mult": 2.0,
+    "ma_period": 50
+   },
+   "value_outputs": [
+    "total_return",
+    "sharpe_ratio",
+    "max_drawdown",
+    "win_rate",
+    "trade_count",
+    "avg_trade_pnl",
+    "total_pnl",
+    "exposure",
+    "final_equity"
+   ],
+   "series_outputs": []
+  },
+  {
+   "id": "official.compute.volume_ma",
+   "name": "volume_ma",
+   "group": "analysis",
+   "display_name": "Simple moving average of volume",
+   "description": "Simple moving average of volume.",
+   "function_name": "volume_ma",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.indicators.volume_ma",
+   "upstream": "cyqnt_trd.blocks.indicators.volume_ma",
+   "series_inputs": [],
+   "rows_input": "rows",
+   "user_params": {
+    "period": 20
+   },
+   "value_outputs": [
+    "value"
+   ],
+   "series_outputs": [
+    "series"
+   ]
+  },
+  {
+   "id": "official.compute.volume_ratio",
+   "name": "volume_ratio",
+   "group": "analysis",
+   "display_name": "Volume Expansion Ratio",
+   "description": "Compare the current bar volume with the average of the previous N bars to get an expansion ratio; used to confirm that a price move is backed by real trading.",
+   "function_name": "volume_ratio",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": null,
+   "upstream": null,
+   "series_inputs": [
+    "volumes"
+   ],
+   "rows_input": null,
+   "user_params": {
+    "window": 20
+   },
+   "value_outputs": [
+    "ratio",
+    "current",
+    "average"
+   ],
+   "series_outputs": []
+  },
+  {
+   "id": "official.compute.volume_zscore",
+   "name": "volume_zscore",
+   "group": "analysis",
+   "display_name": "Volume z-score using rolling mean & std-dev",
+   "description": "Volume z-score using rolling mean & std-dev.",
+   "function_name": "volume_zscore",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.indicators.volume_zscore",
+   "upstream": "cyqnt_trd.blocks.indicators.volume_zscore",
+   "series_inputs": [],
+   "rows_input": "rows",
+   "user_params": {
+    "period": 20
+   },
+   "value_outputs": [
+    "value"
+   ],
+   "series_outputs": [
+    "series"
+   ]
+  },
+  {
+   "id": "official.compute.vwap",
+   "name": "vwap",
+   "group": "analysis",
+   "display_name": "VWAP Volume-Weighted Average Price",
+   "description": "Compute the volume-weighted average price over a set of klines (typical price = (high+low+close)/3); used to judge whether price has fallen below VWAP.",
+   "function_name": "vwap",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": null,
+   "upstream": "cyqnt_trd.blocks.indicators.vwap",
+   "series_inputs": [],
+   "rows_input": "rows",
+   "user_params": {
+    "window": 0
+   },
+   "value_outputs": [
+    "vwap",
+    "volume"
+   ],
+   "series_outputs": []
+  },
+  {
+   "id": "official.compute.vwma",
+   "name": "vwma",
+   "group": "analysis",
+   "display_name": "Volume-weighted moving average",
+   "description": "Volume-weighted moving average — Σ(price × volume) / Σ(volume).",
+   "function_name": "vwma",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.indicators.vwma",
+   "upstream": "cyqnt_trd.blocks.indicators.vwma",
+   "series_inputs": [],
+   "rows_input": "rows",
+   "user_params": {
+    "period": 20
+   },
+   "value_outputs": [
+    "value"
+   ],
+   "series_outputs": [
+    "series"
+   ]
+  },
+  {
+   "id": "official.compute.weighted_composite",
+   "name": "weighted_composite",
+   "group": "analysis",
+   "display_name": "Weighted sum of atomic-shaped signals",
+   "description": "Weighted sum of atomic-shaped signals.",
+   "function_name": "weighted_composite",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.verdicts.weighted_composite",
+   "upstream": "cyqnt_trd.blocks.verdicts.weighted_composite",
+   "series_inputs": [],
+   "rows_input": "signals",
+   "user_params": {},
+   "value_outputs": [
+    "value"
+   ],
+   "series_outputs": []
+  },
+  {
+   "id": "official.compute.williams_r",
+   "name": "williams_r",
+   "group": "analysis",
+   "display_name": "Williams %R",
+   "description": "Williams %R — momentum oscillator from highest-high range.",
+   "function_name": "williams_r",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.indicators.williams_r",
+   "upstream": "cyqnt_trd.blocks.indicators.williams_r",
+   "series_inputs": [],
+   "rows_input": "rows",
+   "user_params": {
+    "period": 14
+   },
+   "value_outputs": [
+    "value"
+   ],
+   "series_outputs": [
+    "series"
+   ]
+  },
+  {
+   "id": "official.compute.zigzag",
+   "name": "zigzag",
+   "group": "analysis",
+   "display_name": "ZigZag pivot detector by percentage deviation",
+   "description": "ZigZag pivot detector by percentage deviation.",
+   "function_name": "zigzag",
+   "package_prefix": "binance.strategy.node.capabilities.analysis",
+   "declared_source": "cyqnt_trd.blocks.indicators.zigzag",
+   "upstream": "cyqnt_trd.blocks.indicators.zigzag",
+   "series_inputs": [
+    "series"
+   ],
+   "rows_input": null,
+   "user_params": {
+    "deviation_pct": 5.0
+   },
+   "value_outputs": [
+    "value"
+   ],
+   "series_outputs": [
+    "series"
+   ]
+  }
+ ]
+}

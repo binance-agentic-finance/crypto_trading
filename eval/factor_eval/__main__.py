@@ -137,6 +137,44 @@ def cmd_bundle(args):
     return 0
 
 
+def cmd_capabilities(args):
+    """List the capability manifests and whether each one runs on this panel."""
+    from factor_eval.capability_registry import capability_factors, load_index
+    index = load_index(args.index)
+    print(index.describe())
+    panel = load_bundle(args.bundle)
+    rejected = {}
+    factors = capability_factors(index, panel=panel, rejected=rejected)
+    print(f"\nrunnable candidates: {len(factors)}")
+    for name in factors:
+        print(f"  {name}")
+    if args.rejected:
+        print(f"\nrejected: {len(rejected)}")
+        for name, reason in rejected.items():
+            print(f"  {name:44s} {reason}")
+    return 0
+
+
+def cmd_compare(args):
+    """Candidates -> matrix -> construction -> comparison against the baselines."""
+    from factor_eval.experiment import run_comparison, write_report
+    panel = load_bundle(args.bundle)
+    result = run_comparison(
+        panel, source=args.source, k=args.k, seed=args.seed, primary_h=args.h,
+        cost_bps=args.cost, entry_lag=args.entry_lag, rebalance=args.rebalance,
+        cap=args.cap, benchmark_symbol=args.benchmark, dedupe=not args.no_dedupe,
+        max_corr=args.max_corr, confirm=not args.no_confirm,
+        admit_on_noise_floor=not args.no_ic_floor, splits=_splits(args),
+        calibration=args.calibration)
+    print(result.summary())
+    print(f"admitted: {', '.join(result.admitted)}\n")
+    print(result.table.round(4).to_string())
+    if args.out:
+        paths = write_report(result, args.out)
+        print(f"\nwrote {paths['markdown']}\nwrote {paths['json']}")
+    return 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="factor_eval", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -179,6 +217,30 @@ def main(argv=None):
 
     b = sub.add_parser("bundle", help="describe the panel")
     b.set_defaults(func=cmd_bundle)
+
+    p = sub.add_parser("capabilities", help="list capability nodes runnable on this panel")
+    p.add_argument("--index", default=None, help="path to a capability index snapshot")
+    p.add_argument("--rejected", action="store_true", help="also show what could not run and why")
+    p.set_defaults(func=cmd_capabilities)
+
+    x = sub.add_parser("compare", help="run the full chain and compare against baselines")
+    x.add_argument("--source", default="capability", choices=("capability", "alpha101"))
+    x.add_argument("--k", type=int, default=None, help="sample k candidates; default uses all")
+    x.add_argument("--seed", type=int, default=20260917)
+    x.add_argument("--h", type=int, default=3, help="primary horizon in days")
+    x.add_argument("--cost", type=float, default=6.5, help="one-way cost in bp")
+    x.add_argument("--entry-lag", type=int, default=2)
+    x.add_argument("--rebalance", type=int, default=3)
+    x.add_argument("--cap", type=float, default=0.35)
+    x.add_argument("--max-corr", type=float, default=0.8)
+    x.add_argument("--benchmark", default="BTCUSDT")
+    x.add_argument("--calibration", help="matching calibration JSON from calibrate")
+    x.add_argument("--splits", help="JSON mapping of dev/val/oot to [start, end]")
+    x.add_argument("--no-dedupe", action="store_true", help="keep near-duplicate factors")
+    x.add_argument("--no-confirm", action="store_true", help="skip the full-matrix second pass")
+    x.add_argument("--no-ic-floor", action="store_true", help="admit regardless of dev IC")
+    x.add_argument("--out", default=None, help="directory for comparison.md and comparison.json")
+    x.set_defaults(func=cmd_compare)
 
     args = ap.parse_args(argv)
     return args.func(args)

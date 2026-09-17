@@ -35,15 +35,19 @@
 """
 from __future__ import annotations
 
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, Sequence
 
 import numpy as np
 import pandas as pd
 
-__all__ = ["capability_factor", "read_port"]
+__all__ = ["capability_factor", "read_port", "panel_rows", "PANEL_FIELDS", "BAR_FIELDS"]
 
 #: 面板上可以喂给算子的字段。
 PANEL_FIELDS = ("open", "high", "low", "close", "volume", "quote_volume")
+
+#: Fields placed in each bar dict when building a ``rows`` input. Names follow the
+#: capability-side kline convention, which upstream blocks read as ``rows[i]["close"]``.
+BAR_FIELDS = ("open", "high", "low", "close", "volume", "quote_volume")
 
 
 def read_port(result: Any, output: str | None = None) -> Any:
@@ -97,8 +101,24 @@ def _series(value, index, where: str) -> pd.Series:
     return pd.Series(out, index=index)
 
 
+def panel_rows(panel, symbol: str, fields: Sequence[str] = BAR_FIELDS) -> list[dict]:
+    """Slice one symbol out of the panel as ``rows``: one dict per bar.
+
+    Most factor-shaped capabilities in manifest v3 take this shape
+    (``dict[str, Any] | list[Any]``, conventionally named ``rows``) rather than
+    ``list[float]``. Missing values stay ``None``; filling them with 0 makes an
+    upstream indicator return a plausible-looking wrong number instead of bailing.
+    """
+    frames = {f: getattr(panel, f)[symbol].to_numpy(dtype=float) for f in fields}
+    n = len(panel.index)
+    return [{f: (None if not np.isfinite(frames[f][i]) else float(frames[f][i]))
+             for f in fields} for i in range(n)]
+
+
 def capability_factor(fn: Callable[..., Any], *,
                       inputs: Mapping[str, str] | None = None,
+                      rows: str | None = None,
+                      bar_fields: Sequence[str] = BAR_FIELDS,
                       params: Mapping[str, Any] | None = None,
                       window: int | None = None,
                       output: str | None = None,
@@ -111,8 +131,14 @@ def capability_factor(fn: Callable[..., Any], *,
     fn
         算子函数。以**关键字**调用，输入序列是 ``list[float | None]``。
     inputs
-        算子参数名 → 面板字段名。默认 ``{"series": "close"}``。需要 OHLC 的算子写成
-        ``{"high": "high", "low": "low", "close": "close"}``。
+        算子参数名 → 面板字段名。默认 ``{"series": "close"}``（``rows`` 给了时默认为空）。
+        需要 OHLC 的算子写成 ``{"high": "high", "low": "low", "close": "close"}``。
+    rows
+        Name of the parameter that receives the bar-dict list (manifest type
+        ``dict[str, Any] | list[Any]``). Built with :func:`panel_rows`. May be
+        combined with ``inputs``; a few operators need both.
+    bar_fields
+        Fields placed in each bar dict, OHLCV plus quote volume by default.
     params
         除序列以外的固定参数（``period``、``length`` 之类），原样透传。
     window
@@ -126,8 +152,18 @@ def capability_factor(fn: Callable[..., Any], *,
 
     返回的是 ``Panel -> DataFrame``，直接喂给 :func:`factor_eval.evaluate`。
     """
-    inputs = dict(inputs or {"series": "close"})
+    inputs = dict(inputs if inputs is not None else ({} if rows else {"series": "close"}))
     params = dict(params or {})
+    if not inputs and not rows:
+        raise ValueError("capability_factor needs at least one of inputs= or rows=")
+    bar_fields = tuple(bar_fields)
+    unknown_bars = sorted(set(bar_fields) - set(PANEL_FIELDS))
+    if rows and unknown_bars:
+        raise ValueError(f"bar_fields reference unknown panel fields: {', '.join(unknown_bars)}")
+    if rows and rows in params:
+        raise ValueError(f"{rows!r} given both as the rows input and a fixed param")
+    if rows and rows in inputs:
+        raise ValueError(f"{rows!r} given both as the rows input and a series input")
     unknown = sorted(set(inputs.values()) - set(PANEL_FIELDS))
     if unknown:
         raise ValueError(f"inputs reference unknown panel fields: {', '.join(unknown)}; "
@@ -149,10 +185,13 @@ def capability_factor(fn: Callable[..., Any], *,
         for symbol in panel.symbols:
             index = panel.index
             data = {name: frame[symbol] for name, frame in columns.items()}
+            bars = panel_rows(panel, symbol, bar_fields) if rows else None
             if window is None:
                 kwargs = {name: [None if not np.isfinite(v) else float(v)
                                  for v in series.to_numpy(dtype=float)]
                           for name, series in data.items()}
+                if rows:
+                    kwargs[rows] = bars
                 try:
                     value = read_port(fn(**kwargs, **params), output)
                 except Exception as exc:  # noqa: BLE001 - 不吞,交给调用方
@@ -171,6 +210,8 @@ def capability_factor(fn: Callable[..., Any], *,
                 kwargs = {name: [None if not np.isfinite(v) else float(v)
                                  for v in array[start:i + 1]]
                           for name, array in arrays.items()}
+                if rows:
+                    kwargs[rows] = bars[start:i + 1]
                 try:
                     values[i] = _scalar(read_port(fn(**kwargs, **params), output),
                                         f"operator on {symbol}")
