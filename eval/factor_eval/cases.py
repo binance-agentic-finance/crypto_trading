@@ -232,6 +232,7 @@ def resolve_signals(spec: CaseSpec) -> tuple[dict[str, Callable], dict[str, str]
 def build_blueprint(spec: CaseSpec, resolved: Mapping[str, Callable], *,
                     schedule: int = 3, top_k: int | None = 3,
                     cap: float = 0.35, gross: float = 1.0,
+                    entry_score: float | None = None,
                     assumed: dict | None = None) -> Blueprint:
     """Spec + resolved signals -> a `Blueprint`.
 
@@ -273,7 +274,8 @@ def build_blueprint(spec: CaseSpec, resolved: Mapping[str, Callable], *,
             assumed[f"{name}.gate"] = ("hard gate threshold not in spec; bottom "
                                        "cross-sectional quintile rejected")
     return Blueprint(name=spec.name, tiers=tiers, gates=gates, schedule=schedule,
-                     entry_score=spec.entry_score(), top_k=top_k, direction="score",
+                     entry_score=spec.entry_score() if entry_score is None else entry_score,
+                     top_k=top_k, direction="score",
                      sizing="equal", gross=gross, cap=cap, neutral=False,
                      exits=Exits())
 
@@ -303,7 +305,8 @@ class CaseResult:
     def row(self) -> dict:
         c = self.coverage
         out = {"case": self.name, "tiers": c["n_tiers"], "resolved": c["n_resolved"],
-               "unavailable": c["n_unavailable"], "gates_unavailable": c["n_gates_unavailable"],
+               "unavailable": c["n_unavailable"], "gates_dropped": c["n_gates_unavailable"],
+               "degraded": bool(self.assumed.get("entry_score") or self.assumed.get("hard_gates")),
                "ran": self.ran, "error": self.error[:70]}
         if self.backtest is not None:
             oot = self.backtest.metrics.set_index("split").loc["oot"]
@@ -320,15 +323,32 @@ class CaseResult:
 
 def run_case(spec: CaseSpec, panel, *, entry_lag: int = 2, h: int = 3,
              cost_bps: float = 6.5, schedule: int = 3, top_k: int | None = 3,
-             start="2022-04-01", require_gates: bool = True,
-             min_resolved: int = 2, min_score_coverage: float = 0.02) -> CaseResult:
-    """Resolve, build, backtest. Returns the coverage report even when it refuses.
+             start="2022-04-01", strict: bool = False, require_gates: bool | None = None,
+             min_resolved: int = 1, min_score_coverage: float = 0.0,
+             scale_threshold: bool = True) -> CaseResult:
+    """Resolve, build, backtest. Returns the coverage report either way.
 
-    Refuses when a **hard gate** is unavailable: a gate nobody can evaluate is not a
-    gate that passes, and quietly dropping it turns a screened strategy into an
-    unscreened one with the same name. Pass `require_gates=False` to measure the
-    remainder anyway, knowing it is a different strategy.
+    Default is **degraded mode**: run whatever the panel can compute, and say
+    exactly what was given up. `strict=True` restores the refusals -- use it when
+    the question is "is this the strategy that was written down", not "what does
+    the computable part of it do here".
+
+    Two things make a degraded run meaningful rather than arbitrary:
+
+    `scale_threshold`
+        The spec's verdict threshold was set against the full tier set. With half
+        the tiers gone the total can never reach it, so the threshold is scaled by
+        the share of the maximum score that survives. A spec asking for 5 out of a
+        possible 10 becomes one asking for 2 out of a possible 4 -- the same
+        selectivity on a smaller score, rather than an unreachable bar that
+        backtests as a flat book.
+
+    dropped hard gates
+        Recorded in `coverage["gates_unavailable"]` and in `assumed`. The result is
+        an **unscreened** version of a screened strategy; that is a different
+        strategy and the report has to keep saying so.
     """
+    require_gates = strict if require_gates is None else require_gates
     resolved, unavailable = resolve_signals(spec)
     blocked = [g for g in spec.hard_gates if g in unavailable]
     coverage = {"n_tiers": len(spec.tiers), "n_resolved": len(resolved),
@@ -337,9 +357,9 @@ def run_case(spec: CaseSpec, panel, *, entry_lag: int = 2, h: int = 3,
                 "n_gates_unavailable": len(blocked), "gates_unavailable": blocked}
     assumed: dict = {}
 
-    if len(resolved) < min_resolved:
+    if len(resolved) < max(1, min_resolved):
         return CaseResult(spec.name, coverage, assumed,
-                          error=f"only {len(resolved)}/{len(spec.tiers)} tiers computable")
+                          error=f"no tier of {len(spec.tiers)} is computable on this panel")
     if blocked and require_gates:
         return CaseResult(spec.name, coverage, assumed,
                           error=f"hard gate(s) not computable: {', '.join(blocked)}")
@@ -351,17 +371,46 @@ def run_case(spec: CaseSpec, panel, *, entry_lag: int = 2, h: int = 3,
     # cannot run this strategy". Refuse and say which it is.
     reachable = sum(abs(float(spec.tiers[t].get("max_score", _implied_max(spec.tiers[t]))))
                     for t in resolved)
+    declared = spec.max_total()
     entry = spec.entry_score()
     coverage["reachable_score"] = reachable
+    coverage["declared_score"] = declared
     coverage["entry_score"] = entry
-    if reachable < entry:
-        return CaseResult(spec.name, coverage, assumed,
-                          error=f"entry threshold {entry:g} unreachable: the computable "
-                                f"tiers total {reachable:g}")
+    if reachable < declared - 1e-9:
+        # The threshold was set against the full tier set. Whenever any tier is
+        # missing it is scaled by the share of the maximum score that survives, so
+        # the spec keeps its selectivity ("top half of what is achievable") instead
+        # of either an unreachable bar or an accidentally loosened one. Only
+        # applying this when the bar is strictly unreachable left specs that lost a
+        # third of their score still screening as if they had it.
+        if strict or not scale_threshold:
+            if reachable < entry:
+                return CaseResult(spec.name, coverage, assumed,
+                                  error=f"entry threshold {entry:g} unreachable: the "
+                                        f"computable tiers total {reachable:g}")
+        else:
+            entry = entry * reachable / declared if declared > 0 else entry
+            assumed["entry_score"] = (
+                f"spec threshold {spec.entry_score():g} was set against a maximum of "
+                f"{declared:g}; scaled to {entry:.3g} against the {reachable:g} the "
+                f"computable tiers can reach")
+    if scale_threshold and not strict and entry > reachable:
+        # Some specs set a threshold above their own declared maximum (the declared
+        # bands do not add up to it). Clamping to the achievable total means "only
+        # the top band of every tier", which is the strictest thing the spec can
+        # still express, rather than a bar nothing can clear.
+        assumed["entry_score_clamped"] = (
+            f"threshold {entry:.3g} exceeds the {reachable:g} the tiers can produce; "
+            f"clamped to {reachable:g} (top band of every computable tier)")
+        entry = reachable
+    coverage["entry_score_used"] = entry
+    if blocked and not require_gates:
+        assumed["hard_gates"] = (f"dropped uncomputable hard gate(s) {', '.join(blocked)}; "
+                                 f"this is the unscreened version of a screened strategy")
 
     try:
         blueprint = build_blueprint(spec, resolved, schedule=schedule, top_k=top_k,
-                                    assumed=assumed)
+                                    assumed=assumed, entry_score=entry)
         # How often the spec can even be evaluated. Structure detectors
         # (order blocks, fair value gaps, liquidity sweeps) only emit on an event,
         # so a spec built out of them has a finite score on a couple of percent of

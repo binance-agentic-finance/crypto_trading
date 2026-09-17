@@ -53,47 +53,79 @@ def test_tiers_the_panel_cannot_compute_are_named_not_scored(panel):
     assert all(reason for reason in unavailable.values())
 
 
-def test_an_uncomputable_hard_gate_stops_the_run(panel):
-    """A gate nobody can evaluate is not a gate that passes."""
+def test_an_uncomputable_hard_gate_is_dropped_but_never_hidden(panel):
+    """Degraded mode runs the rest; the dropped screen has to stay visible."""
     spec = load_case(_spec({
         "rsi_zone": {"max_score": 3},
         "ema_trend": {"max_score": 3},
         "atr_regime": {"max_score": 2},
         "hotrank_attention": {"max_score": 2, "is_hard_gate": True},
     }), name="gated")
-    blocked = run_case(spec, panel)
-    assert not blocked.ran
-    assert "hard gate" in blocked.error and "hotrank_attention" in blocked.error
-    # Measuring the rest is allowed, but it is a different strategy.
-    anyway = run_case(spec, panel, require_gates=False)
-    assert anyway.ran
-    assert anyway.coverage["gates_unavailable"] == ["hotrank_attention"]
+    degraded = run_case(spec, panel)
+    assert degraded.ran
+    assert degraded.coverage["gates_unavailable"] == ["hotrank_attention"]
+    assert "unscreened" in degraded.assumed["hard_gates"]
+    # strict asks the other question: is this the strategy that was written down?
+    strict = run_case(spec, panel, strict=True)
+    assert not strict.ran
+    assert "hard gate" in strict.error and "hotrank_attention" in strict.error
 
 
-def test_an_unreachable_threshold_is_refused_not_reported_as_flat(panel):
-    """Dropped tiers can put the spec's own threshold out of reach.
+def test_a_threshold_set_against_missing_tiers_is_scaled_not_left_unreachable(panel):
+    """Dropped tiers put the spec's own threshold out of reach.
 
-    Backtesting it anyway produces a flat book and a 0.0 return, which reads as
-    "this strategy makes no money" instead of "this panel cannot run it".
+    Backtesting it unchanged produces a flat book and a 0.0 return, which reads as
+    "this strategy makes no money" instead of "this panel cannot run it". Scaling
+    keeps the spec's selectivity on the score that survives.
     """
     spec = load_case(_spec({
         "rsi_zone": {"max_score": 2},
         "smart_money_inflow": {"max_score": 5},
         "hotrank_attention": {"max_score": 3},
     }, candidate_min=8), name="short")
-    result = run_case(spec, panel, min_resolved=1)
-    assert not result.ran
-    assert "unreachable" in result.error
-    assert result.coverage["reachable_score"] < result.coverage["entry_score"]
+    result = run_case(spec, panel)
+    assert result.ran
+    assert result.coverage["entry_score_used"] < result.coverage["entry_score"]
+    assert "scaled to" in result.assumed["entry_score"]
+    strict = run_case(spec, panel, strict=True)
+    assert not strict.ran and "unreachable" in strict.error
 
 
-def test_a_spec_that_never_opens_a_position_is_refused(panel):
+def test_the_threshold_is_scaled_whenever_a_tier_is_missing(panel):
+    """Not only when the bar is strictly unreachable.
+
+    A spec that loses a third of its score but still clears its bar would
+    otherwise screen as if it had the missing tier.
+    """
+    spec = load_case(_spec({
+        "rsi_zone": {"max_score": 3},
+        "ema_trend": {"max_score": 3},
+        "atr_regime": {"max_score": 3},
+        "hotrank_attention": {"max_score": 3},
+    }, candidate_min=5), name="partial")
+    result = run_case(spec, panel)
+    assert result.coverage["reachable_score"] == 9
+    assert result.coverage["declared_score"] == 12
+    assert result.coverage["entry_score_used"] == pytest.approx(5 * 9 / 12)
+
+
+def test_a_threshold_above_the_specs_own_maximum_is_clamped(panel):
+    """Some specs ask for more points than their own bands can produce."""
+    spec = load_case(_spec({"rsi_zone": {"max_score": 2}}, candidate_min=5), name="over")
+    result = run_case(spec, panel)
+    assert result.ran
+    assert result.coverage["entry_score_used"] <= result.coverage["reachable_score"]
+    assert "clamped" in result.assumed["entry_score_clamped"]
+
+
+def test_a_spec_that_never_opens_a_position_says_so(panel):
+    """A flat book is reported as a refusal, not as a 0.0 return."""
     spec = load_case(_spec({
         "rsi_zone": {"max_score": 3},
         "ema_trend": {"max_score": 3},
         "atr_regime": {"max_score": 2},
     }, candidate_min=7.999), name="impossible")
-    result = run_case(spec, panel)
+    result = run_case(spec, panel, scale_threshold=False)
     assert not result.ran
     assert "no position was ever opened" in result.error
 
@@ -150,7 +182,7 @@ def test_coverage_is_reported_even_when_the_run_is_refused(panel):
     spec = load_case(_spec({"smart_money_inflow": {"max_score": 3},
                             "hotrank_attention": {"max_score": 3}}), name="none")
     result = run_case(spec, panel)
-    assert not result.ran
+    assert not result.ran, "no tier is computable, so there is nothing to run"
     assert result.coverage["n_tiers"] == 2 and result.coverage["n_resolved"] == 0
     assert set(result.coverage["unavailable"]) == {"smart_money_inflow", "hotrank_attention"}
 
