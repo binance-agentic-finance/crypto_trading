@@ -1,6 +1,6 @@
 # cyqnt-trd
 
-`cyqnt-trd` 是一个以 `standard_bot` 工作流为核心的加密货币交易工具包：
+`cyqnt-trd` 是一个以 `standard_bot` 工作流为核心的完整加密货币交易工具包：
 
 - 历史数据下载到本地 parquet（K 线、资金费、持仓量 OI、订单簿、新闻）
 - 从 `1m` 本地重采样到更高周期
