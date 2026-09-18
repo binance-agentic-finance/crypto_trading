@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import sys
-import uuid
 from argparse import Namespace
 
 import pytest
@@ -10,32 +9,28 @@ pyarrow = pytest.importorskip("pyarrow")
 pyarrow_parquet = pytest.importorskip("pyarrow.parquet")
 
 from cyqnt_trd.standard_bot.core import (  # noqa: E402
-    BacktestResult,
     Bar,
     BundleMeta,
-    EquityPoint,
     MarketBundle,
     MarketQuery,
-    SignalBatch,
-    SignalPipelineSpec,
     TimeRange,
 )
 from cyqnt_trd.standard_bot.data import AlignmentPolicy, HistoricalSnapshotAssembler  # noqa: E402
-from cyqnt_trd.standard_bot.data.downloader import HistoricalBinanceDownloader  # noqa: E402
 from cyqnt_trd.standard_bot.data.derivatives import (  # noqa: E402
-    build_derivatives_path,
     HistoricalBinanceDerivativesDownloader,
+    build_derivatives_path,
+)
+from cyqnt_trd.standard_bot.data.downloader import HistoricalBinanceDownloader  # noqa: E402
+from cyqnt_trd.standard_bot.data.historical import (  # noqa: E402
+    HistoricalParquetMarketDataAdapter,
+    LocalFirstMarketDataAdapter,
+    build_history_path,
+    parquet_time_coverage,
+    read_parquet_frame,
 )
 from cyqnt_trd.standard_bot.data.liquidations import (  # noqa: E402
     aggregate_force_order_records,
     build_liquidation_path,
-)
-from cyqnt_trd.standard_bot.data.historical import (  # noqa: E402
-    HistoricalParquetMarketDataAdapter,
-    build_history_path,
-    LocalFirstMarketDataAdapter,
-    parquet_time_coverage,
-    read_parquet_frame,
 )
 from cyqnt_trd.standard_bot.entrypoints import mvp_backtest  # noqa: E402
 
@@ -611,7 +606,7 @@ def test_local_first_market_data_adapter_expands_download_start_for_resample() -
     assert FakeDownloader.calls == [("1m", 0, 7_200_000)]
 
 
-def test_main_numba_path_skips_snapshot_assembly(monkeypatch, tmp_path, capsys) -> None:
+def test_main_framework_path_skips_snapshot_assembly(monkeypatch, tmp_path, capsys) -> None:
     input_path = tmp_path / "bars.json"
     rows = []
     for index in range(30):
@@ -633,25 +628,11 @@ def test_main_numba_path_skips_snapshot_assembly(monkeypatch, tmp_path, capsys) 
         encoding="utf-8",
     )
 
-    class DummyRunner:
-        def run(self, *, request, market_bundle):
-            return BacktestResult(
-                request_id=request.request_id,
-                total_return=0.0,
-                equity_curve=[EquityPoint(timestamp=market_bundle.bars[MarketBundle.key("BTCUSDT", "1m")][-1].timestamp, equity=10000.0)],
-                metrics={
-                    "snapshot_count": float(len(market_bundle.bars[MarketBundle.key("BTCUSDT", "1m")])),
-                    "trade_count": 0.0,
-                    "final_equity": 10000.0,
-                },
-                signal_batches=[],
-                extras={"run_id": str(uuid.uuid4()), "trades": []},
-            )
-
     def fail_build(*args, **kwargs):
-        raise AssertionError("snapshot assembler should not run for numba backtests")
+        raise AssertionError("snapshot assembler should not run for framework backtests")
 
-    monkeypatch.setattr(mvp_backtest, "NumbaBacktestRunner", DummyRunner)
+    # The framework engine (default) reconstructs the OHLCV frame directly from
+    # bars and never touches the event-driven snapshot assembler.
     monkeypatch.setattr(mvp_backtest.HistoricalSnapshotAssembler, "build", fail_build)
     monkeypatch.setattr(
         sys,
@@ -659,7 +640,7 @@ def test_main_numba_path_skips_snapshot_assembly(monkeypatch, tmp_path, capsys) 
         [
             "mvp_backtest",
             "--engine",
-            "numba",
+            "framework",
             "--input-json",
             str(input_path),
             "--symbol",
@@ -677,4 +658,4 @@ def test_main_numba_path_skips_snapshot_assembly(monkeypatch, tmp_path, capsys) 
 
     assert mvp_backtest.main() == 0
     captured = capsys.readouterr()
-    assert "engine=numba" in captured.out
+    assert "engine=framework" in captured.out

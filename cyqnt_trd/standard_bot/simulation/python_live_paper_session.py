@@ -1,49 +1,47 @@
 """
-Persistent Python-engine paper trading session for ``cyqnt_trd.blocks`` strategies.
+Persistent paper/live trading session driven by the unified ``make_signals`` contract.
 
-This is the Python-engine counterpart of :class:`NumbaLivePaperSession`.
-It accepts strategies registered via :func:`cyqnt_trd.blocks.strategy.register`
-(as opposed to Numba kernels registered via ``NumbaBacktestRunner.register_kernel``)
-and drives them through the same next-bar-open execution model so that paper
-trading results are consistent with backtest results from
-``mvp_backtest --engine python``.
+This is the sole live/paper session (the Numba live session was removed). It accepts
+strategies registered via :func:`cyqnt_trd.blocks.strategy.register` — including the
+built-in strategies, which are registered on the fly from
+``signal/framework_strategies.py`` — and drives them through the next-bar-open
+execution model so that paper trading results are consistent with backtest results
+from ``mvp_backtest --engine python``.
 
-Architecture mirrors ``NumbaLivePaperSession``:
+Architecture:
 
 * Maintains a growing in-memory bar history (parallel lists).
 * On each ``tick(bar)``: execute pending order at this bar's open, append the
   new bar, recompute the latest target, and queue a new pending order if the
   target differs from the current position.
-* Same ``state_snapshot()`` projection so the paper daemon can write the same
+* ``state_snapshot()`` projection so the paper daemon can write the
   ``state.json`` shape the watcher expects.
 * Crash-safe ``checkpoint_state()`` / ``from_checkpoint()`` so a daemon
   restart resumes exactly where it left off.
 
-The only thing that is intentionally different from the Numba session is the
-*signal computation site* — instead of dispatching to a ``@njit`` kernel, we
-call ``plugin.signal_fn(df)`` on the registered ``BlockStrategyPlugin`` and
-read the boolean signals at the latest bar.
+The signal is computed by calling ``plugin.signal_fn(df)`` on the registered
+``BlockStrategyPlugin`` and reading the boolean signals at the latest bar.
 """
 
 from __future__ import annotations
 
 import time
 import uuid
-from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import pandas as pd
 
 # Re-export the same dataclasses so callers can import either session class
 # uniformly. We import (don't redefine) to keep the types identical.
-from .live_paper_session import (
+from .paper_types import (
+    SESSION_NAMESPACE,
+    TARGET_KEEP,
+    TARGET_LONG,
+    TARGET_SHORT,
     PaperFill,
     PaperPosition,
     PendingOrder,
-    SESSION_NAMESPACE,
 )
-from ..signal.numba_kernels import TARGET_KEEP, TARGET_LONG, TARGET_SHORT
-
 
 __all__ = ["PythonLivePaperSession"]
 
@@ -91,7 +89,6 @@ class PythonLivePaperSession:
             _KNOWN_BLOCK_STRATEGY_IDS,
             _PENDING_REGISTRATIONS,
             BlockStrategyPlugin,
-            is_known_block_strategy,
         )
 
         plugin = self._resolve_plugin(
@@ -140,7 +137,7 @@ class PythonLivePaperSession:
         self._closes: List[float] = []
         self._volumes: List[float] = []
         self._quote_volumes: List[float] = []
-        # Optional fields kept for parity with NumbaLivePaperSession's bar dict
+        # Optional derivative fields carried on the bar dict
         self._oi_change_bps: List[float] = []
         self._funding_rate_bps: List[float] = []
         self._long_liq_notional_usd: List[float] = []
@@ -186,11 +183,11 @@ class PythonLivePaperSession:
         return None
 
     # ------------------------------------------------------------------
-    # Public surface (mirrors NumbaLivePaperSession)
+    # Public surface
     # ------------------------------------------------------------------
 
     def tick(self, bar: Dict[str, Any]) -> Optional[PaperFill]:
-        """Process one new confirmed bar (same contract as NumbaLivePaperSession.tick)."""
+        """Process one new confirmed bar."""
         fill = None
 
         # Step 1: Execute pending order at this bar's open
@@ -310,7 +307,7 @@ class PythonLivePaperSession:
         return fill
 
     def warm_up(self, bar: Dict[str, Any]) -> None:
-        """Load one historical bar without trading (matches NumbaLivePaperSession)."""
+        """Load one historical bar without trading (no order is scheduled)."""
         self._append_bar(bar)
         self._tick_count += 1
 
@@ -559,6 +556,13 @@ class PythonLivePaperSession:
                 "quote_volume": self._quote_volumes,
                 "timestamp": self._timestamps,
                 "close_time": self._timestamps,
+                # Optional derivative feeds — present so built-in derivative
+                # strategies (oi_funding_breakout / liquidation_reversal) can read
+                # them; harmless (unused) for pure OHLCV strategies.
+                "oi_change_bps": self._oi_change_bps,
+                "funding_rate_bps": self._funding_rate_bps,
+                "long_liq_notional_usd": self._long_liq_notional_usd,
+                "short_liq_notional_usd": self._short_liq_notional_usd,
             }
         )
         return df
@@ -605,7 +609,7 @@ class PythonLivePaperSession:
         return int(TARGET_KEEP), 0.0
 
     # ------------------------------------------------------------------
-    # Execution / position helpers (verbatim from NumbaLivePaperSession)
+    # Execution / position helpers
     # ------------------------------------------------------------------
 
     def _execute_pending(
@@ -618,8 +622,8 @@ class PythonLivePaperSession:
     ) -> Optional[PaperFill]:
         """Execute pending order at the given bar's open price.
 
-        Same execution model as NumbaLivePaperSession to keep paper-Python
-        results comparable with paper-Numba runs.
+        Single-position next-bar-open execution model shared with the
+        event-driven backtest runner.
         """
         pending = self._pending_order
         if pending is None:

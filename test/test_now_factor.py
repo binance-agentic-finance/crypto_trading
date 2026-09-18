@@ -28,20 +28,20 @@ if str(project_root) not in sys.path:
 # 导入 cyqnt_trd 包
 try:
     from cyqnt_trd.get_data.get_futures_data import get_and_save_futures_klines
-    from cyqnt_trd.trading_signal.factor.ma_factor import ma_factor
-    from cyqnt_trd.trading_signal.factor.rsi_factor import rsi_factor
-    from cyqnt_trd.trading_signal.factor.stochastic_factor import stochastic_k_factor
-    from cyqnt_trd.trading_signal.factor.cci_factor import cci_factor
-    from cyqnt_trd.trading_signal.factor.adx_factor import adx_factor
-    from cyqnt_trd.trading_signal.factor.ao_factor import ao_factor
-    from cyqnt_trd.trading_signal.factor.momentum_factor import momentum_factor
-    from cyqnt_trd.trading_signal.factor.macd_factor import macd_level_factor
-    from cyqnt_trd.trading_signal.factor.stochastic_tsi_factor import stochastic_tsi_fast_factor
-    from cyqnt_trd.trading_signal.factor.williams_r_factor import williams_r_factor
-    from cyqnt_trd.trading_signal.factor.bbp_factor import bbp_factor
-    from cyqnt_trd.trading_signal.factor.uo_factor import uo_factor
-    from cyqnt_trd.trading_signal.factor.ema_factor import ema_factor, ema_cross_factor
-    from cyqnt_trd.trading_signal.selected_alpha import (
+    from cyqnt_trd.blocks.factors.ma_factor import ma_factor
+    from cyqnt_trd.blocks.factors.rsi_factor import rsi_factor
+    from cyqnt_trd.blocks.factors.stochastic_factor import stochastic_k_factor
+    from cyqnt_trd.blocks.factors.cci_factor import cci_factor
+    from cyqnt_trd.blocks.factors.adx_factor import adx_factor
+    from cyqnt_trd.blocks.factors.ao_factor import ao_factor
+    from cyqnt_trd.blocks.factors.momentum_factor import momentum_factor
+    from cyqnt_trd.blocks.factors.macd_factor import macd_level_factor
+    from cyqnt_trd.blocks.factors.stochastic_tsi_factor import stochastic_tsi_fast_factor
+    from cyqnt_trd.blocks.factors.williams_r_factor import williams_r_factor
+    from cyqnt_trd.blocks.factors.bbp_factor import bbp_factor
+    from cyqnt_trd.blocks.factors.uo_factor import uo_factor
+    from cyqnt_trd.blocks.factors.ema_factor import ema_factor, ema_cross_factor
+    from cyqnt_trd.blocks.alphas import (
         alpha1_factor, alpha3_factor, alpha7_factor, alpha9_factor,
         alpha11_factor, alpha15_factor, alpha17_factor, alpha21_factor,
         alpha23_factor, alpha25_factor, alpha29_factor, alpha33_factor,

@@ -6,7 +6,8 @@ from pathlib import Path
 import pytest
 
 from cyqnt_trd.standard_bot.entrypoints.mvp_paper_daemon import BarFetcher, PaperDaemon
-from cyqnt_trd.standard_bot.simulation import NumbaLivePaperSession
+from cyqnt_trd.standard_bot.signal.framework_strategies import register_builtin_block_plugin
+from cyqnt_trd.standard_bot.simulation import PythonLivePaperSession
 
 
 def _make_bar(index: int, close: float, interval_ms: int = 60_000) -> dict:
@@ -60,53 +61,12 @@ def test_bar_fetcher_catches_up_all_missing_bars(monkeypatch: pytest.MonkeyPatch
     assert len(calls) >= 3
 
 
-def test_live_paper_session_checkpoint_round_trip_continues_identically() -> None:
-    bars = _bars_with_crosses()
-    config = {
-        "instrument_id": "BTCUSDT",
-        "timeframe": "1m",
-        "fast_window": 2,
-        "slow_window": 5,
-        "entry_threshold": 0.0,
-    }
-
-    original = NumbaLivePaperSession(
-        strategy_id="moving_average_cross",
-        symbol="BTCUSDT",
-        config=config,
-        initial_capital=10_000.0,
-        fee_bps=4.0,
-        slippage_bps=0.0,
-        max_bar_volume_fraction=0.0,
-    )
-
-    split_index = 15
-    for bar in bars[:split_index]:
-        original.tick(bar)
-
-    restored = NumbaLivePaperSession.from_checkpoint(original.checkpoint_state())
-
-    assert _snapshot_without_clock(restored.state_snapshot()) == _snapshot_without_clock(
-        original.state_snapshot()
-    )
-
-    original_fills = []
-    restored_fills = []
-    for bar in bars[split_index:]:
-        fill_a = original.tick(bar)
-        fill_b = restored.tick(bar)
-        if fill_a is not None:
-            original_fills.append(original._fill_to_dict(fill_a))
-        if fill_b is not None:
-            restored_fills.append(restored._fill_to_dict(fill_b))
-
-    assert restored_fills == original_fills
-    assert _snapshot_without_clock(restored.state_snapshot()) == _snapshot_without_clock(
-        original.state_snapshot()
-    )
-
-
 def test_daemon_restore_reconciles_trade_journal_from_checkpoint(tmp_path: Path) -> None:
+    # The Numba engine was removed; built-in strategies now run through the
+    # unified PythonLivePaperSession after being registered as a blocks plugin.
+    register_builtin_block_plugin(
+        "moving_average_cross", fast_window=2, slow_window=5, entry_threshold=0.0
+    )
     kwargs = dict(
         symbol="BTCUSDT",
         interval="1m",
@@ -122,15 +82,12 @@ def test_daemon_restore_reconciles_trade_journal_from_checkpoint(tmp_path: Path)
     )
 
     daemon = PaperDaemon(state_dir=str(tmp_path), **kwargs)
-    daemon._session = NumbaLivePaperSession(
+    daemon._session = PythonLivePaperSession(
         strategy_id="moving_average_cross",
         symbol="BTCUSDT",
         config={
             "instrument_id": "BTCUSDT",
             "timeframe": "1m",
-            "fast_window": 2,
-            "slow_window": 5,
-            "entry_threshold": 0.0,
         },
         initial_capital=10_000.0,
         fee_bps=4.0,

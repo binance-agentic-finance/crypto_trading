@@ -46,11 +46,11 @@ try:
         get_futures_open_orders,
         cancel_futures_order
     )
-    from cyqnt_trd.trading_signal.signal.ma_signal import ma_signal, ma_cross_signal
-    from cyqnt_trd.trading_signal.signal.factor_based_signal import factor_based_signal, normalized_factor_signal
-    from cyqnt_trd.trading_signal.factor.ma_factor import ma_factor
-    from cyqnt_trd.trading_signal.factor.rsi_factor import rsi_factor
-    from cyqnt_trd.trading_signal.selected_alpha import (
+    from cyqnt_trd.blocks.signals.ma_signal import ma_signal, ma_cross_signal
+    from cyqnt_trd.blocks.signals.factor_based_signal import factor_based_signal, normalized_factor_signal
+    from cyqnt_trd.blocks.factors.ma_factor import ma_factor
+    from cyqnt_trd.blocks.factors.rsi_factor import rsi_factor
+    from cyqnt_trd.blocks.alphas import (
         alpha1_factor, alpha3_factor, alpha7_factor, alpha9_factor,
         alpha11_factor, alpha15_factor, alpha17_factor, alpha21_factor,
         alpha23_factor, alpha25_factor, alpha29_factor, alpha33_factor,

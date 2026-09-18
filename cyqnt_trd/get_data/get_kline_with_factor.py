@@ -138,9 +138,9 @@ def calculate_normalized_alpha_factor(
 
 
 def _get_factor_configs() -> List[tuple]:
-    from cyqnt_trd.trading_signal.factor.ma_factor import ma_factor
-    from cyqnt_trd.trading_signal.factor.rsi_factor import rsi_factor
-    from cyqnt_trd.trading_signal.selected_alpha import (
+    from cyqnt_trd.blocks.factors.ma_factor import ma_factor
+    from cyqnt_trd.blocks.factors.rsi_factor import rsi_factor
+    from cyqnt_trd.blocks.alphas import (
         alpha1_factor,
         alpha3_factor,
         alpha7_factor,

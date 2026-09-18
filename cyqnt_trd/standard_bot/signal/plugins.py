@@ -1,5 +1,5 @@
 """
-Signal plugins backed by shared Numba kernels.
+Signal plugins backed by shared pure-NumPy kernels.
 
 The public plugin interfaces remain Python-friendly, while all numerical
 decision logic is routed through the same array kernels used by the fast
@@ -26,19 +26,18 @@ from ..core import (
 )
 from .encoders import encode_close_series, series_for
 from .interfaces import SignalState, StepSignalResult
-from .numba_kernels import (
+from .kernels import (
+    SIGNAL_BUY,
+    SIGNAL_NONE,
     adx_trend_strength_signal_rows,
     atr_breakout_signal_rows,
     bollinger_mean_reversion_signal_rows,
     donchian_breakout_signal_rows,
     liquidation_reversal_signal_rows,
     macd_trend_follow_signal_rows,
-    oi_funding_breakout_signal_rows,
-    SIGNAL_BUY,
-    SIGNAL_NONE,
-    SIGNAL_SELL,
     moving_average_cross_signal_rows,
     multi_timeframe_ma_spread_signal_rows,
+    oi_funding_breakout_signal_rows,
     price_moving_average_signal_rows,
     rsi_reversion_signal_rows,
 )
@@ -2195,6 +2194,24 @@ class MacdTrendFollowPlugin:
             ),
             signals=emitted,
         )
+
+
+#: Canonical ids of the built-in market SignalPlugins registered by
+#: :func:`register_builtin_plugins`. Callers that used to probe
+#: ``NumbaBacktestRunner.registered_kernels()`` (now removed) use this instead.
+BUILTIN_PLUGIN_IDS = frozenset({
+    "moving_average_cross",
+    "price_moving_average",
+    "rsi_reversion",
+    "donchian_breakout",
+    "oi_funding_breakout",
+    "liquidation_reversal",
+    "adx_trend_strength",
+    "atr_breakout",
+    "bollinger_mean_reversion",
+    "macd_trend_follow",
+    "multi_timeframe_ma_spread",
+})
 
 
 def register_builtin_plugins(registry) -> None:

@@ -49,9 +49,9 @@ SDK_AND_HTTP = (
     "matplotlib",
 )
 
-#: 純計算函式庫。回測引擎用 numba 加速、用 scipy 算統計量,所以它們出現是**正常**的,
-#: 不列進紅線。列在這裡是為了說明「紅線挑的是 SDK/HTTP,不是『所有重的東西』」。
-COMPUTE_LIBRARIES = ("numpy", "pandas", "numba", "scipy")
+#: 純計算函式庫。回測引擎用 numpy / pandas 向量化計算、用 scipy 算統計量,所以它們
+#: 出現是**正常**的,不列進紅線。列在這裡是為了說明「紅線挑的是 SDK/HTTP,不是『所有重的東西』」。
+COMPUTE_LIBRARIES = ("numpy", "pandas", "scipy")
 
 
 def _in_clean_interpreter(body: str) -> dict:
@@ -115,7 +115,7 @@ def test_the_backtest_engine_only_pulls_compute_libraries():
 
     ``standard_bot/simulation/vectorized_backtest.py`` 用的是**絕對**導入
     (``from cyqnt_trd.blocks import indicators as ind``),一定會解析到根 ——
-    根只要是 eager 的,這裡就會把交易所 SDK 拖進來。numba / scipy 是它算得快的原因,
+    根只要是 eager 的,這裡就會把交易所 SDK 拖進來。numpy / pandas 是它算得快的原因,
     屬於正常開銷。
     """
     report = _in_clean_interpreter(
@@ -123,8 +123,8 @@ def test_the_backtest_engine_only_pulls_compute_libraries():
 
     assert report["sdk_and_http"] == [], (
         f"載入回測引擎洩漏了:{report['sdk_and_http']}")
-    assert "numba" in report["compute"] or "scipy" in report["compute"], (
-        "回測引擎連 numba / scipy 都沒載入,這條大概沒真的 import 到東西")
+    assert "numpy" in report["compute"] and "pandas" in report["compute"], (
+        "回測引擎連 numpy / pandas 都沒載入,這條大概沒真的 import 到東西")
 
 
 # ── 但「懶」不等於「壞掉」 ────────────────────────────────────────────────

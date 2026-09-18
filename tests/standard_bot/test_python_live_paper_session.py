@@ -1,6 +1,6 @@
 """
 Tests for PythonLivePaperSession — paper trading powered by ``cyqnt_trd.blocks``
-strategies (mirror of the existing test_live_paper_session.py for the Numba
+strategies (the unified live/paper session; the Numba
 session).
 """
 from __future__ import annotations
@@ -285,6 +285,6 @@ def test_empty_history_returns_no_signal():
     )
     # No bars yet → safe defaults
     target, strength = session._compute_latest_target()
-    from cyqnt_trd.standard_bot.signal.numba_kernels import TARGET_KEEP
+    from cyqnt_trd.standard_bot.simulation.paper_types import TARGET_KEEP
     assert int(target) == int(TARGET_KEEP)
     assert strength == 0.0

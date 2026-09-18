@@ -9,6 +9,8 @@ include setup.py
 recursive-include cyqnt_trd *.py
 recursive-include cyqnt_trd *.md
 recursive-include cyqnt_trd *.txt
+recursive-include cyqnt_trd *.parquet
+recursive-include cyqnt_trd *.json
 
 # 排除不需要的文件
 global-exclude __pycache__

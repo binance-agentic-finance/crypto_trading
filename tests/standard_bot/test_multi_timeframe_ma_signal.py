@@ -10,8 +10,13 @@ from cyqnt_trd.standard_bot.core import (
     SignalPipelineSpec,
 )
 from cyqnt_trd.standard_bot.data import AlignmentPolicy, HistoricalSnapshotAssembler
-from cyqnt_trd.standard_bot.signal import MultiTimeframeMaSpreadConfig, MultiTimeframeMaSpreadPlugin
-from cyqnt_trd.standard_bot.simulation import NumbaBacktestRunner
+from cyqnt_trd.standard_bot.signal import (
+    MultiTimeframeMaSpreadConfig,
+    MultiTimeframeMaSpreadPlugin,
+    SignalPluginRegistry,
+    register_builtin_plugins,
+)
+from cyqnt_trd.standard_bot.simulation import SnapshotBacktestRunner
 
 
 def _mtf_market_bundle() -> MarketBundle:
@@ -123,13 +128,16 @@ def test_multi_timeframe_ma_spread_plugin_emits_short_signal_on_regime_break() -
     assert batch.signals[-1].side.value == "sell"
 
 
-def test_numba_backtest_supports_multi_timeframe_long_short_strategy() -> None:
+def test_event_engine_supports_multi_timeframe_long_short_strategy() -> None:
+    # Numba engine was removed; the multi-timeframe strategy is now backtested on
+    # the event-driven SnapshotBacktestRunner via the same plugin.
+    snapshots = _snapshots()
     request = BacktestRequest(
         request_id=str(uuid.uuid4()),
         instruments=["BTCUSDT"],
         primary_timeframe="5m",
-        start_ts=5 * 60_000,
-        end_ts=48 * 5 * 60_000,
+        start_ts=snapshots[0].meta.decision_as_of or snapshots[0].meta.assembled_at,
+        end_ts=snapshots[-1].meta.decision_as_of or snapshots[-1].meta.assembled_at,
         signal_pipeline=SignalPipelineSpec(
             plugin_chain=[
                 {
@@ -150,11 +158,17 @@ def test_numba_backtest_supports_multi_timeframe_long_short_strategy() -> None:
         slippage_model={"slippage_bps": 0.0, "impact_slippage_bps": 0.0, "max_bar_volume_fraction": 1.0},
     )
 
-    result = NumbaBacktestRunner().run(
+    registry = SignalPluginRegistry()
+    register_builtin_plugins(registry)
+    result = SnapshotBacktestRunner(signal_registry=registry).run(
         request=request,
-        market_bundle=_mtf_market_bundle(),
+        snapshots=snapshots,
     )
 
-    assert result.metrics["signal_count"] >= 1.0
-    assert any(trade["action"] in {"open_short", "flip_to_short"} for trade in result.extras["trades"])
-    assert result.metrics["ending_position_qty"] < 0.0
+    total_signals = sum(len(batch.signals) for batch in result.signal_batches)
+    assert total_signals >= 1
+    trades = result.extras["trades"]
+    assert any(
+        t.get("action") == "entry" and t.get("position_side") == "short"
+        for t in trades
+    )

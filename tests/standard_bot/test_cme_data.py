@@ -13,8 +13,8 @@ from cyqnt_trd.standard_bot.core import MarketBundle, MarketQuery, TimeRange  # 
 from cyqnt_trd.standard_bot.data.cme import (  # noqa: E402
     YahooCmeChartDownloader,
     cme_contract_multiplier,
-    ingest_huggingface_nq_parquets_to_parquet,
     ingest_cme_csv_to_parquet,
+    ingest_huggingface_nq_parquets_to_parquet,
     ingest_yfinance_cme_frame_to_parquet,
 )
 from cyqnt_trd.standard_bot.data.historical import (  # noqa: E402
@@ -22,10 +22,12 @@ from cyqnt_trd.standard_bot.data.historical import (  # noqa: E402
     build_history_path,
     read_parquet_frame,
 )
-from cyqnt_trd.standard_bot.entrypoints import mvp_backtest  # noqa: E402
-from cyqnt_trd.standard_bot.entrypoints import cme_ingest  # noqa: E402
-from cyqnt_trd.standard_bot.entrypoints import cme_hf_ingest  # noqa: E402
-from cyqnt_trd.standard_bot.entrypoints import cme_yfinance_ingest  # noqa: E402
+from cyqnt_trd.standard_bot.entrypoints import (  # noqa: E402
+    cme_hf_ingest,
+    cme_ingest,
+    cme_yfinance_ingest,
+    mvp_backtest,
+)
 
 
 class _FakeResponse:
@@ -344,7 +346,7 @@ def test_cme_yfinance_ingest_entrypoint_uses_downloader(monkeypatch, tmp_path, c
     assert calls[0]["provider_symbol_override"] == "MNQ=F"
 
 
-def test_mvp_backtest_runs_mnq_cme_numba_path(monkeypatch, tmp_path, capsys) -> None:
+def test_mvp_backtest_runs_mnq_cme_framework_path(monkeypatch, tmp_path, capsys) -> None:
     rows = []
     interval_ms = 5 * 60_000
     for index in range(40):
@@ -375,7 +377,7 @@ def test_mvp_backtest_runs_mnq_cme_numba_path(monkeypatch, tmp_path, capsys) -> 
         [
             "mvp_backtest",
             "--engine",
-            "numba",
+            "framework",
             "--market-type",
             "cme",
             "--symbol",
@@ -405,9 +407,11 @@ def test_mvp_backtest_runs_mnq_cme_numba_path(monkeypatch, tmp_path, capsys) -> 
 
     assert mvp_backtest.main() == 0
     captured = capsys.readouterr()
-    assert "engine=numba" in captured.out
-    assert "contract_multiplier=2.0000" in captured.out
+    # The framework backtest is returns-based (ΣW·R), so it is contract-multiplier
+    # invariant — this test now just verifies CME parquet data flows end-to-end
+    # through the unified engine. (Contract-multiplier handling lives in the live
+    # execution layer, exercised separately.)
+    assert "engine=framework" in captured.out
 
     payload = json.loads(output_path.read_text(encoding="utf-8"))
     assert payload["metrics"]["snapshot_count"] == 40.0
-    assert payload["extras"]["liquidity_model"]["contract_multiplier"] == 2.0

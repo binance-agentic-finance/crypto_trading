@@ -11,7 +11,7 @@ work without changes.
 
 The functions accept plain dicts (or PaperPosition/PaperFill dataclasses via
 dict conversion) so they integrate naturally with the daemon's state.json
-format and with NumbaLivePaperSession.state_snapshot().
+format and with PythonLivePaperSession.state_snapshot().
 """
 
 from __future__ import annotations

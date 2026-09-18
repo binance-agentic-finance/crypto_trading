@@ -11,7 +11,7 @@ import numpy as np
 
 from ..core import BacktestRequest, BacktestResult, EquityPoint, SignalContext, SignalKind, TradeSide
 from ..signal.registry import SignalPluginRegistry
-from .metrics_kernels import compute_equity_statistics
+from .metrics import compute_equity_statistics
 
 SIMULATION_NAMESPACE = uuid.UUID("0bf7f6fd-3ca7-57aa-8266-4f22048d8bf8")
 
@@ -325,7 +325,7 @@ class SnapshotBacktestRunner:
         final_equity = float(equity_curve[-1].equity) if equity_curve else initial
         total_return = (final_equity - initial) / initial if initial else 0.0
 
-        # --- Compute performance metrics (same as NumbaBacktestRunner) ---
+        # --- Compute performance metrics (shared metrics helper) ---
         ppy = _periods_per_year(request.primary_timeframe)
         sharpe_ratio = 0.0
         max_drawdown = 0.0

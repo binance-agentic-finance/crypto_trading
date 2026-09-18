@@ -49,6 +49,11 @@ Module layout
 * :mod:`cyqnt_trd.blocks.microstructure` — whale / order flow detection
 * :mod:`cyqnt_trd.blocks.data` — pandas <-> Bar conversion + Binance public data fetchers
 * :mod:`cyqnt_trd.blocks.strategy` — register a user-defined strategy as a SignalPlugin
+* :mod:`cyqnt_trd.blocks.factor_votes` — vectorized {-1,0,1} directional-vote factors (RSI/CCI/ADX/...)
+* :mod:`cyqnt_trd.blocks.factors` — per-symbol point-wise factors (classic TA + JoinQuant + TSI)
+* :mod:`cyqnt_trd.blocks.signals` — stateful buy/sell/hold signal strategies (from trading_signal)
+* :mod:`cyqnt_trd.blocks.alphas` — WorldQuant 101 alpha factors (per-symbol point factors;
+  not eager-imported — ``from cyqnt_trd.blocks.alphas import alpha1_factor``)
 
 Design principles
 -----------------
@@ -79,6 +84,7 @@ from . import (
     entry,
     execution,
     exit,  # noqa: A004 — name shadows builtin on purpose; users normally write `from blocks import exit as ex`
+    factor_votes,
     indicators,
     microstructure,
     patterns,
@@ -112,6 +118,7 @@ __all__ = [
     "entry",
     "execution",
     "exit",
+    "factor_votes",
     "indicators",
     "microstructure",
     "patterns",

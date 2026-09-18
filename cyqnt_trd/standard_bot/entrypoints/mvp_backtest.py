@@ -9,11 +9,12 @@ import json
 import uuid
 from pathlib import Path
 
-from ..core import BacktestRequest, MarketQuery, SignalPipelineSpec, TimeRange
+from ..core import BacktestRequest, MarketQuery
 from ..data import AlignmentPolicy, timeframe_to_ms
 from ..data.derivatives import HistoricalBinanceDerivativesDownloader
 from ..data.liquidations import HistoricalBinanceLiquidationRecorder
 from ..data.snapshot import HistoricalSnapshotAssembler
+from ..simulation import SnapshotBacktestRunner
 from .common import (
     add_historical_data_arguments,
     build_market_data_adapter,
@@ -22,7 +23,6 @@ from .common import (
     infer_contract_multiplier,
     make_registry,
 )
-from ..simulation import NumbaBacktestRunner, SnapshotBacktestRunner
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -31,7 +31,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--interval", default="1h")
     parser.add_argument("--limit", type=int, default=300)
     parser.add_argument("--market-type", choices=["spot", "futures", "cme"], default="spot")
-    parser.add_argument("--engine", choices=["python", "numba"], default="numba")
+    parser.add_argument("--engine", choices=["framework", "python"], default="framework",
+                        help="'framework' (default): unified cyqnt_trd.eval vectorized backtest. "
+                             "'python': legacy event-driven engine.")
     parser.add_argument("--strategy", default="moving_average_cross")
     parser.add_argument("--strategy-module", default=None, help="Python module to import for external strategy registration")
     parser.add_argument("--extra-params", default=None, help="JSON dict of extra strategy config params")
@@ -127,6 +129,64 @@ def load_market_bundle(args: argparse.Namespace, market_query: MarketQuery):
         raise RuntimeError(
             "missing local historical parquet data; rerun with --download-missing or --allow-remote-api"
         ) from error
+
+
+#: Built-in strategy id -> the framework make_signals params, read off the CLI args.
+_BUILTIN_PARAMS = {
+    "moving_average_cross": lambda a: dict(fast_window=a.fast_window, slow_window=a.slow_window,
+                                           entry_threshold=a.entry_threshold),
+    "price_moving_average": lambda a: dict(period=a.ma_period, entry_threshold=a.entry_threshold),
+    "rsi_reversion": lambda a: dict(period=a.rsi_period, oversold=a.oversold, overbought=a.overbought),
+    "donchian_breakout": lambda a: dict(lookback_window=a.donchian_window,
+                                        breakout_buffer_bps=a.breakout_buffer_bps),
+    "multi_timeframe_ma_spread": lambda a: dict(primary_period=a.primary_ma_period,
+                                                secondary_period=a.reference_ma_period,
+                                                threshold_bps=a.spread_threshold_bps),
+    "oi_funding_breakout": lambda a: dict(lookback_window=a.donchian_window,
+                                          breakout_buffer_bps=a.breakout_buffer_bps,
+                                          oi_threshold_bps=a.oi_threshold_bps,
+                                          max_funding_rate_bps=a.max_funding_rate_bps),
+    "liquidation_reversal": lambda a: dict(
+        long_liquidation_threshold_usd=a.long_liquidation_threshold_usd,
+        short_liquidation_threshold_usd=a.short_liquidation_threshold_usd,
+        liquidation_imbalance_ratio=a.liquidation_imbalance_ratio),
+}
+
+
+def _run_framework_engine(args, bars, registry, request):
+    """Run the strategy on the unified cyqnt_trd.eval vectorized backtest.
+
+    Built-in strategies use their make_signals (``signal/framework_strategies``); block
+    strategies (``--strategy-module``) use the registered plugin's ``signal_fn``. The bars
+    become a single-symbol OHLCV frame via ``blocks.data.bars_to_df``.
+    """
+    import pandas as pd
+
+    from cyqnt_trd.blocks.data import bars_to_df
+
+    from ..signal.framework_strategies import FRAMEWORK_STRATEGIES, make_signals_for
+    from ..simulation import FrameworkBacktestRunner
+
+    df = bars_to_df(bars)
+    df.index = pd.to_datetime([b.timestamp for b in bars], unit="ms", utc=True)
+
+    if args.strategy in FRAMEWORK_STRATEGIES:
+        make_signals = make_signals_for(args.strategy, **_BUILTIN_PARAMS[args.strategy](args))
+    else:
+        plugin = registry.get(args.strategy)
+        make_signals = getattr(plugin, "signal_fn", None)
+        if make_signals is None:
+            raise ValueError(
+                f"strategy {args.strategy!r} has no make_signals for --engine framework; "
+                f"built-ins are {sorted(FRAMEWORK_STRATEGIES)}, or pass a --strategy-module "
+                f"that registers a make_signals block strategy.")
+
+    min_history = max(2, min(60, len(df) // 3))
+    return FrameworkBacktestRunner().run(
+        make_signals, df, instrument_id=args.symbol.upper(),
+        initial_capital=args.initial_capital, cost_bps=args.commission_bps,
+        min_history=min_history, request_id=request.request_id,
+        extras={"engine": "framework", "strategy": args.strategy})
 
 
 def main() -> int:
@@ -247,11 +307,8 @@ def main() -> int:
         },
     )
 
-    if args.engine == "numba":
-        result = NumbaBacktestRunner().run(
-            request=request,
-            market_bundle=market_bundle,
-        )
+    if args.engine == "framework":
+        result = _run_framework_engine(args, bars, registry, request)
     else:
         snapshots = HistoricalSnapshotAssembler(policy=policy, tail_bars=args.tail_bars).build(market_bundle)
         request.start_ts = snapshots[0].meta.decision_as_of or snapshots[0].meta.assembled_at
@@ -290,20 +347,6 @@ def main() -> int:
             float(result.metrics.get("final_equity", args.initial_capital)),
         )
     )
-    if args.engine == "numba":
-        print(
-            "execution_model=signal_at_bar_close_fill_next_bar_open "
-            "taker_fee_bps=%.4f funding_bps_per_bar=%.4f max_bar_volume_fraction=%.4f "
-            "contract_multiplier=%.4f quantity_step=%.4f fixed_fee_per_contract=%.4f"
-            % (
-                float(request.fee_model.get("taker_fee_bps", 0.0)),
-                float(request.fee_model.get("funding_bps_per_bar", 0.0)),
-                float(request.slippage_model.get("max_bar_volume_fraction", 0.0)),
-                float(request.extras.get("contract_multiplier", 1.0)),
-                float(request.extras.get("quantity_step", 0.0)),
-                float(request.fee_model.get("fixed_fee_per_contract", 0.0)),
-            )
-        )
     if trades:
         print("last_trade=%s" % json.dumps(trades[-1], ensure_ascii=False))
 

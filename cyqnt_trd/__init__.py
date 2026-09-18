@@ -40,10 +40,9 @@ _OPTIONAL_IMPORT_ERRORS = {}
 #: 懒加载的子包名。顺序不重要——只有被访问的那个会被导入。
 _LAZY_SUBMODULES = (
     "get_data",
-    "trading_signal",
-    "backtesting",
     "standard_bot",
     "strategy_cases",
+    "eval",
     "utils",
     "compat",
 )
@@ -73,10 +72,9 @@ def __dir__():
 
 __all__ = [
     'get_data',
-    'trading_signal',
-    'backtesting',
     'standard_bot',
     'strategy_cases',
+    'eval',
     'utils',
     'compat',
     '__version__',

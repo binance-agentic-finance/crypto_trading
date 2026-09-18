@@ -2,6 +2,7 @@
 Signal layer exports for the standard bot architecture.
 """
 
+from .encoders import EncodedCloseSeries, encode_close_series, series_for
 from .interfaces import (
     BatchSignalPlugin,
     IncrementalSignalPlugin,
@@ -10,8 +11,6 @@ from .interfaces import (
     SignalState,
     StepSignalResult,
 )
-from .encoders import EncodedCloseSeries, encode_close_series, series_for
-from .numba_kernels import NUMBA_AVAILABLE
 from .plugins import (
     AdxTrendStrengthConfig,
     AdxTrendStrengthPlugin,
@@ -59,7 +58,6 @@ __all__ = [
     "MovingAverageCrossPlugin",
     "MultiTimeframeMaSpreadConfig",
     "MultiTimeframeMaSpreadPlugin",
-    "NUMBA_AVAILABLE",
     "OiFundingBreakoutConfig",
     "OiFundingBreakoutPlugin",
     "PipelineStepResult",

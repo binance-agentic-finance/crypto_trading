@@ -526,11 +526,11 @@ async def example_usage():
     
     # 导入信号函数（优先尝试直接导入，适用于已安装的package）
     try:
-        from cyqnt_trd.trading_signal.signal.ma_signal import ma_signal, ma_cross_signal
-        from cyqnt_trd.trading_signal.signal.factor_based_signal import factor_based_signal
-        from cyqnt_trd.trading_signal.factor.ma_factor import ma_factor
-        from cyqnt_trd.trading_signal.factor.rsi_factor import rsi_factor
-        from cyqnt_trd.trading_signal.selected_alpha.alpha1 import alpha1_factor
+        from cyqnt_trd.blocks.signals.ma_signal import ma_signal, ma_cross_signal
+        from cyqnt_trd.blocks.signals.factor_based_signal import factor_based_signal
+        from cyqnt_trd.blocks.factors.ma_factor import ma_factor
+        from cyqnt_trd.blocks.factors.rsi_factor import rsi_factor
+        from cyqnt_trd.blocks.alphas import alpha1_factor
     except ImportError:
         # 如果直接导入失败，尝试添加项目路径（用于开发模式）
         current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -540,11 +540,11 @@ async def example_usage():
         
         # 再次尝试导入
         try:
-            from cyqnt_trd.trading_signal.signal.ma_signal import ma_signal, ma_cross_signal
-            from cyqnt_trd.trading_signal.signal.factor_based_signal import factor_based_signal
-            from cyqnt_trd.trading_signal.factor.ma_factor import ma_factor
-            from cyqnt_trd.trading_signal.factor.rsi_factor import rsi_factor
-            from cyqnt_trd.trading_signal.selected_alpha.alpha1 import alpha1_factor
+            from cyqnt_trd.blocks.signals.ma_signal import ma_signal, ma_cross_signal
+            from cyqnt_trd.blocks.signals.factor_based_signal import factor_based_signal
+            from cyqnt_trd.blocks.factors.ma_factor import ma_factor
+            from cyqnt_trd.blocks.factors.rsi_factor import rsi_factor
+            from cyqnt_trd.blocks.alphas import alpha1_factor
         except ImportError as e:
             logging.error(f"导入信号模块失败: {e}")
             logging.error("请确保已安装 package 或项目路径正确")

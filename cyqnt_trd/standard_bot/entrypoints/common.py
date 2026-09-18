@@ -5,15 +5,13 @@ Shared helpers for standard bot CLI entrypoints.
 from __future__ import annotations
 
 import argparse
-import json
 
-from ..core import TimeRange
-from ..core import SignalPipelineSpec
+from ..core import SignalPipelineSpec, TimeRange
 from ..data.adapters import BinanceRestMarketDataAdapter, HistoricalJsonMarketDataAdapter
 from ..data.downloader import HistoricalBinanceDownloader
 from ..data.historical import HistoricalParquetMarketDataAdapter, LocalFirstMarketDataAdapter
 from ..signal import SignalPluginRegistry, register_builtin_plugins
-from ..simulation import NumbaBacktestRunner
+from ..signal.plugins import BUILTIN_PLUGIN_IDS
 
 
 def make_registry() -> SignalPluginRegistry:
@@ -272,7 +270,7 @@ def build_strategy_pipeline(
             },
         }
     else:
-        if strategy in NumbaBacktestRunner.registered_kernels():
+        if strategy in BUILTIN_PLUGIN_IDS:
             config = {
                 "instrument_id": symbol,
                 "timeframe": interval,
@@ -308,7 +306,6 @@ def build_strategy_pipeline(
             else:
                 raise ValueError(
                     "unsupported strategy '%s'; register external strategies with "
-                    "NumbaBacktestRunner.register_kernel(...) or "
                     "cyqnt_trd.blocks.strategy.register(...) before use" % strategy
                 )
 

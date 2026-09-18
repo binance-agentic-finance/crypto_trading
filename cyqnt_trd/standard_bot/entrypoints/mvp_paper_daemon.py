@@ -1,5 +1,5 @@
 """
-Long-running paper trade daemon using Numba kernels.
+Long-running paper trade daemon (unified make_signals engine).
 
 This daemon runs continuously in the OpenClaw workspace, maintaining strategy
 state in memory.  It writes ``state.json`` atomically so that external watchers
@@ -8,9 +8,9 @@ can read status without triggering a re-run.
 Architecture:
     ┌─────────────────────────────────────────────────────────┐
     │  mvp_paper_daemon (this process, long-running)          │
-    │  ├─ NumbaLivePaperSession (in-memory state)             │
+    │  ├─ PythonLivePaperSession (in-memory state)            │
     │  ├─ Polls Binance REST for new bars at interval         │
-    │  ├─ Runs kernel on each new bar → signals               │
+    │  ├─ Runs make_signals on each new bar → signals         │
     │  ├─ Executes paper fills (next-bar-open model)          │
     │  └─ Writes state.json atomically (tmp + rename)         │
     └─────────────────────────────────────────────────────────┘
@@ -40,18 +40,16 @@ import datetime
 import json
 import os
 import signal
-import sys
 import tempfile
 import time
 import traceback
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 from ..data import timeframe_to_ms
 from ..data.adapters import BinanceRestMarketDataAdapter
-from ..simulation.live_paper_session import NumbaLivePaperSession, PaperFill
+from ..simulation.paper_types import PaperFill
 from ..simulation.python_live_paper_session import PythonLivePaperSession
-
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -242,7 +240,7 @@ class PaperDaemon:
         jarvis_user_id: str = "",
         jarvis_thread_id: str = "",
         session_end_at: str = "",
-        engine: str = "numba",
+        engine: str = "python",
     ) -> None:
         self.symbol = symbol.upper()
         self.interval = interval
@@ -259,8 +257,12 @@ class PaperDaemon:
         self.jarvis_user_id = jarvis_user_id
         self.jarvis_thread_id = jarvis_thread_id
         self.session_end_at = session_end_at
-        if engine not in ("numba", "python"):
-            raise ValueError("engine must be 'numba' or 'python', got %r" % engine)
+        if engine != "python":
+            raise ValueError(
+                "engine must be 'python' (the Numba engine was removed; the paper "
+                "daemon now runs every strategy through the unified make_signals "
+                "path), got %r" % engine
+            )
         self.engine = engine
 
         self.state_dir.mkdir(parents=True, exist_ok=True)
@@ -271,13 +273,37 @@ class PaperDaemon:
         self.events_path = self.state_dir / "events.jsonl"
         self.checkpoint_path = self.state_dir / "session_checkpoint.json"
 
-        self._session: Optional[Any] = None  # Numba or Python session
+        self._session: Optional[Any] = None  # live paper session
         self._fetcher: Optional[BarFetcher] = None
         self._last_bar_ts: int = 0
         self._running = True
         self._poll_count = 0
         self._persisted_trade_log: List[Dict[str, Any]] = []
         self._persisted_trade_ids: set[str] = set()
+
+    def _maybe_register_builtin_strategy(self) -> None:
+        """Register a built-in framework strategy as a blocks plugin (idempotent).
+
+        Built-in strategy ids (moving_average_cross, rsi_reversion, ...) used to be
+        served by Numba kernels. They are now plain ``make_signals`` functions; we
+        wrap the one named by ``--strategy`` in a blocks plugin so the unified
+        PythonLivePaperSession resolves it by id. Non-built-in ids are assumed to be
+        registered by ``--strategy-module`` and are left untouched.
+        """
+        import inspect
+
+        from ..signal.framework_strategies import (
+            FRAMEWORK_STRATEGIES,
+            register_builtin_block_plugin,
+        )
+
+        fn = FRAMEWORK_STRATEGIES.get(self.strategy)
+        if fn is None:
+            return
+        valid = set(inspect.signature(fn).parameters) - {"df"}
+        params = {k: v for k, v in self.extra_params.items() if k in valid}
+        register_builtin_block_plugin(self.strategy, **params)
+        self._log("registered built-in strategy '%s' as a blocks plugin" % self.strategy)
 
     def start(self) -> int:
         """Main entry point. Returns exit code."""
@@ -299,29 +325,21 @@ class PaperDaemon:
         }
         config.update(self.extra_params)
 
-        # Create session — branch on engine type
-        if self.engine == "python":
-            self._log("using Python engine (cyqnt_trd.blocks)")
-            self._session = PythonLivePaperSession(
-                strategy_id=self.strategy,
-                symbol=self.symbol,
-                config=config,
-                initial_capital=self.initial_capital,
-                fee_bps=self.fee_bps,
-                slippage_bps=self.slippage_bps,
-                market_type=self.market_type,
-            )
-        else:
-            self._log("using Numba engine")
-            self._session = NumbaLivePaperSession(
-                strategy_id=self.strategy,
-                symbol=self.symbol,
-                config=config,
-                initial_capital=self.initial_capital,
-                fee_bps=self.fee_bps,
-                slippage_bps=self.slippage_bps,
-                market_type=self.market_type,
-            )
+        # A built-in framework strategy (e.g. moving_average_cross) is registered
+        # on the fly as a blocks plugin so the unified PythonLivePaperSession can
+        # drive it — the Numba live session and its kernels have been removed.
+        self._maybe_register_builtin_strategy()
+
+        self._log("using Python engine (cyqnt_trd.blocks)")
+        self._session = PythonLivePaperSession(
+            strategy_id=self.strategy,
+            symbol=self.symbol,
+            config=config,
+            initial_capital=self.initial_capital,
+            fee_bps=self.fee_bps,
+            slippage_bps=self.slippage_bps,
+            market_type=self.market_type,
+        )
 
         # Create fetcher
         self._fetcher = BarFetcher(
@@ -467,11 +485,10 @@ class PaperDaemon:
                 return False
             payload = _load_state(self.checkpoint_path)
             checkpoint = payload.get("session", payload)
-            # Branch on engine for from_checkpoint
-            if self.engine == "python":
-                restored = PythonLivePaperSession.from_checkpoint(checkpoint)
-            else:
-                restored = NumbaLivePaperSession.from_checkpoint(checkpoint)
+            # A built-in strategy must be (re-)registered as a blocks plugin before
+            # PythonLivePaperSession.from_checkpoint can resolve it by id.
+            self._maybe_register_builtin_strategy()
+            restored = PythonLivePaperSession.from_checkpoint(checkpoint)
         except Exception as exc:
             self._log("WARN: failed to restore checkpoint: %s" % exc)
             return False
@@ -596,7 +613,7 @@ class PaperDaemon:
             "symbol": self.symbol,
             "market_type": self.market_type,
             "mode": "paper",
-            "signal_source": "python_daemon" if self.engine == "python" else "numba_daemon",
+            "signal_source": "python_daemon",
             "strategy": self.strategy,
             "params": self.extra_params,
             "interval": self.interval,
@@ -669,7 +686,7 @@ class PaperDaemon:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Long-running paper trade daemon using Numba kernels or Python (blocks) strategies"
+        description="Long-running paper trade daemon (unified make_signals engine for built-in and blocks strategies)"
     )
     parser.add_argument("--symbol", required=True, help="Trading pair (e.g. BTCUSDT)")
     parser.add_argument("--interval", default="1h", help="Kline interval (default: 1h)")
@@ -679,8 +696,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Python module to import for external strategy registration"
     )
     parser.add_argument(
-        "--engine", choices=["numba", "python"], default="numba",
-        help="Execution engine: 'numba' for @njit kernels (default), 'python' for cyqnt_trd.blocks strategies"
+        "--engine", choices=["python"], default="python",
+        help="Execution engine: 'python' (the only engine; the Numba engine was removed). "
+             "Built-in strategies and cyqnt_trd.blocks strategies both run through the "
+             "unified make_signals path."
     )
     parser.add_argument(
         "--extra-params", default=None,
