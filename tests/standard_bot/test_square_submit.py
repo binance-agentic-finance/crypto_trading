@@ -22,6 +22,7 @@ import pytest
 import yaml
 
 import _fixture_legacy_framework_strategies as legacy
+from cyqnt_trd.standard_bot.signal import framework_live as fl
 from cyqnt_trd.standard_bot.signal import framework_strategies as fs
 from cyqnt_trd.standard_bot.simulation import FrameworkBacktestRunner
 
@@ -242,21 +243,54 @@ def _load_code(entry, calls, feeds):
     return ns, ctx
 
 
+def _bars(df, t=None):
+    """The first ``t + 1`` bars as the list-of-floats dict the live code works on."""
+    t = len(df) - 1 if t is None else t
+    bars = {k: df[k].iloc[:t + 1].tolist() for k in ("open", "high", "low", "close", "volume")}
+    for col in ("oi_change_bps", "funding_rate_bps"):     # live fills only the last bar
+        if col in df.columns:
+            bars[col] = float(df[col].iloc[t])
+    return bars
+
+
 @pytest.mark.parametrize("sid", GEN)
-def test_generated_code_reproduces_repo_signals(sid):
+@pytest.mark.parametrize("seed", (1, 7, 42))
+def test_generated_code_matches_repo_bar_by_bar(sid, seed):
+    """Rolling window: with held = the backtest position on the previous bar, the generated
+    (list-only) _analyze gives the same verdict / target / stop as the pandas strategy on
+    every bar."""
     ns, _ = _load_code(ENTRIES[sid], [], {})
-    df = _df(seed=11)
     p = ns["PARAMS"]
     assert p == {**fs.strategy_defaults(sid),
                  **{k: v for k, (v, _) in builder.LIVE_PARAMS.items()}}
-    size = ns["_sizing"](ns["_forecast"](ns["_factors"](df, p), p))
-    long, short = fs.FRAMEWORK_STRATEGIES[sid](df)
-    pd.testing.assert_series_equal(size["long"], long)
-    pd.testing.assert_series_equal(size["short"], short)
-    for n in (120, 333, len(df)):            # _analyze = last bar of the same three stages
-        out = ns["_analyze"]("BTCUSDT", df.iloc[:n], p)
-        l, s = fs.FRAMEWORK_STRATEGIES[sid](df.iloc[:n])
-        assert out["target_position"] == int(l.iloc[-1]) - int(s.iloc[-1])
+    df = _df(n=400, seed=seed)
+    repo = fs.analyze(sid, df)
+    stop = fs._sizing({"entry_long": repo["long"], "entry_short": repo["short"],
+                       "go_flat": ~(repo["long"] | repo["short"]), "index": df.index,
+                       "price": df["close"]}, stop_pct=p["stop_pct"])["stop"]
+    pos, verdict = repo["position"].tolist(), repo["verdict"].tolist()
+    for t in range(len(df)):
+        out = ns["_analyze"]("BTCUSDT", _bars(df, t), p, held=pos[t - 1] if t else 0.0)
+        assert (out["verdict"], out["target_position"]) == (verdict[t], pos[t]), t
+        if pd.isna(stop.iloc[t]):
+            assert out["stop"] is None, t
+        else:
+            assert out["stop"] == stop.iloc[t], t
+
+
+def test_live_stages_cover_every_submittable_builtin():
+    assert set(fl.LIVE_STAGES) == set(GEN)
+
+
+@pytest.mark.parametrize("sid", GEN)
+def test_generated_code_has_no_pandas_or_numpy(sid):
+    import ast
+    code = (builder.SQUARE_DIR / ENTRIES[sid]["strategyId"] / "code.py").read_text(encoding="utf-8")
+    tree = ast.parse(code)
+    mods = {a.name.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.Import)
+            for a in n.names}
+    mods |= {n.module.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
+    assert mods <= {"asyncio", "time", "decimal", "binance"}, mods
 
 
 def _derivatives(n_oi=50, rate="0.0001"):
@@ -449,9 +483,9 @@ def test_payloads_carry_every_submit_field(tmp_path):
 @pytest.mark.parametrize("sid", ["donchian_breakout", "multi_timeframe_ma_spread"])
 def test_generated_code_flips_by_closing_then_opening_with_buy_sell(sid):
     entry = ENTRIES[sid]
-    df = _df(n=300, seed=5)
+    df = _entry_window(entry)
     probe, _ = _load_code(entry, [], {})
-    target = probe["_analyze"]("BTCUSDT", df, probe["PARAMS"])["target_position"]
+    target = probe["_analyze"]("BTCUSDT", _bars(df), probe["PARAMS"])["target_position"]
     assert target != 0
     calls = []
     ns, ctx = _load_code(entry, calls, _feeds(entry, df, held=-target))   # venue holds the opposite side

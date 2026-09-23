@@ -9,10 +9,7 @@ strategyId: st_oi_funding_breakout  version: r1
 """
 import asyncio
 import time
-from decimal import ROUND_DOWN, ROUND_UP, Decimal
-
-import numpy as np
-import pandas as pd
+from decimal import ROUND_DOWN, Decimal
 
 from binance.strategy.node.capabilities.data import klines, account_balances, derivatives_market_metrics, futures_position_risk
 from binance.strategy.node.capabilities.execution import (
@@ -32,8 +29,7 @@ INTERVAL = "1h"
 MARKET_TYPE = "futures"
 VENUE_CLASS = "um"                 # U 本位永续
 INTERVAL_SEC = 3600
-PANDAS_FREQ = "1h"
-KLINE_LIMIT = 1000                  # 持仓是事件驱动的(无事件 = 继续持有),窗口要够长
+KLINE_LIMIT = 500                   # 覆盖最长窗口 + 1(持仓从交易所读,不需要更长历史)
 LEVERAGE = 1
 PARAMS = {'lookback_window': 20,
  'breakout_buffer_bps': 0.0,
@@ -43,154 +39,88 @@ PARAMS = {'lookback_window': 20,
  'stop_pct': 0.03}
 
 
-def _hold_forward(entry_long: pd.Series, entry_short: pd.Series, go_flat: pd.Series,
-                  index, held: float = 0.0) -> tuple:
-    """Kernel TARGET_{LONG,SHORT,FLAT,KEEP} → forward-filled position → (long, short).
-
-    Precedence on a bar: long > short > flat (kernel events are mutually exclusive, so this
-    only matters if a caller passes overlapping masks). Bars with no event keep the position;
-    bars before the first event hold ``held`` (0 in a backtest, the live holding in a
-    windowed live run — otherwise a window with no event would silently flatten it).
-    """
-    target = pd.Series(np.nan, index=index)
-    target[go_flat.fillna(False)] = 0.0
-    target[entry_short.fillna(False)] = -1.0
-    target[entry_long.fillna(False)] = 1.0
-    pos = target.ffill().fillna(held)
-    return pos > 0, pos < 0
+def _channel(high: list, low: list, n: int):
+    """Donchian bands over the ``n`` bars before the last one (the current bar is excluded)."""
+    if len(high) < n + 1 or len(low) < n + 1:
+        return None, None
+    return max(high[-n - 1:-1]), min(low[-n - 1:-1])
 
 
-def _events(factors: dict, score: pd.Series, *, long=None, short=None, flat=None) -> dict:
-    """Event masks → forecast dict. ``verdict`` is the bar's target event, with the same
-    long > short > flat precedence as :func:`_hold_forward`; ``KEEP`` means no event.
-    ``price`` (the close) is passed through so sizing can place a stop."""
-    index = factors["index"]
-    none = pd.Series(False, index=index)
-    long = none if long is None else long
-    short = none if short is None else short
-    flat = none if flat is None else flat
-    verdict = pd.Series("KEEP", index=index, dtype=object)
-    verdict[flat.fillna(False)] = "FLAT"
-    verdict[short.fillna(False)] = "SHORT"
-    verdict[long.fillna(False)] = "LONG"
-    bias = verdict.map({"LONG": "long", "SHORT": "short"}).fillna("neutral")
-    return {"index": index, "price": factors["close"], "entry_long": long, "entry_short": short,
-            "go_flat": flat, "verdict": verdict, "score": score, "bias": bias}
+def _channel_position(close, upper, lower):
+    if upper is None or lower is None or upper == lower:
+        return None
+    return 2.0 * (close - (upper + lower) / 2.0) / (upper - lower)
 
 
-def _col(df, name: str) -> pd.Series:
-    """A df column if present, else an all-zero series (derivative feeds are optional).
-
-    Zero-filling keeps the backtest contract, but it is a silent no-op: without the feed
-    ``oi_funding_breakout`` degenerates into ``donchian_breakout`` and ``liquidation_reversal``
-    never trades. The factor stages therefore report absent feeds under ``"missing"``
-    (see :func:`_missing`), and the square submission code refuses to trade on them.
-    """
-    if name in df.columns:
-        return df[name]
-    return pd.Series(0.0, index=df.index)
-
-
-def _missing(df, *names: str) -> list:
-    return [name for name in names if name not in df.columns]
-
-
-def _channel_position(close: pd.Series, upper: pd.Series, lower: pd.Series) -> pd.Series:
-    """Where close sits in the channel: -1 at the lower band, +1 at the upper (unbounded)."""
-    width = (upper - lower).replace(0.0, np.nan)
-    return 2.0 * (close - (upper + lower) / 2.0) / width
+def _event(factors: dict, score, *, long=False, short=False, flat=False) -> dict:
+    """Last-bar event → forecast dict; precedence long > short > flat, no event = KEEP."""
+    verdict = "LONG" if long else "SHORT" if short else "FLAT" if flat else "KEEP"
+    bias = {"LONG": "long", "SHORT": "short"}.get(verdict, "neutral")
+    return {"price": factors["close"], "verdict": verdict, "score": score, "bias": bias}
 
 
 # ① 因子(只算原始量,不做判断)
-def _factors(df, p: dict) -> dict:
-    upper = df["high"].shift(1).rolling(p["lookback_window"]).max()
-    lower = df["low"].shift(1).rolling(p["lookback_window"]).min()
-    return {"index": df.index, "close": df["close"], "upper": upper, "lower": lower,
-            "oi_change_bps": _col(df, "oi_change_bps"),
-            "funding_rate_bps": _col(df, "funding_rate_bps"),
-            "missing": _missing(df, "oi_change_bps", "funding_rate_bps")}
+def _factors(bars: dict, p: dict) -> dict:
+    upper, lower = _channel(bars["high"], bars["low"], p["lookback_window"])
+    oi, funding = bars.get("oi_change_bps"), bars.get("funding_rate_bps")
+    return {"close": bars["close"][-1], "upper": upper, "lower": lower,
+            "oi_change_bps": oi, "funding_rate_bps": funding,
+            "missing": [k for k, v in (("oi_change_bps", oi), ("funding_rate_bps", funding))
+                        if v is None]}
 
 
 # ② forecast:因子 → verdict / score / bias
 def _forecast(factors: dict, p: dict) -> dict:
     close, upper, lower = factors["close"], factors["upper"], factors["lower"]
     oi, funding = factors["oi_change_bps"], factors["funding_rate_bps"]
-    oi_ok = oi >= p["oi_threshold_bps"]
-    buy = (oi_ok & (close > upper * (1.0 + p["breakout_buffer_bps"] / 1e4))
-           & (funding <= p["max_funding_rate_bps"]))
-    sell = (oi_ok & (close < lower * (1.0 - p["breakout_buffer_bps"] / 1e4))
-            & (funding >= -p["max_funding_rate_bps"]))
-    return _events(factors, _channel_position(close, upper, lower),
-                   long=buy, short=sell)
+    buf = p["breakout_buffer_bps"] / 1e4
+    oi_ok = oi is not None and oi >= p["oi_threshold_bps"]
+    buy = (oi_ok and upper is not None and close > upper * (1.0 + buf)
+           and funding is not None and funding <= p["max_funding_rate_bps"])
+    sell = (oi_ok and lower is not None and close < lower * (1.0 - buf)
+            and funding is not None and funding >= -p["max_funding_rate_bps"])
+    return _event(factors, _channel_position(close, upper, lower), long=buy, short=sell)
 
 
-# ③ 仓位:forecast → 持仓 / 止损
-DEFAULT_STOP_PCT = 0.03
-
-
-def _sizing(fc: dict, held: float = 0.0, stop_pct: float = DEFAULT_STOP_PCT) -> dict:
-    """③ forecast → position + protective stop price.
-
-    The target is stateful (no event = keep the position), so sizing needs the position
-    held before ``fc`` starts: 0 in a backtest, the exchange holding live. ``stop`` is
-    ``price × (1 ∓ stop_pct)`` on the held side and NaN when flat.
-    """
-    long, short = _hold_forward(fc["entry_long"], fc["entry_short"], fc["go_flat"], fc["index"],
-                                held)
-    position = long.astype(float) - short.astype(float)
+# ③ 仓位:forecast → 目标仓位 / 止损
+def _sizing(fc: dict, held: float = 0.0, stop_pct: float = 0.03) -> dict:
+    """③ forecast → target position + protective stop. No event keeps ``held``."""
+    position = {"LONG": 1, "SHORT": -1, "FLAT": 0}.get(fc["verdict"], int(held))
     price = fc["price"]
-    stop = (price * (1.0 - stop_pct)).where(long, (price * (1.0 + stop_pct)).where(short))
-    return {"long": long, "short": short, "position": position, "stop": stop}
+    stop = (price * (1.0 - stop_pct) if position > 0 else
+            price * (1.0 + stop_pct) if position < 0 else None)
+    return {"position": position, "stop": stop}
 
 
-def _last(series):
-    value = series.iloc[-1] if len(series) else np.nan
-    return float(value) if pd.notna(value) else None
+def _analyze(symbol: str, bars: dict, p: dict = PARAMS, held: float = 0.0) -> dict:
+    """单标的三段式分析:factors → forecast → sizing,只判断最后一根已收盘 K 线。
 
-
-def _analyze(symbol: str, df: pd.DataFrame, p: dict = PARAMS, held: float = 0.0) -> dict:
-    """单标的三段式分析:factors → forecast → sizing,取最后一根已收盘 K 线的结论。
-
-    ``held`` 是当前实际持仓:窗口内没有任何事件时沿用它(无事件 = 保持仓位),
-    这样按窗口算出的目标仓位与回测的逐根持有语义一致。
+    ``held`` 是交易所上的实际持仓:最后一根没有事件就沿用它(无事件 = 保持仓位),
+    与回测的逐根持有语义一致。
     """
-    factors = _factors(df, p)
+    factors = _factors(bars, p)
     fc = _forecast(factors, p)
     size = _sizing(fc, held, p["stop_pct"])
-    return {"symbol": symbol, "verdict": fc["verdict"].iloc[-1], "score": _last(fc["score"]),
-            "bias": fc["bias"].iloc[-1], "target_position": int(size["position"].iloc[-1]),
-            "stop": _last(size["stop"]), "missing": list(factors.get("missing", [])),
-            "factors": {k: _last(v) for k, v in factors.items() if isinstance(v, pd.Series)}}
+    return {"symbol": symbol, "verdict": fc["verdict"], "score": fc["score"], "bias": fc["bias"],
+            "target_position": size["position"], "stop": size["stop"],
+            "missing": list(factors.get("missing", [])),
+            "factors": {k: v for k, v in factors.items() if isinstance(v, (int, float))}}
 
 
-_KLINE_COLUMNS = ["open_time", "open", "high", "low", "close", "volume", "close_time",
-                  "quote_volume", "trades", "taker_buy_base", "taker_buy_quote", "ignore"]
+_KLINE_FIELDS = ("open_time", "open", "high", "low", "close", "volume", "close_time")
 
 
-def _rows_frame(rows, columns) -> pd.DataFrame:
-    """capability 返回的 list[list] 或 list[dict] → DataFrame。"""
-    if rows and isinstance(rows[0], dict):
-        return pd.DataFrame(rows)
-    return pd.DataFrame(rows, columns=columns[:len(rows[0])] if rows else columns)
-
-
-def _bar_time(ms) -> pd.DatetimeIndex:
-    """毫秒时间戳 → 所在 K 线的开盘时间(UTC)。"""
-    return pd.to_datetime(pd.Series(ms).astype("int64"), unit="ms", utc=True).dt.floor(PANDAS_FREQ)
-
-
-def _klines_frame(result) -> pd.DataFrame:
-    """klines 能力返回 {"close": [...], "rows": [...]};也兼容直接给 rows 的写法。"""
+def _bars(result) -> dict:
+    """klines 返回 {"close": [...], "rows": [...]} → 各列 float 列表(行可以是 list 或 dict)。"""
     rows = result["rows"] if isinstance(result, dict) else result
-    df = _rows_frame(rows, _KLINE_COLUMNS).rename(
-        columns={"openTime": "open_time", "closeTime": "close_time", "quoteVolume": "quote_volume"})
-    for col in ("open", "high", "low", "close", "volume"):
-        df[col] = df[col].astype(float)
-    df.index = pd.DatetimeIndex(_bar_time(df["open_time"]))
-    # 只用已收盘的 K 线:最后一根还没走完就丢掉,和回测逐根决策的口径一致。
-    if "close_time" in df.columns and len(df) and int(df["close_time"].iloc[-1]) > time.time() * 1000:
-        df = df.iloc[:-1]
-    return df
+    rows = [r if isinstance(r, dict) else dict(zip(_KLINE_FIELDS, r)) for r in (rows or [])]
+    # closed_only=True 已经只给收盘 K 线;再防一手:最后一根没走完就丢掉。
+    if rows and rows[-1].get("close_time") is not None \
+            and int(rows[-1]["close_time"]) > time.time() * 1000:
+        rows = rows[:-1]
+    if not rows:
+        raise RuntimeError(f"no klines for {SYMBOL}")
+    return {k: [float(r[k]) for r in rows] for k in ("open", "high", "low", "close", "volume")}
 
 
 def _records(out) -> list:
@@ -235,35 +165,25 @@ def _position_amt(records, symbol: str) -> float:
     return 0.0
 
 
-def _attach_open_interest(df: pd.DataFrame, out) -> pd.DataFrame:
+def _attach_open_interest(bars: dict, out) -> dict:
     """持仓量历史 → 最后一根 K 线的 oi_change_bps(相邻两期变化,bps)。
 
-    只填最后一根:更早的 K 线留 NaN(比较为 False = 不产生事件),持仓由 held 延续。
-    记录按时间升序、最后一条对应最新一期(字段名待 SDK 确认)。
+    记录按时间升序、最后一条对应最新一期(字段名待 SDK 确认);取不到就不填,由 missing 拦下。
     """
-    values = []
-    for r in _records(out):
-        v = r.get("open_interest", r.get("sumOpenInterest"))
-        if v not in (None, ""):
-            values.append(float(v))
-    if len(values) < 2 or values[-2] <= 0:
-        return df
-    df = df.copy()
-    df["oi_change_bps"] = np.nan
-    df.iloc[-1, df.columns.get_loc("oi_change_bps")] = (values[-1] / values[-2] - 1.0) * 10_000.0
-    return df
+    values = [_num(r, "open_interest", "sumOpenInterest") for r in _records(out)]
+    values = [v for v in values if v > 0]
+    if len(values) >= 2:
+        bars = {**bars, "oi_change_bps": (values[-1] / values[-2] - 1.0) * 10_000.0}
+    return bars
 
 
-def _attach_funding(df: pd.DataFrame, out) -> pd.DataFrame:
-    """当前资金费率 → 最后一根 K 线的 funding_rate_bps(字段名待 SDK 确认)。"""
+def _attach_funding(bars: dict, out) -> dict:
+    """当前资金费率 → funding_rate_bps(字段名待 SDK 确认)。"""
     recs = _records(out)
     rate = recs[-1].get("funding_rate", recs[-1].get("fundingRate")) if recs else None
-    if rate in (None, ""):
-        return df
-    df = df.copy()
-    df["funding_rate_bps"] = np.nan
-    df.iloc[-1, df.columns.get_loc("funding_rate_bps")] = float(rate) * 10_000.0
-    return df
+    if rate not in (None, ""):
+        bars = {**bars, "funding_rate_bps": float(rate) * 10_000.0}
+    return bars
 
 
 @node("std:gate")
@@ -309,11 +229,11 @@ def _held(position: dict, price: float) -> int:
 
 
 @node("std:signal")
-async def signal_engine(df: pd.DataFrame, position: dict) -> dict:
-    held = _held(position, float(df["close"].iloc[-1]))
-    out = _analyze(SYMBOL, df, PARAMS, held=float(held))
+async def signal_engine(bars: dict, position: dict) -> dict:
+    held = _held(position, bars["close"][-1])
+    out = _analyze(SYMBOL, bars, PARAMS, held=float(held))
     if out["missing"]:
-        # 缺衍生品数据时 _factors 会补 0,信号就退化成别的策略(或永不触发);宁可这一轮不交易。
+        # 缺衍生品数据时信号会退化成别的策略(或永不触发);宁可这一轮不交易。
         ctx.log("WARN", "missing_feeds", {"missing": out["missing"]})
         raise RuntimeError(f"missing feeds {out['missing']}; skip this round")
     out["held_position"] = held
@@ -390,13 +310,13 @@ async def execute_strategy():
     ctx.state["fetch_position"] = position
     ctx.state["fetch_open_interest"] = fetch_open_interest_raw
     ctx.state["fetch_funding_rate"] = fetch_funding_rate_raw
-    df = _klines_frame(klines_raw)
-    df = _attach_open_interest(df, fetch_open_interest_raw)
-    df = _attach_funding(df, fetch_funding_rate_raw)
-    signal = await signal_engine(df, position)
+    bars = _bars(klines_raw)
+    bars = _attach_open_interest(bars, fetch_open_interest_raw)
+    bars = _attach_funding(bars, fetch_funding_rate_raw)
+    signal = await signal_engine(bars, position)
     ctx.state["signal_engine"] = signal
     if signal["rebalance_needed"]:
-        fill = await rebalance(signal, position, float(df["close"].iloc[-1]))
+        fill = await rebalance(signal, position, bars["close"][-1])
         ctx.state["rebalance"] = fill
         if fill["changed"]:
             ctx.state["notify_signal"] = await notify_signal(signal, fill)

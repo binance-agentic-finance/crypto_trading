@@ -57,10 +57,10 @@ nodes:
     label: K线周期
     widget: text
   - key: limit
-    value: 1000
+    value: 500
     label: K线根数
     widget: number
-    min: 200
+    min: 100
     max: 1500
   - key: market_type
     value: spot
@@ -117,93 +117,67 @@ nodes:
     max: 0.2
     step: 0.005
   code: |
-    def _hold_forward(entry_long: pd.Series, entry_short: pd.Series, go_flat: pd.Series,
-                      index, held: float = 0.0) -> tuple:
-        """Kernel TARGET_{LONG,SHORT,FLAT,KEEP} → forward-filled position → (long, short).
-
-        Precedence on a bar: long > short > flat (kernel events are mutually exclusive, so this
-        only matters if a caller passes overlapping masks). Bars with no event keep the position;
-        bars before the first event hold ``held`` (0 in a backtest, the live holding in a
-        windowed live run — otherwise a window with no event would silently flatten it).
-        """
-        target = pd.Series(np.nan, index=index)
-        target[go_flat.fillna(False)] = 0.0
-        target[entry_short.fillna(False)] = -1.0
-        target[entry_long.fillna(False)] = 1.0
-        pos = target.ffill().fillna(held)
-        return pos > 0, pos < 0
+    def _sma(xs: list, n: int, end: int | None = None):
+        """Mean of the ``n`` values ending before ``end`` (pandas ``rolling(n).mean()``), or None."""
+        end = len(xs) if end is None else end
+        if n <= 0 or end < n:
+            return None
+        return sum(xs[end - n:end]) / n
 
 
-    def _events(factors: dict, score: pd.Series, *, long=None, short=None, flat=None) -> dict:
-        """Event masks → forecast dict. ``verdict`` is the bar's target event, with the same
-        long > short > flat precedence as :func:`_hold_forward`; ``KEEP`` means no event.
-        ``price`` (the close) is passed through so sizing can place a stop."""
-        index = factors["index"]
-        none = pd.Series(False, index=index)
-        long = none if long is None else long
-        short = none if short is None else short
-        flat = none if flat is None else flat
-        verdict = pd.Series("KEEP", index=index, dtype=object)
-        verdict[flat.fillna(False)] = "FLAT"
-        verdict[short.fillna(False)] = "SHORT"
-        verdict[long.fillna(False)] = "LONG"
-        bias = verdict.map({"LONG": "long", "SHORT": "short"}).fillna("neutral")
-        return {"index": index, "price": factors["close"], "entry_long": long, "entry_short": short,
-                "go_flat": flat, "verdict": verdict, "score": score, "bias": bias}
+    def _gt(a, b) -> bool:
+        return a is not None and b is not None and a > b
+
+
+    def _lt(a, b) -> bool:
+        return a is not None and b is not None and a < b
+
+
+    def _event(factors: dict, score, *, long=False, short=False, flat=False) -> dict:
+        """Last-bar event → forecast dict; precedence long > short > flat, no event = KEEP."""
+        verdict = "LONG" if long else "SHORT" if short else "FLAT" if flat else "KEEP"
+        bias = {"LONG": "long", "SHORT": "short"}.get(verdict, "neutral")
+        return {"price": factors["close"], "verdict": verdict, "score": score, "bias": bias}
 
 
     # ① 因子(只算原始量,不做判断)
-    def _factors(df, p: dict) -> dict:
-        fast = df["close"].rolling(p["fast_window"]).mean()
-        slow = df["close"].rolling(p["slow_window"]).mean()
-        return {"index": df.index, "close": df["close"], "fast_ma": fast, "slow_ma": slow, "spread": (fast - slow) / slow}
+    def _factors(bars: dict, p: dict) -> dict:
+        c = bars["close"]
+        fast, slow = _sma(c, p["fast_window"]), _sma(c, p["slow_window"])
+        spread = (fast - slow) / slow if fast is not None and slow else None
+        return {"close": c[-1], "fast_ma": fast, "slow_ma": slow, "spread": spread}
 
 
     # ② forecast:因子 → verdict / score / bias
     def _forecast(factors: dict, p: dict) -> dict:
         spread = factors["spread"]
-        buy = spread > p["entry_threshold"]
-        sell = spread < -p["entry_threshold"]                  # SELL -> FLAT (long-only)
-        return _events(factors, spread, long=buy, flat=sell)
+        return _event(factors, spread, long=_gt(spread, p["entry_threshold"]),
+                      flat=_lt(spread, -p["entry_threshold"]))          # SELL -> FLAT (long-only)
 
 
-    # ③ 仓位:forecast → 持仓 / 止损
-    DEFAULT_STOP_PCT = 0.03
-
-
-    def _sizing(fc: dict, held: float = 0.0, stop_pct: float = DEFAULT_STOP_PCT) -> dict:
-        """③ forecast → position + protective stop price.
-
-        The target is stateful (no event = keep the position), so sizing needs the position
-        held before ``fc`` starts: 0 in a backtest, the exchange holding live. ``stop`` is
-        ``price × (1 ∓ stop_pct)`` on the held side and NaN when flat.
-        """
-        long, short = _hold_forward(fc["entry_long"], fc["entry_short"], fc["go_flat"], fc["index"],
-                                    held)
-        position = long.astype(float) - short.astype(float)
+    # ③ 仓位:forecast → 目标仓位 / 止损
+    def _sizing(fc: dict, held: float = 0.0, stop_pct: float = 0.03) -> dict:
+        """③ forecast → target position + protective stop. No event keeps ``held``."""
+        position = {"LONG": 1, "SHORT": -1, "FLAT": 0}.get(fc["verdict"], int(held))
         price = fc["price"]
-        stop = (price * (1.0 - stop_pct)).where(long, (price * (1.0 + stop_pct)).where(short))
-        return {"long": long, "short": short, "position": position, "stop": stop}
+        stop = (price * (1.0 - stop_pct) if position > 0 else
+                price * (1.0 + stop_pct) if position < 0 else None)
+        return {"position": position, "stop": stop}
 
 
-    def _last(series):
-        value = series.iloc[-1] if len(series) else np.nan
-        return float(value) if pd.notna(value) else None
+    def _analyze(symbol: str, bars: dict, p: dict = PARAMS, held: float = 0.0) -> dict:
+        """单标的三段式分析:factors → forecast → sizing,只判断最后一根已收盘 K 线。
 
-
-    def _analyze(symbol: str, df: pd.DataFrame, p: dict = PARAMS, held: float = 0.0) -> dict:
-        """单标的三段式分析:factors → forecast → sizing,取最后一根已收盘 K 线的结论。
-
-        ``held`` 是当前实际持仓:窗口内没有任何事件时沿用它(无事件 = 保持仓位),
-        这样按窗口算出的目标仓位与回测的逐根持有语义一致。
+        ``held`` 是交易所上的实际持仓:最后一根没有事件就沿用它(无事件 = 保持仓位),
+        与回测的逐根持有语义一致。
         """
-        factors = _factors(df, p)
+        factors = _factors(bars, p)
         fc = _forecast(factors, p)
         size = _sizing(fc, held, p["stop_pct"])
-        return {"symbol": symbol, "verdict": fc["verdict"].iloc[-1], "score": _last(fc["score"]),
-                "bias": fc["bias"].iloc[-1], "target_position": int(size["position"].iloc[-1]),
-                "stop": _last(size["stop"]), "missing": list(factors.get("missing", [])),
-                "factors": {k: _last(v) for k, v in factors.items() if isinstance(v, pd.Series)}}
+        return {"symbol": symbol, "verdict": fc["verdict"], "score": fc["score"], "bias": fc["bias"],
+                "target_position": size["position"], "stop": size["stop"],
+                "missing": list(factors.get("missing", [])),
+                "factors": {k: v for k, v in factors.items() if isinstance(v, (int, float))}}
 - id: rebalance
   type: execution
   function: place_order

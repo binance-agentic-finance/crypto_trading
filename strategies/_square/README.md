@@ -6,7 +6,7 @@
 | 文件 | 说明 |
 |---|---|
 | `registry.json` | **手改的唯一来源**:strategyId / version / name / description / tags / shareLevel / freeFork / icon,以及 custom 节点参数的 label/widget/min/max/step |
-| `<strategyId>/code.py` | 生成物。三段式 `_factors → _forecast → _sizing`,由 `_analyze` 串起来;阶段函数直接从仓库源码复制 |
+| `<strategyId>/code.py` | 生成物。三段式 `_factors → _forecast → _sizing`,由 `_analyze` 串起来;阶段函数从 `framework_live.py` 复制(纯 list,无 pandas) |
 | `<strategyId>/spec.yaml` | 生成物。`strategy / trigger / nodes / edges`,节点 id 与 code 里的 `@node` 函数一一对应 |
 
 ```bash
@@ -77,6 +77,14 @@ code 在桩运行时下与仓库信号相同、spec 与 code 同步。
   都未知;而 forecast 需要完整序列(上穿/下穿要看上一根,持仓要从窗口内最后一个事件前推);
 - OI:平台 `oi_change_pct` 是百分比、仓库是 bps,且对齐方式未知。
 不确定就不拆:阶段函数原样从仓库源码复制,由测试保证与回测逐位一致。
+
+### 生成的 code 不依赖 pandas / numpy
+
+提交的 code 只用标准库(`asyncio` / `time` / `decimal`)+ 平台能力。阶段函数来自
+`cyqnt_trd/standard_bot/signal/framework_live.py`:它是内置策略的**最后一根 K 线**版本,用纯 list 计算
+(持仓从交易所读,所以 live 只需要判断最后一根:有事件就按事件定目标,没事件就保持)。仓库回测侧
+(`framework_strategies.py`)继续用 pandas。一致性用滚动窗口测试保证:对每一根 K 线,令 `held` =
+回测在前一根的持仓,生成 code 的 `_analyze` 给出的 verdict / target_position / stop 与 pandas 版本逐根相同。
 - `oi_funding_breakout` / `liquidation_reversal` 缺衍生品数据时,仓库回测按 0 处理(沿用原口径),
   提交 code 则直接跳过本轮不交易。
 - 与用户样例对齐的调用(参数名照样例):`klines(symbol, timeframe, limit, market_type="spot"|"futures",

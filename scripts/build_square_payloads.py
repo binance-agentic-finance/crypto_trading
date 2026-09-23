@@ -30,13 +30,14 @@ REPO = Path(__file__).resolve().parents[1]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
+from cyqnt_trd.standard_bot.signal import framework_live as fl  # noqa: E402
 from cyqnt_trd.standard_bot.signal import framework_strategies as fs  # noqa: E402
 
 SQUARE_DIR = REPO / "strategies" / "_square"
 REGISTRY = SQUARE_DIR / "registry.json"
 PAYLOAD_DIR = REPO / "dist" / "square_payloads"
 SHARE_LEVELS = ("READ_ONLY", "FULL")
-KLINE_LIMIT = 1000
+KLINE_LIMIT = 500
 #: Live-only knobs (the built-in backtest has neither): exposed as signal_engine custom params.
 LIVE_PARAMS = {
     "target_fraction": (0.2, {"label": "目标仓位占权益比例", "widget": "number",
@@ -93,105 +94,80 @@ def _source(fn, rename: str | None = None) -> str:
 
 
 def stage_source(builtin: str) -> str:
-    """Helpers + ``_factors`` / ``_forecast`` / ``_sizing`` for one built-in."""
-    factors_fn, forecast_fn = fs.STRATEGY_STAGES[builtin]
+    """Helpers + ``_factors`` / ``_forecast`` / ``_sizing`` for one built-in, list-only.
+
+    Taken from :mod:`framework_live` (the last-bar, no-pandas form of the strategies), so the
+    submitted code needs nothing beyond the standard library.
+    """
+    factors_fn, forecast_fn = fl.LIVE_STAGES[builtin]
     stages = _source(factors_fn, "_factors") + "\n\n" + _source(forecast_fn, "_forecast")
-    helpers = [fs._hold_forward, fs._events]
-    helpers += [h for h in (fs._col, fs._missing, fs._channel_position)
-                if f"{h.__name__}(" in stages]
+    helpers = [h for h in (fl._sma, fl._gt, fl._lt, fl._channel, fl._channel_position)
+               if f"{h.__name__}(" in stages] + [fl._event]
     parts = [_source(h) for h in helpers]
     parts += ["# ① 因子(只算原始量,不做判断)\n" + _source(factors_fn, "_factors"),
               "# ② forecast:因子 → verdict / score / bias\n" + _source(forecast_fn, "_forecast"),
-              "# ③ 仓位:forecast → 持仓 / 止损\n"
-              + f"DEFAULT_STOP_PCT = {fs.DEFAULT_STOP_PCT!r}\n\n\n" + _source(fs._sizing)]
+              "# ③ 仓位:forecast → 目标仓位 / 止损\n" + _source(fl._sizing)]
     return "\n\n".join(parts)
 
 
-ANALYZE_SRC = '''\
-def _last(series):
-    value = series.iloc[-1] if len(series) else np.nan
-    return float(value) if pd.notna(value) else None
+ANALYZE_SRC = """\
+def _analyze(symbol: str, bars: dict, p: dict = PARAMS, held: float = 0.0) -> dict:
+    \"\"\"单标的三段式分析:factors → forecast → sizing,只判断最后一根已收盘 K 线。
 
-
-def _analyze(symbol: str, df: pd.DataFrame, p: dict = PARAMS, held: float = 0.0) -> dict:
-    """单标的三段式分析:factors → forecast → sizing,取最后一根已收盘 K 线的结论。
-
-    ``held`` 是当前实际持仓:窗口内没有任何事件时沿用它(无事件 = 保持仓位),
-    这样按窗口算出的目标仓位与回测的逐根持有语义一致。
-    """
-    factors = _factors(df, p)
+    ``held`` 是交易所上的实际持仓:最后一根没有事件就沿用它(无事件 = 保持仓位),
+    与回测的逐根持有语义一致。
+    \"\"\"
+    factors = _factors(bars, p)
     fc = _forecast(factors, p)
     size = _sizing(fc, held, p["stop_pct"])
-    return {"symbol": symbol, "verdict": fc["verdict"].iloc[-1], "score": _last(fc["score"]),
-            "bias": fc["bias"].iloc[-1], "target_position": int(size["position"].iloc[-1]),
-            "stop": _last(size["stop"]), "missing": list(factors.get("missing", [])),
-            "factors": {k: _last(v) for k, v in factors.items() if isinstance(v, pd.Series)}}
-'''
+    return {"symbol": symbol, "verdict": fc["verdict"], "score": fc["score"], "bias": fc["bias"],
+            "target_position": size["position"], "stop": size["stop"],
+            "missing": list(factors.get("missing", [])),
+            "factors": {k: v for k, v in factors.items() if isinstance(v, (int, float))}}
+"""
 
-KLINES_SRC = '''\
-_KLINE_COLUMNS = ["open_time", "open", "high", "low", "close", "volume", "close_time",
-                  "quote_volume", "trades", "taker_buy_base", "taker_buy_quote", "ignore"]
-
-
-def _rows_frame(rows, columns) -> pd.DataFrame:
-    """capability 返回的 list[list] 或 list[dict] → DataFrame。"""
-    if rows and isinstance(rows[0], dict):
-        return pd.DataFrame(rows)
-    return pd.DataFrame(rows, columns=columns[:len(rows[0])] if rows else columns)
+KLINES_SRC = """\
+_KLINE_FIELDS = ("open_time", "open", "high", "low", "close", "volume", "close_time")
 
 
-def _bar_time(ms) -> pd.DatetimeIndex:
-    """毫秒时间戳 → 所在 K 线的开盘时间(UTC)。"""
-    return pd.to_datetime(pd.Series(ms).astype("int64"), unit="ms", utc=True).dt.floor(PANDAS_FREQ)
-
-
-def _klines_frame(result) -> pd.DataFrame:
-    """klines 能力返回 {"close": [...], "rows": [...]};也兼容直接给 rows 的写法。"""
+def _bars(result) -> dict:
+    \"\"\"klines 返回 {"close": [...], "rows": [...]} → 各列 float 列表(行可以是 list 或 dict)。\"\"\"
     rows = result["rows"] if isinstance(result, dict) else result
-    df = _rows_frame(rows, _KLINE_COLUMNS).rename(
-        columns={"openTime": "open_time", "closeTime": "close_time", "quoteVolume": "quote_volume"})
-    for col in ("open", "high", "low", "close", "volume"):
-        df[col] = df[col].astype(float)
-    df.index = pd.DatetimeIndex(_bar_time(df["open_time"]))
-    # 只用已收盘的 K 线:最后一根还没走完就丢掉,和回测逐根决策的口径一致。
-    if "close_time" in df.columns and len(df) and int(df["close_time"].iloc[-1]) > time.time() * 1000:
-        df = df.iloc[:-1]
-    return df
-'''
+    rows = [r if isinstance(r, dict) else dict(zip(_KLINE_FIELDS, r)) for r in (rows or [])]
+    # closed_only=True 已经只给收盘 K 线;再防一手:最后一根没走完就丢掉。
+    if rows and rows[-1].get("close_time") is not None \\
+            and int(rows[-1]["close_time"]) > time.time() * 1000:
+        rows = rows[:-1]
+    if not rows:
+        raise RuntimeError(f"no klines for {SYMBOL}")
+    return {k: [float(r[k]) for r in rows] for k in ("open", "high", "low", "close", "volume")}
+"""
 
 FEED_SRC = {
-    "fetch_open_interest": '''\
-def _attach_open_interest(df: pd.DataFrame, out) -> pd.DataFrame:
-    """持仓量历史 → 最后一根 K 线的 oi_change_bps(相邻两期变化,bps)。
+    "fetch_open_interest": """\
+def _attach_open_interest(bars: dict, out) -> dict:
+    \"\"\"持仓量历史 → 最后一根 K 线的 oi_change_bps(相邻两期变化,bps)。
 
-    只填最后一根:更早的 K 线留 NaN(比较为 False = 不产生事件),持仓由 held 延续。
-    记录按时间升序、最后一条对应最新一期(字段名待 SDK 确认)。
-    """
-    values = []
-    for r in _records(out):
-        v = r.get("open_interest", r.get("sumOpenInterest"))
-        if v not in (None, ""):
-            values.append(float(v))
-    if len(values) < 2 or values[-2] <= 0:
-        return df
-    df = df.copy()
-    df["oi_change_bps"] = np.nan
-    df.iloc[-1, df.columns.get_loc("oi_change_bps")] = (values[-1] / values[-2] - 1.0) * 10_000.0
-    return df
-''',
-    "fetch_funding_rate": '''\
-def _attach_funding(df: pd.DataFrame, out) -> pd.DataFrame:
-    """当前资金费率 → 最后一根 K 线的 funding_rate_bps(字段名待 SDK 确认)。"""
+    记录按时间升序、最后一条对应最新一期(字段名待 SDK 确认);取不到就不填,由 missing 拦下。
+    \"\"\"
+    values = [_num(r, "open_interest", "sumOpenInterest") for r in _records(out)]
+    values = [v for v in values if v > 0]
+    if len(values) >= 2:
+        bars = {**bars, "oi_change_bps": (values[-1] / values[-2] - 1.0) * 10_000.0}
+    return bars
+""",
+    "fetch_funding_rate": """\
+def _attach_funding(bars: dict, out) -> dict:
+    \"\"\"当前资金费率 → funding_rate_bps(字段名待 SDK 确认)。\"\"\"
     recs = _records(out)
     rate = recs[-1].get("funding_rate", recs[-1].get("fundingRate")) if recs else None
-    if rate in (None, ""):
-        return df
-    df = df.copy()
-    df["funding_rate_bps"] = np.nan
-    df.iloc[-1, df.columns.get_loc("funding_rate_bps")] = float(rate) * 10_000.0
-    return df
-''',
+    if rate not in (None, ""):
+        bars = {**bars, "funding_rate_bps": float(rate) * 10_000.0}
+    return bars
+""",
 }
+
+
 #: Gate factors: builtin -> (function name, impl_source, inputs, window from params).
 #: Each is the strategy's core factor (the forecast ``score``) as one list-only function that
 #: ``factor_evaluate`` can score; tests check it equals the repo's score on the last bar.
@@ -327,10 +303,6 @@ FEED_WIDGETS = {"metric_type": {"label": "指标类型"},
                 "limit": {"label": "条数", "widget": "number", "min": 2, "max": 500}}
 
 
-def _pandas_freq(interval: str) -> str:
-    return interval[:-1] + {"m": "min", "h": "h", "d": "D"}[interval[-1]]
-
-
 def build_code(entry: dict) -> str:
     builtin = entry["builtin"]
     params = {**fs.strategy_defaults(builtin), **{k: v for k, (v, _) in LIVE_PARAMS.items()}}
@@ -365,10 +337,7 @@ strategyId: {entry["strategyId"]}  version: {entry["version"]}
 """
 import asyncio
 import time
-from decimal import ROUND_DOWN, ROUND_UP, Decimal
-
-import numpy as np
-import pandas as pd
+from decimal import ROUND_DOWN, Decimal
 
 from binance.strategy.node.capabilities.data import {data_imports}
 {analysis_import}from binance.strategy.node.capabilities.execution import {exec_imports}
@@ -382,8 +351,7 @@ BASE, QUOTE = "{base}", "{quote}"
 INTERVAL = "{entry["interval"]}"
 MARKET_TYPE = "{market}"
 {venue}INTERVAL_SEC = {INTERVAL_SEC[entry["interval"]]}
-PANDAS_FREQ = "{_pandas_freq(entry["interval"])}"
-KLINE_LIMIT = {KLINE_LIMIT}                  # 持仓是事件驱动的(无事件 = 继续持有),窗口要够长
+KLINE_LIMIT = {KLINE_LIMIT}                   # 覆盖最长窗口 + 1(持仓从交易所读,不需要更长历史)
 {leverage}PARAMS = {pprint.pformat(params, sort_dicts=False, width=90)}
 ''']
     out.append(stage_source(builtin))
@@ -460,11 +428,11 @@ def _held(position: dict, price: float) -> int:
 ''')
     nodes.append('''\
 @node("std:signal")
-async def signal_engine(df: pd.DataFrame, position: dict) -> dict:
-    held = _held(position, float(df["close"].iloc[-1]))
-    out = _analyze(SYMBOL, df, PARAMS, held=float(held))
+async def signal_engine(bars: dict, position: dict) -> dict:
+    held = _held(position, bars["close"][-1])
+    out = _analyze(SYMBOL, bars, PARAMS, held=float(held))
     if out["missing"]:
-        # 缺衍生品数据时 _factors 会补 0,信号就退化成别的策略(或永不触发);宁可这一轮不交易。
+        # 缺衍生品数据时信号会退化成别的策略(或永不触发);宁可这一轮不交易。
         ctx.log("WARN", "missing_feeds", {"missing": out["missing"]})
         raise RuntimeError(f"missing feeds {out['missing']}; skip this round")
     out["held_position"] = held
@@ -563,8 +531,8 @@ async def notify_signal(signal: dict, fill: dict) -> dict:
     fetch += '    ctx.state["fetch_klines"] = klines_raw\n'
     fetch += '    ctx.state["fetch_position"] = position\n'
     fetch += "".join(f'    ctx.state["{f[0]}"] = {f[0]}_raw\n' for f in feeds)
-    fetch += "    df = _klines_frame(klines_raw)\n"
-    fetch += "".join(f"    df = {ATTACH_FN[f[0]]}(df, {f[0]}_raw)\n" for f in feeds)
+    fetch += "    bars = _bars(klines_raw)\n"
+    fetch += "".join(f"    bars = {ATTACH_FN[f[0]]}(bars, {f[0]}_raw)\n" for f in feeds)
     out.append(f'''\
 @workflow
 async def execute_strategy():
@@ -573,10 +541,10 @@ async def execute_strategy():
     if not ctx.state["gate"]["tradeable"]:
         ctx.log("WARN", "gate_blocked", {{"verdict": ctx.state["gate"]["verdict"]}})
         return {{"action": "skip", "reason": "gate", "verdict": ctx.state["gate"]["verdict"]}}
-{fetch}    signal = await signal_engine(df, position)
+{fetch}    signal = await signal_engine(bars, position)
     ctx.state["signal_engine"] = signal
     if signal["rebalance_needed"]:
-        fill = await rebalance(signal, position, float(df["close"].iloc[-1]))
+        fill = await rebalance(signal, position, bars["close"][-1])
         ctx.state["rebalance"] = fill
         if fill["changed"]:
             ctx.state["notify_signal"] = await notify_signal(signal, fill)
@@ -646,7 +614,7 @@ def build_spec(entry: dict) -> dict:
                          {"key": "timeframe", "value": interval, "label": "K线周期",
                           "widget": "text"},
                          {"key": "limit", "value": KLINE_LIMIT, "label": "K线根数",
-                          "widget": "number", "min": 200, "max": 1500},
+                          "widget": "number", "min": 100, "max": 1500},
                          {"key": "market_type", "value": entry["market"], "label": "市场"},
                          {"key": "closed_only", "value": True, "label": "只用已收盘K线"}]}]
     spot = entry["market"] == "spot"
