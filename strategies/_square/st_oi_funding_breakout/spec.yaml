@@ -37,10 +37,13 @@ nodes:
     label: 只用已收盘K线
 - id: fetch_open_interest
   type: data
-  function: open_interest_hist
+  function: derivatives_market_metrics
   name: BTCUSDT 持仓量历史
   emoji: 📦
   params:
+  - key: metric_type
+    value: open_interest_history
+    label: 指标类型
   - key: symbol
     value: BTCUSDT
     label: 交易对
@@ -50,27 +53,24 @@ nodes:
     label: 统计周期
     widget: text
   - key: limit
-    value: 500
+    value: 50
     label: 条数
     widget: number
-    min: 50
-    max: 1000
+    min: 2
+    max: 500
 - id: fetch_funding_rate
   type: data
-  function: funding_rate_history
-  name: BTCUSDT 资金费率历史
+  function: derivatives_market_metrics
+  name: BTCUSDT 资金费率
   emoji: 💸
   params:
+  - key: metric_type
+    value: funding_rate_info
+    label: 指标类型
   - key: symbol
     value: BTCUSDT
     label: 交易对
     widget: text
-  - key: limit
-    value: 100
-    label: 条数
-    widget: number
-    min: 50
-    max: 1000
 - id: signal_engine
   type: custom
   name: 三段式信号:因子 → forecast → 仓位

@@ -68,5 +68,10 @@ code 在桩运行时下与仓库信号相同、spec 与 code 同步。
   (样例的 `close_at_trigger=True` + `STOP_MARKET` 是挂止损单;这里是信号翻转时立即平仓)、
   `notify(message, channel="app")`;取数节点都是 `@node("std:fetch", retries=2)`。
   `side`:开多 `BUY`、开空 `SELL`(verdict 仍是 `LONG`/`SHORT`,只在执行层映射);翻转时先平旧仓再按新方向开。
-- **待 SDK 确认**:持仓量 / 资金费率 / 强平订单的 data 节点名(`open_interest_hist` /
-  `funding_rate_history` / `liquidation_orders`)、参数与返回字段 —— 样例里没有,保持现状。
+- 衍生品取数统一走 `derivatives_market_metrics`:持仓量用 `metric_type="open_interest_history"`
+  (`period` = K 线周期,取相邻两期算 bps 变化;单点的 `open_interest` 算不出逐根变化),资金费率用
+  `metric_type="funding_rate_info"`(取最后一条 `funding_rate`)。返回的 `records` 字段名
+  (`open_interest` / `funding_rate`)是防御式读取,**字段待 SDK 确认**。live 只给最后一根 K 线填这两个值,
+  更早的 K 线不产生事件,持仓由实际持仓延续。
+- `st_liquidation_reversal` **不可提交**(registry `submittable: false`):平台没有清算/强平数据能力,
+  不编造取数接口;生成脚本跳过它(不生成包、不生成 payload),仓库回测侧照旧可用。

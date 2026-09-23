@@ -14,7 +14,7 @@ from decimal import ROUND_DOWN, ROUND_UP, Decimal
 import numpy as np
 import pandas as pd
 
-from binance.strategy.node.capabilities.data import klines, funding_rate_history, open_interest_hist
+from binance.strategy.node.capabilities.data import klines, derivatives_market_metrics
 from binance.strategy.node.capabilities.execution import (
     futures_account_config, futures_close_position, futures_open_position, notify)
 from binance.strategy.runtime import ctx, node, workflow
@@ -183,28 +183,38 @@ def _klines_frame(result) -> pd.DataFrame:
     return df
 
 
-def _attach_open_interest(df: pd.DataFrame, rows) -> pd.DataFrame:
-    """持仓量 → oi_change_bps(逐根变化,bps),与 data/derivatives.py 同口径。"""
-    oi = _rows_frame(rows, ["timestamp", "sumOpenInterest"])
-    if oi.empty:
+def _records(out) -> list:
+    return [r for r in ((out or {}).get("records") or []) if isinstance(r, dict)]
+
+
+def _attach_open_interest(df: pd.DataFrame, out) -> pd.DataFrame:
+    """持仓量历史 → 最后一根 K 线的 oi_change_bps(相邻两期变化,bps)。
+
+    只填最后一根:更早的 K 线留 NaN(比较为 False = 不产生事件),持仓由 held 延续。
+    记录按时间升序、最后一条对应最新一期(字段名待 SDK 确认)。
+    """
+    values = []
+    for r in _records(out):
+        v = r.get("open_interest", r.get("sumOpenInterest"))
+        if v not in (None, ""):
+            values.append(float(v))
+    if len(values) < 2 or values[-2] <= 0:
         return df
-    oi.index = pd.DatetimeIndex(_bar_time(oi["timestamp"]))
-    value = oi["sumOpenInterest"].astype(float).groupby(level=0).last()
     df = df.copy()
-    # 没被持仓量数据覆盖的 K 线留 NaN(比较结果为 False = 不产生事件),不补 0。
-    df["oi_change_bps"] = (value.pct_change() * 10_000.0).reindex(df.index)
+    df["oi_change_bps"] = np.nan
+    df.iloc[-1, df.columns.get_loc("oi_change_bps")] = (values[-1] / values[-2] - 1.0) * 10_000.0
     return df
 
 
-def _attach_funding(df: pd.DataFrame, rows) -> pd.DataFrame:
-    """资金费率 → funding_rate_bps,按结算时间向后填充到每根 K 线。"""
-    fr = _rows_frame(rows, ["fundingTime", "fundingRate"])
-    if fr.empty:
+def _attach_funding(df: pd.DataFrame, out) -> pd.DataFrame:
+    """当前资金费率 → 最后一根 K 线的 funding_rate_bps(字段名待 SDK 确认)。"""
+    recs = _records(out)
+    rate = recs[-1].get("funding_rate", recs[-1].get("fundingRate")) if recs else None
+    if rate in (None, ""):
         return df
-    fr.index = pd.DatetimeIndex(_bar_time(fr["fundingTime"]))
-    rate = (fr["fundingRate"].astype(float) * 10_000.0).groupby(level=0).last()
     df = df.copy()
-    df["funding_rate_bps"] = rate.reindex(df.index.union(rate.index)).ffill().reindex(df.index)
+    df["funding_rate_bps"] = np.nan
+    df.iloc[-1, df.columns.get_loc("funding_rate_bps")] = float(rate) * 10_000.0
     return df
 
 
@@ -216,12 +226,12 @@ async def fetch_klines():
 
 @node("std:fetch", retries=2)
 async def fetch_open_interest():
-    return open_interest_hist(symbol=SYMBOL, period=INTERVAL, limit=500)
+    return derivatives_market_metrics(metric_type='open_interest_history', symbol=SYMBOL, period=INTERVAL, limit=50)
 
 
 @node("std:fetch", retries=2)
 async def fetch_funding_rate():
-    return funding_rate_history(symbol=SYMBOL, limit=100)
+    return derivatives_market_metrics(metric_type='funding_rate_info', symbol=SYMBOL)
 
 
 @node("std:signal")

@@ -39,14 +39,17 @@ SHARE_LEVELS = ("READ_ONLY", "FULL")
 KLINE_LIMIT = 1000
 INTERVAL_SEC = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400}
 
-#: Derivative feeds: builtin -> [(node id, capability, spec params, emoji, readable name)].
+#: Derivative feeds: builtin -> [(node id, capability, call kwargs (code), readable name, emoji)].
+#: Both go through ``derivatives_market_metrics``; the record field names are read defensively
+#: and still need confirming against the SDK. Liquidations have no platform capability, so
+#: ``liquidation_reversal`` is marked ``submittable: false`` in the registry.
 DERIVATIVE_FEEDS = {
     "oi_funding_breakout": [
-        ("fetch_open_interest", "open_interest_hist", "持仓量历史", "📦"),
-        ("fetch_funding_rate", "funding_rate_history", "资金费率历史", "💸"),
-    ],
-    "liquidation_reversal": [
-        ("fetch_liquidations", "liquidation_orders", "强平订单", "💥"),
+        ("fetch_open_interest", "derivatives_market_metrics",
+         {"metric_type": "open_interest_history", "symbol": "SYMBOL", "period": "INTERVAL",
+          "limit": 50}, "持仓量历史", "📦"),
+        ("fetch_funding_rate", "derivatives_market_metrics",
+         {"metric_type": "funding_rate_info", "symbol": "SYMBOL"}, "资金费率", "💸"),
     ],
 }
 
@@ -59,6 +62,11 @@ def entries(registry: dict) -> list[dict]:
     """Registry rows with ``defaults`` merged in."""
     base = registry.get("defaults", {})
     return [{**base, **row} for row in registry["strategies"]]
+
+
+def submittable(registry: dict) -> list[dict]:
+    """Rows that can be built and submitted (``submittable: false`` rows carry a reason)."""
+    return [e for e in entries(registry) if e.get("submittable", True)]
 
 
 #: Every platform capability the generated code may call. They are **synchronous** on the
@@ -145,56 +153,55 @@ def _klines_frame(result) -> pd.DataFrame:
 
 FEED_SRC = {
     "fetch_open_interest": '''\
-def _attach_open_interest(df: pd.DataFrame, rows) -> pd.DataFrame:
-    """持仓量 → oi_change_bps(逐根变化,bps),与 data/derivatives.py 同口径。"""
-    oi = _rows_frame(rows, ["timestamp", "sumOpenInterest"])
-    if oi.empty:
+def _records(out) -> list:
+    return [r for r in ((out or {}).get("records") or []) if isinstance(r, dict)]
+
+
+def _attach_open_interest(df: pd.DataFrame, out) -> pd.DataFrame:
+    """持仓量历史 → 最后一根 K 线的 oi_change_bps(相邻两期变化,bps)。
+
+    只填最后一根:更早的 K 线留 NaN(比较为 False = 不产生事件),持仓由 held 延续。
+    记录按时间升序、最后一条对应最新一期(字段名待 SDK 确认)。
+    """
+    values = []
+    for r in _records(out):
+        v = r.get("open_interest", r.get("sumOpenInterest"))
+        if v not in (None, ""):
+            values.append(float(v))
+    if len(values) < 2 or values[-2] <= 0:
         return df
-    oi.index = pd.DatetimeIndex(_bar_time(oi["timestamp"]))
-    value = oi["sumOpenInterest"].astype(float).groupby(level=0).last()
     df = df.copy()
-    # 没被持仓量数据覆盖的 K 线留 NaN(比较结果为 False = 不产生事件),不补 0。
-    df["oi_change_bps"] = (value.pct_change() * 10_000.0).reindex(df.index)
+    df["oi_change_bps"] = np.nan
+    df.iloc[-1, df.columns.get_loc("oi_change_bps")] = (values[-1] / values[-2] - 1.0) * 10_000.0
     return df
 ''',
     "fetch_funding_rate": '''\
-def _attach_funding(df: pd.DataFrame, rows) -> pd.DataFrame:
-    """资金费率 → funding_rate_bps,按结算时间向后填充到每根 K 线。"""
-    fr = _rows_frame(rows, ["fundingTime", "fundingRate"])
-    if fr.empty:
+def _attach_funding(df: pd.DataFrame, out) -> pd.DataFrame:
+    """当前资金费率 → 最后一根 K 线的 funding_rate_bps(字段名待 SDK 确认)。"""
+    recs = _records(out)
+    rate = recs[-1].get("funding_rate", recs[-1].get("fundingRate")) if recs else None
+    if rate in (None, ""):
         return df
-    fr.index = pd.DatetimeIndex(_bar_time(fr["fundingTime"]))
-    rate = (fr["fundingRate"].astype(float) * 10_000.0).groupby(level=0).last()
     df = df.copy()
-    df["funding_rate_bps"] = rate.reindex(df.index.union(rate.index)).ffill().reindex(df.index)
-    return df
-''',
-    "fetch_liquidations": '''\
-def _attach_liquidations(df: pd.DataFrame, rows) -> pd.DataFrame:
-    """强平订单 → 每根 K 线的多/空爆仓名义额(SELL 单 = 多头被强平),与 data/liquidations.py 同口径。"""
-    liq = _rows_frame(rows, ["time", "side", "price", "origQty"])
-    if liq.empty:
-        return df
-    notional = liq["price"].astype(float) * liq["origQty"].astype(float)
-    side = liq["side"].astype(str).str.upper()
-    bars = pd.DatetimeIndex(_bar_time(liq["time"]))
-    df = df.copy()
-    df["long_liq_notional_usd"] = notional.where(side.values == "SELL", 0.0).groupby(bars).sum().reindex(df.index).fillna(0.0)
-    df["short_liq_notional_usd"] = notional.where(side.values == "BUY", 0.0).groupby(bars).sum().reindex(df.index).fillna(0.0)
+    df["funding_rate_bps"] = np.nan
+    df.iloc[-1, df.columns.get_loc("funding_rate_bps")] = float(rate) * 10_000.0
     return df
 ''',
 }
 ATTACH_FN = {"fetch_open_interest": "_attach_open_interest",
-             "fetch_funding_rate": "_attach_funding",
-             "fetch_liquidations": "_attach_liquidations"}
-FEED_CALL = {"open_interest_hist": "symbol=SYMBOL, period=INTERVAL, limit=500",
-             "funding_rate_history": "symbol=SYMBOL, limit=100",
-             "liquidation_orders": "symbol=SYMBOL, limit=1000"}
+             "fetch_funding_rate": "_attach_funding"}
 
 
-FEED_WIDGETS = {"symbol": {"label": "交易对", "widget": "text"},
+def _call_src(kwargs: dict) -> str:
+    """Call kwargs → source; the names SYMBOL / INTERVAL stay symbolic (module constants)."""
+    return ", ".join(f"{k}={v if v in ('SYMBOL', 'INTERVAL') else repr(v)}"
+                     for k, v in kwargs.items())
+
+
+FEED_WIDGETS = {"metric_type": {"label": "指标类型"},
+                "symbol": {"label": "交易对", "widget": "text"},
                 "period": {"label": "统计周期", "widget": "text"},
-                "limit": {"label": "条数", "widget": "number", "min": 50, "max": 1000}}
+                "limit": {"label": "条数", "widget": "number", "min": 2, "max": 500}}
 
 
 def _pandas_freq(interval: str) -> str:
@@ -205,7 +212,7 @@ def build_code(entry: dict) -> str:
     builtin = entry["builtin"]
     params = fs.strategy_defaults(builtin)
     feeds = DERIVATIVE_FEEDS.get(builtin, [])
-    data_imports = ", ".join(["klines"] + sorted(f[1] for f in feeds))
+    data_imports = ", ".join(["klines"] + sorted({f[1] for f in feeds}))
     out = [f'''"""{entry["name"]} —— {entry["description"]}
 
 strategyId: {entry["strategyId"]}  version: {entry["version"]}
@@ -256,11 +263,11 @@ async def fetch_klines():
     return klines(symbol=SYMBOL, timeframe=INTERVAL, limit=KLINE_LIMIT,
                   market_type=MARKET_TYPE, closed_only=True)
 ''']
-    for node_id, capability, _, _ in feeds:
+    for node_id, capability, call, _, _ in feeds:
         nodes.append(f'''\
 @node("std:fetch", retries=2)
 async def {node_id}():
-    return {capability}({FEED_CALL[capability]})
+    return {capability}({_call_src(call)})
 ''')
     nodes.append('''\
 @node("std:signal")
@@ -391,13 +398,9 @@ def build_spec(entry: dict) -> dict:
                           "widget": "number", "min": 200, "max": 1500},
                          {"key": "market_type", "value": entry["market"], "label": "市场"},
                          {"key": "closed_only", "value": True, "label": "只用已收盘K线"}]}]
-    for node_id, capability, name, emoji in feeds:
-        call = dict(kv.split("=") for kv in FEED_CALL[capability].split(", "))
-        params = [{"key": k, "value": {"SYMBOL": symbol, "INTERVAL": interval}.get(v, v)}
-                  for k, v in call.items()]
-        params = [{**p, "value": int(p["value"]) if str(p["value"]).isdigit() else p["value"]}
-                  for p in params]
-        params = [{**p, **FEED_WIDGETS[p["key"]]} for p in params]
+    for node_id, capability, call, name, emoji in feeds:
+        params = [{"key": k, "value": {"SYMBOL": symbol, "INTERVAL": interval}.get(v, v),
+                   **FEED_WIDGETS[k]} for k, v in call.items()]
         nodes.append({"id": node_id, "type": "data", "function": capability,
                       "name": f"{symbol} {name}", "emoji": emoji, "params": params})
     widgets = entry["params"]
@@ -481,7 +484,7 @@ def build_payload(entry: dict, overrides: dict | None = None) -> dict:
 def artefacts(registry: dict | None = None) -> dict[Path, str]:
     """Every committed file under ``strategies/_square/<strategyId>/`` → its expected text."""
     files = {}
-    for entry in entries(registry or load_registry()):
+    for entry in submittable(registry or load_registry()):
         validate_entry(entry)
         folder = SQUARE_DIR / entry["strategyId"]
         files[folder / "code.py"] = build_code(entry)
@@ -509,16 +512,19 @@ def main(argv=None) -> int:
         for p in stale:
             print(f"stale: {p.relative_to(REPO)}")
         return 1 if stale else 0
+    for entry in entries(registry):
+        if not entry.get("submittable", True):
+            print(f"skip {entry['strategyId']}: not submittable ({entry.get('notSubmittableReason')})")
     for path, text in files.items():
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
         print(f"wrote {path.relative_to(REPO)}")
     if not args.no_payloads:
         args.payload_dir.mkdir(parents=True, exist_ok=True)
-        unknown = sorted(set(overrides) - {e["strategyId"] for e in entries(registry)})
+        unknown = sorted(set(overrides) - {e["strategyId"] for e in submittable(registry)})
         if unknown:
             raise SystemExit(f"--strategy-id for unknown strategies: {unknown}")
-        for entry in entries(registry):
+        for entry in submittable(registry):
             out = args.payload_dir / f"{entry['strategyId']}.json"
             payload = build_payload(entry, overrides)
             out.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n",

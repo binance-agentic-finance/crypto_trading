@@ -33,6 +33,8 @@ _spec.loader.exec_module(builder)
 
 SIDS = sorted(fs.FRAMEWORK_STRATEGIES)
 ENTRIES = {e["builtin"]: e for e in builder.entries(builder.load_registry())}
+#: Built-ins that get a submission package (liquidation_reversal has no platform data feed).
+GEN = sorted(e["builtin"] for e in builder.submittable(builder.load_registry()))
 
 
 def _df(n=600, seed=7, derivatives=True):
@@ -150,6 +152,11 @@ def test_sizing_held_only_fills_bars_before_the_first_event():
 # ---------------------------------------------------------------- 3. 提交物
 def test_registry_covers_every_builtin_and_is_valid():
     assert set(ENTRIES) == set(fs.FRAMEWORK_STRATEGIES)
+    blocked = {sid for sid, e in ENTRIES.items() if not e.get("submittable", True)}
+    assert blocked == {"liquidation_reversal"}
+    for sid in blocked:
+        assert ENTRIES[sid]["notSubmittableReason"]
+        assert not (builder.SQUARE_DIR / ENTRIES[sid]["strategyId"]).exists()
     ids = [e["strategyId"] for e in ENTRIES.values()]
     assert len(set(ids)) == len(ids)
     for entry in ENTRIES.values():
@@ -188,7 +195,8 @@ def _load_code(entry, calls, feeds):
     def cap(name):
         def fn(**kwargs):                     # platform capabilities are synchronous
             calls.append((name, kwargs))
-            return feeds.get(name)
+            value = feeds.get(name)
+            return value(**kwargs) if callable(value) else value
         return fn
 
     runtime = types.ModuleType("binance.strategy.runtime")
@@ -197,7 +205,8 @@ def _load_code(entry, calls, feeds):
     runtime.workflow = lambda f: f
     data = types.ModuleType("binance.strategy.node.capabilities.data")
     execution = types.ModuleType("binance.strategy.node.capabilities.execution")
-    for name in ("klines", "open_interest_hist", "funding_rate_history", "liquidation_orders"):
+    for name in ("klines", "account_balances", "futures_position_risk",
+                 "derivatives_market_metrics", "factor_evaluate"):
         setattr(data, name, cap(name))
     for name in ("futures_account_config", "futures_close_position",
                  "futures_open_position", "notify"):
@@ -224,7 +233,7 @@ def _load_code(entry, calls, feeds):
     return ns, ctx
 
 
-@pytest.mark.parametrize("sid", SIDS)
+@pytest.mark.parametrize("sid", GEN)
 def test_generated_code_reproduces_repo_signals(sid):
     ns, _ = _load_code(ENTRIES[sid], [], {})
     df = _df(seed=11)
@@ -240,6 +249,17 @@ def test_generated_code_reproduces_repo_signals(sid):
         assert out["target_position"] == int(l.iloc[-1]) - int(s.iloc[-1])
 
 
+def _derivatives(n_oi=50, rate="0.0001"):
+    """Stub for derivatives_market_metrics: {"records": [...]} per metric_type."""
+    def fn(metric_type, **_):
+        if metric_type == "open_interest_history":
+            return {"records": [{"open_interest": str(1e4 + 10 * i)} for i in range(n_oi)]}
+        if metric_type == "funding_rate_info":
+            return {"records": [{"funding_rate": rate}]}
+        raise AssertionError(metric_type)
+    return fn
+
+
 def _kline_rows(df):
     """Shape of the platform ``klines`` return: {"close": [...], "rows": [...]}."""
     ms = df.index.asi8 // 1_000_000
@@ -249,17 +269,12 @@ def _kline_rows(df):
     return {"close": [float(c) for c in df["close"]], "rows": rows}
 
 
-@pytest.mark.parametrize("sid", SIDS)
+@pytest.mark.parametrize("sid", GEN)
 def test_generated_workflow_runs_and_trades_on_a_target_change(sid):
     df = _df(n=300, seed=5)
     ms = df.index.asi8 // 1_000_000
     feeds = {"klines": _kline_rows(df),
-             "open_interest_hist": [{"timestamp": int(t), "sumOpenInterest": str(1e4 + i)}
-                                    for i, t in enumerate(ms)],
-             "funding_rate_history": [{"fundingTime": int(t), "fundingRate": "0.0001"}
-                                      for t in ms[::8]],
-             "liquidation_orders": [{"time": int(ms[-1]) + 60_000, "side": "SELL",
-                                     "price": "50000", "origQty": "10"}]}
+             "derivatives_market_metrics": _derivatives(n_oi=50)}
     calls = []
     ns, ctx = _load_code(ENTRIES[sid], calls, feeds)
     asyncio.run(ns["execute_strategy"]())
@@ -282,11 +297,9 @@ def test_generated_workflow_runs_and_trades_on_a_target_change(sid):
         assert ctx.state["position"] == signal["target_position"]
     else:
         assert not opened
-    if sid == "liquidation_reversal":
-        assert signal["target_position"] == 1       # a 500k long-liquidation spike on the last bar
 
 
-@pytest.mark.parametrize("sid", ["oi_funding_breakout", "liquidation_reversal"])
+@pytest.mark.parametrize("sid", ["oi_funding_breakout"])
 def test_generated_code_refuses_to_trade_without_its_feed(sid):
     df = _df(n=200, seed=5)
     calls = []
@@ -297,7 +310,7 @@ def test_generated_code_refuses_to_trade_without_its_feed(sid):
     assert ctx.logs and ctx.logs[0][:2] == ("WARN", "missing_feeds")
 
 
-@pytest.mark.parametrize("sid", SIDS)
+@pytest.mark.parametrize("sid", GEN)
 def test_spec_nodes_and_edges_match_code_workflow(sid):
     entry = ENTRIES[sid]
     folder = builder.SQUARE_DIR / entry["strategyId"]
@@ -321,7 +334,8 @@ def test_spec_nodes_and_edges_match_code_workflow(sid):
             for p in n["params"]:
                 if p["key"] in ("symbol", "timeframe", "period", "limit"):
                     assert p.get("label") and p.get("widget") in {"text", "number"}, p
-            assert "min" in by_key["limit"] and "max" in by_key["limit"]
+            if "limit" in by_key:
+                assert "min" in by_key["limit"] and "max" in by_key["limit"]
     for cond in [n["condition"] for n in spec["nodes"] if "condition" in n]:
         for ref in re.findall(r"state\.(\w+)", cond):
             assert ref in ids, f"condition refers to non-node state {ref!r}"
@@ -357,7 +371,7 @@ def test_payload_strategy_id_override(tmp_path):
 def test_payloads_carry_every_submit_field(tmp_path):
     assert builder.main(["--payload-dir", str(tmp_path)]) == 0
     files = sorted(tmp_path.glob("*.json"))
-    assert len(files) == len(SIDS)
+    assert len(files) == len(GEN)
     for f in files:
         payload = json.loads(f.read_text(encoding="utf-8"))
         assert set(payload) == {"strategyId", "version", "spec", "code", "description", "tags",
@@ -387,7 +401,7 @@ def test_generated_code_flips_by_closing_then_opening_with_buy_sell(sid):
     assert ctx.state["position"] == target
 
 
-@pytest.mark.parametrize("sid", SIDS)
+@pytest.mark.parametrize("sid", GEN)
 def test_generated_code_logs_with_level_event_payload(sid):
     import ast
     code = (builder.SQUARE_DIR / ENTRIES[sid]["strategyId"] / "code.py").read_text(encoding="utf-8")
@@ -420,7 +434,7 @@ def test_main_loop_logs_a_failed_round_and_keeps_going():
     assert ctx.logs[0][:2] == ("ERROR", "strategy_round_error")
 
 
-@pytest.mark.parametrize("sid", SIDS)
+@pytest.mark.parametrize("sid", GEN)
 def test_generated_code_never_awaits_a_capability(sid):
     import ast
     code = (builder.SQUARE_DIR / ENTRIES[sid]["strategyId"] / "code.py").read_text(encoding="utf-8")
