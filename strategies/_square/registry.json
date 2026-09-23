@@ -1,0 +1,273 @@
+{
+  "schema": "cyqnt.square_registry/v1",
+  "comment": "广场提交元数据的唯一来源。code / spec.yaml 由 scripts/build_square_payloads.py 从 cyqnt_trd/standard_bot/signal/framework_strategies.py 生成,不要手改生成物。params 的 key 必须与内置策略 make_signals 的签名一致(值取签名默认值)。",
+  "defaults": {
+    "version": "r1",
+    "shareLevel": "FULL",
+    "freeFork": true,
+    "symbol": "BTCUSDT",
+    "interval": "1h",
+    "market": "futures"
+  },
+  "strategies": [
+    {
+      "builtin": "moving_average_cross",
+      "strategyId": "st_moving_average_cross",
+      "name": "快慢均线交叉(只做多)",
+      "description": "BTC 1h 快慢 SMA 价差:快线高于慢线持多,低于慢线平仓,只做多。",
+      "tags": [
+        "趋势",
+        "均线",
+        "只做多",
+        "合约",
+        "BTC"
+      ],
+      "icon": "📈",
+      "params": {
+        "fast_window": {
+          "label": "快线周期",
+          "widget": "number",
+          "min": 2,
+          "max": 100,
+          "step": 1
+        },
+        "slow_window": {
+          "label": "慢线周期",
+          "widget": "number",
+          "min": 5,
+          "max": 400,
+          "step": 1
+        },
+        "entry_threshold": {
+          "label": "价差阈值",
+          "widget": "number",
+          "min": 0.0,
+          "max": 0.05,
+          "step": 0.0005
+        }
+      }
+    },
+    {
+      "builtin": "price_moving_average",
+      "strategyId": "st_price_moving_average",
+      "name": "价格穿越均线(只做多)",
+      "description": "BTC 1h 收盘价上穿 SMA 开多、下穿平仓,只做多。",
+      "tags": [
+        "趋势",
+        "均线",
+        "只做多",
+        "合约",
+        "BTC"
+      ],
+      "icon": "〰️",
+      "params": {
+        "period": {
+          "label": "均线周期",
+          "widget": "number",
+          "min": 2,
+          "max": 400,
+          "step": 1
+        },
+        "entry_threshold": {
+          "label": "穿越幅度阈值",
+          "widget": "number",
+          "min": 0.0,
+          "max": 0.05,
+          "step": 0.0005
+        }
+      }
+    },
+    {
+      "builtin": "rsi_reversion",
+      "strategyId": "st_rsi_reversion",
+      "name": "RSI 均值回归(只做多)",
+      "description": "BTC 1h 简单均值 RSI:低于超卖线开多,高于超买线平仓,只做多。",
+      "tags": [
+        "均值回归",
+        "RSI",
+        "只做多",
+        "合约",
+        "BTC"
+      ],
+      "icon": "🔄",
+      "params": {
+        "period": {
+          "label": "RSI 周期",
+          "widget": "number",
+          "min": 2,
+          "max": 100,
+          "step": 1
+        },
+        "oversold": {
+          "label": "超卖线",
+          "widget": "number",
+          "min": 5.0,
+          "max": 50.0,
+          "step": 1.0
+        },
+        "overbought": {
+          "label": "超买线",
+          "widget": "number",
+          "min": 50.0,
+          "max": 95.0,
+          "step": 1.0
+        }
+      }
+    },
+    {
+      "builtin": "donchian_breakout",
+      "strategyId": "st_donchian_breakout",
+      "name": "唐奇安通道突破(多空)",
+      "description": "BTC 1h 唐奇安通道(不含当根)向上突破做多、向下突破做空,多空翻转。",
+      "tags": [
+        "突破",
+        "趋势",
+        "多空",
+        "合约",
+        "BTC"
+      ],
+      "icon": "🚀",
+      "params": {
+        "lookback_window": {
+          "label": "通道回看根数",
+          "widget": "number",
+          "min": 5,
+          "max": 200,
+          "step": 1
+        },
+        "breakout_buffer_bps": {
+          "label": "突破缓冲(bps)",
+          "widget": "number",
+          "min": 0.0,
+          "max": 200.0,
+          "step": 1.0
+        }
+      }
+    },
+    {
+      "builtin": "multi_timeframe_ma_spread",
+      "strategyId": "st_multi_timeframe_ma_spread",
+      "name": "多周期均线价差(多空)",
+      "description": "BTC 1h 主周期 SMA 对高周期 SMA 的价差多空;高周期均线用 secondary_period×secondary_factor 根 1h K 线近似。",
+      "tags": [
+        "趋势",
+        "多周期",
+        "均线",
+        "多空",
+        "合约"
+      ],
+      "icon": "🧭",
+      "params": {
+        "primary_period": {
+          "label": "主周期均线",
+          "widget": "number",
+          "min": 2,
+          "max": 200,
+          "step": 1
+        },
+        "secondary_period": {
+          "label": "高周期均线",
+          "widget": "number",
+          "min": 2,
+          "max": 200,
+          "step": 1
+        },
+        "threshold_bps": {
+          "label": "价差阈值(bps)",
+          "widget": "number",
+          "min": 0.0,
+          "max": 500.0,
+          "step": 1.0
+        },
+        "secondary_factor": {
+          "label": "高周期倍数(根/根)",
+          "widget": "number",
+          "min": 1,
+          "max": 24,
+          "step": 1
+        }
+      }
+    },
+    {
+      "builtin": "oi_funding_breakout",
+      "strategyId": "st_oi_funding_breakout",
+      "name": "持仓量确认突破(多空)",
+      "description": "BTC 1h 唐奇安突破需持仓量同步上升、资金费率不过热才入场,多空对称;缺持仓量/资金费率数据时不交易。",
+      "tags": [
+        "突破",
+        "持仓量",
+        "资金费率",
+        "合约",
+        "BTC"
+      ],
+      "icon": "📊",
+      "params": {
+        "lookback_window": {
+          "label": "通道回看根数",
+          "widget": "number",
+          "min": 5,
+          "max": 200,
+          "step": 1
+        },
+        "breakout_buffer_bps": {
+          "label": "突破缓冲(bps)",
+          "widget": "number",
+          "min": 0.0,
+          "max": 200.0,
+          "step": 1.0
+        },
+        "oi_threshold_bps": {
+          "label": "持仓量变化下限(bps)",
+          "widget": "number",
+          "min": -500.0,
+          "max": 500.0,
+          "step": 1.0
+        },
+        "max_funding_rate_bps": {
+          "label": "资金费率上限(bps)",
+          "widget": "number",
+          "min": 0.0,
+          "max": 500.0,
+          "step": 1.0
+        }
+      }
+    },
+    {
+      "builtin": "liquidation_reversal",
+      "strategyId": "st_liquidation_reversal",
+      "name": "清算潮反转(多空)",
+      "description": "BTC 1h 单边清算潮反向:多头爆仓集中时做多,空头爆仓集中时做空;缺清算数据时不交易。",
+      "tags": [
+        "反转",
+        "清算",
+        "逆向",
+        "合约",
+        "BTC"
+      ],
+      "icon": "💥",
+      "params": {
+        "long_liquidation_threshold_usd": {
+          "label": "多头爆仓额下限(USD)",
+          "widget": "number",
+          "min": 0.0,
+          "max": 100000000.0,
+          "step": 10000.0
+        },
+        "short_liquidation_threshold_usd": {
+          "label": "空头爆仓额下限(USD)",
+          "widget": "number",
+          "min": 0.0,
+          "max": 100000000.0,
+          "step": 10000.0
+        },
+        "liquidation_imbalance_ratio": {
+          "label": "单边占比下限",
+          "widget": "number",
+          "min": 0.5,
+          "max": 1.0,
+          "step": 0.01
+        }
+      }
+    }
+  ]
+}
