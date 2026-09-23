@@ -180,8 +180,10 @@ def test_long_only_builtins_are_tagged_as_such():
 
 
 def test_committed_artefacts_are_in_sync_with_the_generator():
-    stale = [str(p.relative_to(REPO)) for p, text in builder.artefacts().items()
+    files = builder.artefacts()
+    stale = [str(p.relative_to(REPO)) for p, text in files.items()
              if not p.exists() or p.read_text(encoding="utf-8") != text]
+    stale += [str(p.relative_to(REPO)) for p in builder.extra_files(files)]
     assert not stale, f"regenerate with `python scripts/build_square_payloads.py`: {stale}"
 
 
@@ -192,6 +194,10 @@ class _Ctx:
     def log(self, level, event, data):
         assert level in {"INFO", "WARN", "ERROR"} and isinstance(data, dict)
         self.logs.append((level, event, data))
+
+
+def _code_path(entry):
+    return builder.SQUARE_DIR / entry["strategyId"] / f"{entry['strategyId']}.py"
 
 
 def _load_code(entry, calls, feeds):
@@ -232,7 +238,7 @@ def _load_code(entry, calls, feeds):
     sys.modules.update(mods)
     try:
         ns = {"__name__": f"square_{entry['strategyId']}"}
-        path = builder.SQUARE_DIR / entry["strategyId"] / "code.py"
+        path = builder.SQUARE_DIR / entry["strategyId"] / f"{entry['strategyId']}.py"
         exec(compile(path.read_text(encoding="utf-8"), str(path), "exec"), ns)
     finally:
         for k, v in saved.items():
@@ -285,7 +291,7 @@ def test_live_stages_cover_every_submittable_builtin():
 @pytest.mark.parametrize("sid", GEN)
 def test_generated_code_has_no_pandas_or_numpy(sid):
     import ast
-    code = (builder.SQUARE_DIR / ENTRIES[sid]["strategyId"] / "code.py").read_text(encoding="utf-8")
+    code = _code_path(ENTRIES[sid]).read_text(encoding="utf-8")
     tree = ast.parse(code)
     mods = {a.name.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.Import)
             for a in n.names}
@@ -406,11 +412,12 @@ def test_generated_code_refuses_to_trade_without_its_feed(sid):
 def test_spec_nodes_and_edges_match_code_workflow(sid):
     entry = ENTRIES[sid]
     folder = builder.SQUARE_DIR / entry["strategyId"]
-    spec = yaml.safe_load((folder / "spec.yaml").read_text(encoding="utf-8"))
-    code = (folder / "code.py").read_text(encoding="utf-8")
+    sid_ = entry["strategyId"]
+    spec = yaml.safe_load((folder / f"{sid_}.yaml").read_text(encoding="utf-8"))
+    code = (folder / f"{sid_}.py").read_text(encoding="utf-8")
     assert spec["strategy"]["id"] == entry["strategyId"]
     assert spec["strategy"]["version"] == entry["specVersion"] == "1.0"
-    assert 'version: "1.0"' in (folder / "spec.yaml").read_text(encoding="utf-8")
+    assert 'version: "1.0"' in (folder / f"{sid_}.yaml").read_text(encoding="utf-8")
     assert spec["trigger"] == {"type": "schedule", "config": {"interval": entry["interval"]}}
     node_fns = re.findall(r'^@node\([^)]*\)\nasync def (\w+)\(', code, flags=re.M)
     ids = [n["id"] for n in spec["nodes"]]
@@ -457,7 +464,7 @@ def test_payload_strategy_id_override(tmp_path):
                          "--strategy-id", "st_rsi_reversion=st_btc_rsi_1h_0123abcd"]) == 0
     rsi = json.loads((tmp_path / "st_rsi_reversion.json").read_text(encoding="utf-8"))
     assert rsi["strategyId"] == "st_btc_rsi_1h_0123abcd"
-    assert yaml.safe_load(rsi["spec"])["strategy"]["id"] == "st_rsi_reversion"
+    assert yaml.safe_load(rsi["spec"])["strategy"]["id"] == "st_btc_rsi_1h_0123abcd"
     other = json.loads((tmp_path / "st_donchian_breakout.json").read_text(encoding="utf-8"))
     assert other["strategyId"] == "st_donchian_breakout"
     with pytest.raises(SystemExit):
@@ -501,7 +508,7 @@ def test_generated_code_flips_by_closing_then_opening_with_buy_sell(sid):
 @pytest.mark.parametrize("sid", GEN)
 def test_generated_code_logs_with_level_event_payload(sid):
     import ast
-    code = (builder.SQUARE_DIR / ENTRIES[sid]["strategyId"] / "code.py").read_text(encoding="utf-8")
+    code = _code_path(ENTRIES[sid]).read_text(encoding="utf-8")
     logs = [n for n in ast.walk(ast.parse(code)) if isinstance(n, ast.Call)
             and isinstance(n.func, ast.Attribute) and n.func.attr == "log"
             and isinstance(n.func.value, ast.Name) and n.func.value.id == "ctx"]
@@ -534,7 +541,7 @@ def test_main_loop_logs_a_failed_round_and_keeps_going():
 @pytest.mark.parametrize("sid", GEN)
 def test_generated_code_never_awaits_a_capability(sid):
     import ast
-    code = (builder.SQUARE_DIR / ENTRIES[sid]["strategyId"] / "code.py").read_text(encoding="utf-8")
+    code = _code_path(ENTRIES[sid]).read_text(encoding="utf-8")
     awaited = [n.value.func.id for n in ast.walk(ast.parse(code))
                if isinstance(n, ast.Await) and isinstance(n.value, ast.Call)
                and isinstance(n.value.func, ast.Name)]
@@ -658,3 +665,21 @@ def test_gate_runs_once_and_blocks_non_tradeable_verdicts(sid):
             "status": "ok", "verdict": verdict}})
         asyncio.run(ns["execute_strategy"]())
         assert [c for c in calls if c[0] in ORDER_CAPS], verdict
+
+
+@pytest.mark.parametrize("sid", GEN)
+def test_package_matches_the_demo_layout(sid):
+    entry = ENTRIES[sid]
+    folder = builder.SQUARE_DIR / entry["strategyId"]
+    names = {p.name for p in folder.iterdir() if p.name != "__pycache__"}
+    sid_ = entry["strategyId"]
+    assert names == {f"{sid_}.py", f"{sid_}.yaml", "basic_info.json", "requirement.md"}
+    info = json.loads((folder / "basic_info.json").read_text(encoding="utf-8"))
+    assert set(info) == {"strategyId", "version", "spec", "code", "description", "tags",
+                         "shareLevel", "freeFork", "icon"}
+    assert isinstance(info["spec"], str) and isinstance(info["code"], str)
+    assert info["code"] == (folder / f"{sid_}.py").read_text(encoding="utf-8")
+    assert info["spec"] == (folder / f"{sid_}.yaml").read_text(encoding="utf-8")
+    assert yaml.safe_load(info["spec"])["strategy"]["id"] == info["strategyId"]
+    req = (folder / "requirement.md").read_text(encoding="utf-8")
+    assert entry["requirement"] in req and "止损" in req and "权益" in req

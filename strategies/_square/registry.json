@@ -48,7 +48,8 @@
           "step": 0.0005
         }
       },
-      "market": "spot"
+      "market": "spot",
+      "requirement": "在 BTCUSDT 现货上按 1 小时 K 线运行。每根 K 线收盘后计算快、慢两条简单移动平均线的相对价差 (快-慢)/慢:价差高于入场阈值时持有多头,低于负阈值时卖出空仓,介于两者之间保持原有仓位。只做多,不做空。"
     },
     {
       "builtin": "price_moving_average",
@@ -80,7 +81,8 @@
           "step": 0.0005
         }
       },
-      "market": "spot"
+      "market": "spot",
+      "requirement": "在 BTCUSDT 现货上按 1 小时 K 线运行。收盘价由下向上穿过简单移动平均线、且偏离幅度超过阈值时买入;由上向下穿过时卖出空仓;其余时间保持原有仓位。只做多,不做空。"
     },
     {
       "builtin": "rsi_reversion",
@@ -119,7 +121,8 @@
           "step": 1.0
         }
       },
-      "market": "spot"
+      "market": "spot",
+      "requirement": "在 BTCUSDT 现货上按 1 小时 K 线运行。用简单均值口径(不是 Wilder 平滑)计算 RSI:RSI 低于超卖线时买入,高于超买线时卖出空仓,其余时间保持原有仓位。只做多,不做空,属于均值回归。"
     },
     {
       "builtin": "donchian_breakout",
@@ -150,7 +153,8 @@
           "max": 200.0,
           "step": 1.0
         }
-      }
+      },
+      "requirement": "在 BTCUSDT U 本位永续合约上按 1 小时 K 线运行。唐奇安通道取不含当前 K 线的前 N 根最高价/最低价:收盘价向上突破上轨(加缓冲)时做多,向下突破下轨时做空,反向突破时先平仓再反手,其余时间保持仓位。"
     },
     {
       "builtin": "multi_timeframe_ma_spread",
@@ -195,7 +199,8 @@
           "max": 24,
           "step": 1
         }
-      }
+      },
+      "requirement": "在 BTCUSDT U 本位永续合约上按 1 小时 K 线运行。比较主周期均线和高周期均线(用 secondary_period×secondary_factor 根 1 小时 K 线近似)的相对价差:高于阈值做多,低于负阈值做空,反向时先平后反手。"
     },
     {
       "builtin": "oi_funding_breakout",
@@ -240,7 +245,8 @@
           "max": 500.0,
           "step": 1.0
         }
-      }
+      },
+      "requirement": "在 BTCUSDT U 本位永续合约上按 1 小时 K 线运行。在唐奇安通道突破的基础上加两道确认:持仓量(相邻两期变化)要不低于阈值,资金费率不能过热。向上突破且确认通过时做多,向下突破且确认通过时做空。拿不到持仓量或资金费率数据时本轮不交易。"
     },
     {
       "builtin": "liquidation_reversal",
@@ -280,7 +286,8 @@
         }
       },
       "submittable": false,
-      "notSubmittableReason": "平台没有清算/强平数据能力,无法在平台上取到 long/short 爆仓名义额;不编造取数接口,暂不提交。"
+      "notSubmittableReason": "平台没有清算/强平数据能力,无法在平台上取到 long/short 爆仓名义额;不编造取数接口,暂不提交。",
+      "requirement": "在 BTCUSDT 永续合约上按 1 小时 K 线运行,逆向交易单边清算潮:多头爆仓集中时做多,空头爆仓集中时做空。(平台暂无清算数据能力,不提交。)"
     }
   ]
 }

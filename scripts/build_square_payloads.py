@@ -2,10 +2,14 @@
 
 For every entry in ``strategies/_square/registry.json`` this writes
 
-* ``strategies/_square/<strategyId>/code.py``   — runnable submission code (三段式);
-* ``strategies/_square/<strategyId>/spec.yaml`` — node/edge spec, one node per ``@node``;
-* ``dist/square_payloads/<strategyId>.json``    — the body for ``POST /v1/square/strategies/submit``
-  (strategyId / version / spec / code / description / tags / shareLevel / freeFork / icon).
+* ``strategies/_square/<strategyId>/<strategyId>.py``   — runnable submission code (三段式);
+* ``strategies/_square/<strategyId>/<strategyId>.yaml`` — node/edge spec, one node per ``@node``;
+* ``strategies/_square/<strategyId>/basic_info.json``   — the full submit payload (strategyId /
+  version / spec / code / description / tags / shareLevel / freeFork / icon; spec and code as
+  strings), i.e. the body for ``POST /v1/square/strategies/submit``;
+* ``strategies/_square/<strategyId>/requirement.md``    — the strategy in plain Chinese;
+* ``dist/square_payloads/<strategyId>.json``            — the same payload, with ``--strategy-id``
+  overrides applied (not committed).
 
 The stage functions are copied out of ``cyqnt_trd/standard_bot/signal/framework_strategies.py``
 with :func:`inspect.getsource`, so the submitted code cannot drift from the repo's signals.
@@ -594,7 +598,7 @@ _Dumper.add_representer(_Quoted, lambda d, v: d.represent_scalar("tag:yaml.org,2
                                                                  style='"'))
 
 
-def build_spec(entry: dict) -> dict:
+def build_spec(entry: dict, strategy_id: str | None = None) -> dict:
     builtin = entry["builtin"]
     defaults = fs.strategy_defaults(builtin)
     feeds = DERIVATIVE_FEEDS.get(builtin, [])
@@ -676,7 +680,8 @@ def build_spec(entry: dict) -> dict:
     edges += [{"from": n["id"], "to": "signal_engine"} for n in nodes if n["type"] == "data"]
     edges += [{"from": "signal_engine", "to": "rebalance", "label": "目标仓位变化"},
               {"from": "rebalance", "to": "notify_signal", "label": "已调仓"}]
-    return {"strategy": {"id": entry["strategyId"], "version": _Quoted(entry["specVersion"]),
+    return {"strategy": {"id": strategy_id or entry["strategyId"],
+                         "version": _Quoted(entry["specVersion"]),
                          "name": entry["name"], "description": entry["description"],
                          "source": f"cyqnt_trd.standard_bot.signal.framework_strategies:{builtin}"},
             "trigger": {"type": "schedule", "config": {"interval": interval}},
@@ -694,6 +699,8 @@ def validate_entry(entry: dict) -> None:
         raise ValueError(f"{sid}: strategyId must be st_ + snake_case")
     if entry["builtin"] not in fs.FRAMEWORK_STRATEGIES:
         raise ValueError(f"{sid}: unknown builtin {entry['builtin']!r}")
+    if not entry.get("requirement"):
+        raise ValueError(f"{sid}: requirement (plain-language description) is required")
     if not 3 <= len(entry["tags"]) <= 5:
         raise ValueError(f"{sid}: needs 3-5 tags")
     if not re.fullmatch(r"[a-z][a-z0-9_]*", entry["icon"]):
@@ -717,11 +724,35 @@ def platform_strategy_id(entry: dict, overrides: dict | None = None) -> str:
 
 
 def build_payload(entry: dict, overrides: dict | None = None) -> dict:
-    return {"strategyId": platform_strategy_id(entry, overrides), "version": entry["version"],
-            "spec": dump_spec(build_spec(entry)), "code": build_code(entry),
+    """The submit body. The spec's ``strategy.id`` equals the payload ``strategyId``."""
+    sid = platform_strategy_id(entry, overrides)
+    return {"strategyId": sid, "version": entry["version"],
+            "spec": dump_spec(build_spec(entry, sid)), "code": build_code(entry),
             "description": entry["description"], "tags": list(entry["tags"]),
             "shareLevel": entry["shareLevel"], "freeFork": bool(entry["freeFork"]),
             "icon": entry["icon"]}
+
+
+def build_requirement(entry: dict) -> str:
+    """requirement.md: what the strategy does, its parameters and its risk rules, in Chinese."""
+    defaults = fs.strategy_defaults(entry["builtin"])
+    widgets = entry["params"]
+    lines = [f"# {entry['name']}", "", entry["requirement"], "", "## 参数", ""]
+    lines += [f"- {widgets[k]['label']}(`{k}`):默认 {v}" for k, v in defaults.items()]
+    lines += [f"- {w['label']}(`{k}`):默认 {v}" for k, (v, w) in LIVE_PARAMS.items()]
+    venue = "现货" if entry["market"] == "spot" else "U 本位永续合约(1 倍杠杆、逐仓)"
+    lines += ["", "## 仓位与风控", "",
+              f"- 交易标的:{entry['symbol']} {venue},{entry['interval']} K 线收盘后决策。",
+              "- 持仓以交易所为准:每轮从账户读当前持仓,没有新信号就保持。",
+              "- 仓位 = 目标仓位占权益比例 × 真实权益("
+              + ("可用 USDT + 基础币市值" if entry["market"] == "spot" else "合约账户钱包余额")
+              + ");不足最小下单金额时本轮不下单。",
+              "- 每次开仓后立即挂保护止损单,止损价 = 开仓参考价 ×(1 ∓ 止损比例)。",
+              "- 首轮先用 factor_evaluate 评估核心因子,verdict 为 PASS / PASS_CONDITIONAL / HOLD_INFO 才交易。"
+              if entry["builtin"] in GATE_FACTORS else
+              "- 核心因子依赖持仓量 / 资金费率确认,无法交给 factor_evaluate 评估,研究闸门固定为 HOLD_INFO。",
+              "- 取数或下单出错时本轮跳过并记录日志,下一轮继续。", ""]
+    return "\n".join(lines)
 
 
 def artefacts(registry: dict | None = None) -> dict[Path, str]:
@@ -730,9 +761,19 @@ def artefacts(registry: dict | None = None) -> dict[Path, str]:
     for entry in submittable(registry or load_registry()):
         validate_entry(entry)
         folder = SQUARE_DIR / entry["strategyId"]
-        files[folder / "code.py"] = build_code(entry)
-        files[folder / "spec.yaml"] = dump_spec(build_spec(entry))
+        payload = build_payload(entry)
+        files[folder / f"{entry['strategyId']}.py"] = payload["code"]
+        files[folder / f"{entry['strategyId']}.yaml"] = payload["spec"]
+        files[folder / "basic_info.json"] = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+        files[folder / "requirement.md"] = build_requirement(entry)
     return files
+
+
+def extra_files(files: dict) -> list[Path]:
+    """Files in a package folder the generator does not produce (e.g. a leftover code.py)."""
+    folders = {p.parent for p in files}
+    return sorted(p for d in folders if d.exists() for p in d.iterdir()
+                  if p not in files and p.name != "__pycache__")
 
 
 def main(argv=None) -> int:
@@ -752,6 +793,7 @@ def main(argv=None) -> int:
     if args.check:
         stale = [p for p, text in files.items()
                  if not p.exists() or p.read_text(encoding="utf-8") != text]
+        stale += extra_files(files)
         for p in stale:
             print(f"stale: {p.relative_to(REPO)}")
         return 1 if stale else 0

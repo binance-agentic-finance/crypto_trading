@@ -3,15 +3,19 @@
 内置 7 个策略(`cyqnt_trd/standard_bot/signal/framework_strategies.py` 的 `FRAMEWORK_STRATEGIES`)
 的广场提交 spec + code。
 
+每个可提交的策略一个目录,结构与平台 demo 一致:
+
 | 文件 | 说明 |
 |---|---|
-| `registry.json` | **手改的唯一来源**:strategyId / version / name / description / tags / shareLevel / freeFork / icon,以及 custom 节点参数的 label/widget/min/max/step |
-| `<strategyId>/code.py` | 生成物。三段式 `_factors → _forecast → _sizing`,由 `_analyze` 串起来;阶段函数从 `framework_live.py` 复制(纯 list,无 pandas) |
-| `<strategyId>/spec.yaml` | 生成物。`strategy / trigger / nodes / edges`,节点 id 与 code 里的 `@node` 函数一一对应 |
+| `registry.json` | **手改的唯一来源**:strategyId / version / name / description / tags / shareLevel / freeFork / icon / requirement,custom 节点参数的 label/widget/min/max,以及 `submittable` |
+| `<strategyId>/<strategyId>.py` | 生成物:可执行 code。三段式 `_factors → _forecast → _sizing`,由 `_analyze` 串起来;阶段函数从 `framework_live.py` 复制(纯 list,无 pandas) |
+| `<strategyId>/<strategyId>.yaml` | 生成物:spec(`strategy / trigger / nodes / edges`),节点 id 与 code 里的 `@node` 函数一一对应 |
+| `<strategyId>/basic_info.json` | 生成物:完整提交 payload(9 个字段,spec / code 为字符串),spec 的 `strategy.id` = payload `strategyId` |
+| `<strategyId>/requirement.md` | 生成物:中文自然语言需求 —— 策略做什么、参数、仓位与风控 |
 
 ```bash
-python scripts/build_square_payloads.py            # 重新生成 code/spec,并写 dist/square_payloads/<strategyId>.json
-python scripts/build_square_payloads.py --check    # 只检查提交的 code/spec 是否与生成器一致
+python scripts/build_square_payloads.py            # 重新生成各目录,并写 dist/square_payloads/<strategyId>.json
+python scripts/build_square_payloads.py --check    # 只检查目录里的 4 个文件是否与生成器一致(多余文件也算漂移)
 ```
 
 `dist/square_payloads/*.json` 就是 `POST /v1/square/strategies/submit` 的请求体(不会自动提交),
@@ -24,7 +28,7 @@ python scripts/build_square_payloads.py --check    # 只检查提交的 code/spe
 否则会返回 strategy not found / must be deployed。这里的 `st_*` 只是 spec 里的 `strategy.id`,
 不是平台 ID。步骤:
 
-1. 在平台上用 `<strategyId>/spec.yaml` + `code.py` 创建策略,跑一次模拟盘;
+1. 在平台上用 `<strategyId>/<strategyId>.yaml` + `<strategyId>.py` 创建策略,跑一次模拟盘;
 2. 拿到平台分配的 strategyId(形如 `st_<名称>_<后缀>`),填到 `registry.json` 的
    `platformStrategyId`,或生成时覆盖:
    `python scripts/build_square_payloads.py --strategy-id st_rsi_reversion=<平台 strategyId>`;
