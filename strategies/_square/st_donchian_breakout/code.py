@@ -35,7 +35,10 @@ INTERVAL_SEC = 3600
 PANDAS_FREQ = "1h"
 KLINE_LIMIT = 1000                  # 持仓是事件驱动的(无事件 = 继续持有),窗口要够长
 LEVERAGE = 1
-PARAMS = {'lookback_window': 20, 'breakout_buffer_bps': 0.0, 'target_fraction': 0.2}
+PARAMS = {'lookback_window': 20,
+ 'breakout_buffer_bps': 0.0,
+ 'target_fraction': 0.2,
+ 'stop_pct': 0.03}
 
 
 def _hold_forward(entry_long: pd.Series, entry_short: pd.Series, go_flat: pd.Series,
@@ -55,9 +58,11 @@ def _hold_forward(entry_long: pd.Series, entry_short: pd.Series, go_flat: pd.Ser
     return pos > 0, pos < 0
 
 
-def _events(index, score: pd.Series, *, long=None, short=None, flat=None) -> dict:
+def _events(factors: dict, score: pd.Series, *, long=None, short=None, flat=None) -> dict:
     """Event masks → forecast dict. ``verdict`` is the bar's target event, with the same
-    long > short > flat precedence as :func:`_hold_forward`; ``KEEP`` means no event."""
+    long > short > flat precedence as :func:`_hold_forward`; ``KEEP`` means no event.
+    ``price`` (the close) is passed through so sizing can place a stop."""
+    index = factors["index"]
     none = pd.Series(False, index=index)
     long = none if long is None else long
     short = none if short is None else short
@@ -67,8 +72,8 @@ def _events(index, score: pd.Series, *, long=None, short=None, flat=None) -> dic
     verdict[short.fillna(False)] = "SHORT"
     verdict[long.fillna(False)] = "LONG"
     bias = verdict.map({"LONG": "long", "SHORT": "short"}).fillna("neutral")
-    return {"index": index, "entry_long": long, "entry_short": short, "go_flat": flat,
-            "verdict": verdict, "score": score, "bias": bias}
+    return {"index": index, "price": factors["close"], "entry_long": long, "entry_short": short,
+            "go_flat": flat, "verdict": verdict, "score": score, "bias": bias}
 
 
 def _channel_position(close: pd.Series, upper: pd.Series, lower: pd.Series) -> pd.Series:
@@ -89,21 +94,27 @@ def _forecast(factors: dict, p: dict) -> dict:
     close, upper, lower = factors["close"], factors["upper"], factors["lower"]
     buy = close > upper * (1.0 + p["breakout_buffer_bps"] / 1e4)
     sell = close < lower * (1.0 - p["breakout_buffer_bps"] / 1e4)   # SELL -> SHORT
-    return _events(factors["index"], _channel_position(close, upper, lower),
+    return _events(factors, _channel_position(close, upper, lower),
                    long=buy, short=sell)
 
 
 # ③ 仓位:forecast → 持仓 / 止损
-def _sizing(fc: dict, held: float = 0.0) -> dict:
-    """③ forecast → position. Built-ins trade a unit position and carry no stop.
+DEFAULT_STOP_PCT = 0.03
+
+
+def _sizing(fc: dict, held: float = 0.0, stop_pct: float = DEFAULT_STOP_PCT) -> dict:
+    """③ forecast → position + protective stop price.
 
     The target is stateful (no event = keep the position), so sizing needs the position
-    held before ``fc`` starts: 0 in a backtest, the account/``ctx.state`` holding live.
+    held before ``fc`` starts: 0 in a backtest, the exchange holding live. ``stop`` is
+    ``price × (1 ∓ stop_pct)`` on the held side and NaN when flat.
     """
     long, short = _hold_forward(fc["entry_long"], fc["entry_short"], fc["go_flat"], fc["index"],
                                 held)
     position = long.astype(float) - short.astype(float)
-    return {"long": long, "short": short, "position": position, "stop": None}
+    price = fc["price"]
+    stop = (price * (1.0 - stop_pct)).where(long, (price * (1.0 + stop_pct)).where(short))
+    return {"long": long, "short": short, "position": position, "stop": stop}
 
 
 def _last(series):
@@ -119,10 +130,10 @@ def _analyze(symbol: str, df: pd.DataFrame, p: dict = PARAMS, held: float = 0.0)
     """
     factors = _factors(df, p)
     fc = _forecast(factors, p)
-    size = _sizing(fc, held)
+    size = _sizing(fc, held, p["stop_pct"])
     return {"symbol": symbol, "verdict": fc["verdict"].iloc[-1], "score": _last(fc["score"]),
             "bias": fc["bias"].iloc[-1], "target_position": int(size["position"].iloc[-1]),
-            "stop": size["stop"], "missing": list(factors.get("missing", [])),
+            "stop": _last(size["stop"]), "missing": list(factors.get("missing", [])),
             "factors": {k: _last(v) for k, v in factors.items() if isinstance(v, pd.Series)}}
 
 
@@ -171,9 +182,10 @@ def _num(rec: dict, *keys) -> float:
 
 
 def _asset_qty(records, asset: str) -> float:
+    """可用 + 冻结(挂着的保护止损单会冻结基础币,持仓判断要算上)。"""
     for r in records:
         if (r.get("asset") or r.get("coin")) == asset:
-            return _num(r, "free", "available", "balance", "wallet_balance")
+            return _num(r, "free", "available", "balance", "wallet_balance") + _num(r, "locked")
     return 0.0
 
 
@@ -244,6 +256,14 @@ def _qty(notional: float, price: float) -> float:
     return float((Decimal(str(notional)) / Decimal(str(price))).quantize(STEP, rounding=ROUND_DOWN))
 
 
+def _round_qty(qty: float) -> float:
+    return float(Decimal(str(qty)).quantize(STEP, rounding=ROUND_DOWN))
+
+
+def _round_px(price: float) -> float:
+    return float(Decimal(str(price)).quantize(TICK))
+
+
 @node("exec:entry")
 async def rebalance(signal: dict, position: dict, price: float) -> dict:
     """目标仓位 ≠ 当前仓位:先市价平旧仓,再按新方向开仓(+1 多 / -1 空 / 0 空仓)。"""
@@ -264,9 +284,13 @@ async def rebalance(signal: dict, position: dict, price: float) -> dict:
                                       side="BUY" if target > 0 else "SELL",
                                       position_side="LONG" if target > 0 else "SHORT",
                                       size=qty, order_type="MARKET")
+        # 保护止损:开仓后立即挂 STOP_MARKET 平仓单(价格来自 _sizing 的 stop)
+        futures_close_position(venue_class=VENUE_CLASS, instrument=SYMBOL, close_at_trigger=True,
+                               order_type="STOP_MARKET", trigger_price=_round_px(signal["stop"]))
     else:
         target = 0                    # 已平仓,但权益不够开新仓
     return {"changed": True, "from": held, "to": target, "qty": qty,
+            "stop_price": _round_px(signal["stop"]) if target else None,
             "action": "flip" if held and target else ("enter" if target else "exit"),
             "order": order}
 

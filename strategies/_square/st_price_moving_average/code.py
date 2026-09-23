@@ -31,7 +31,7 @@ MARKET_TYPE = "spot"
 INTERVAL_SEC = 3600
 PANDAS_FREQ = "1h"
 KLINE_LIMIT = 1000                  # 持仓是事件驱动的(无事件 = 继续持有),窗口要够长
-PARAMS = {'period': 20, 'entry_threshold': 0.0, 'target_fraction': 0.2}
+PARAMS = {'period': 20, 'entry_threshold': 0.0, 'target_fraction': 0.2, 'stop_pct': 0.03}
 
 
 def _hold_forward(entry_long: pd.Series, entry_short: pd.Series, go_flat: pd.Series,
@@ -51,9 +51,11 @@ def _hold_forward(entry_long: pd.Series, entry_short: pd.Series, go_flat: pd.Ser
     return pos > 0, pos < 0
 
 
-def _events(index, score: pd.Series, *, long=None, short=None, flat=None) -> dict:
+def _events(factors: dict, score: pd.Series, *, long=None, short=None, flat=None) -> dict:
     """Event masks → forecast dict. ``verdict`` is the bar's target event, with the same
-    long > short > flat precedence as :func:`_hold_forward`; ``KEEP`` means no event."""
+    long > short > flat precedence as :func:`_hold_forward`; ``KEEP`` means no event.
+    ``price`` (the close) is passed through so sizing can place a stop."""
+    index = factors["index"]
     none = pd.Series(False, index=index)
     long = none if long is None else long
     short = none if short is None else short
@@ -63,8 +65,8 @@ def _events(index, score: pd.Series, *, long=None, short=None, flat=None) -> dic
     verdict[short.fillna(False)] = "SHORT"
     verdict[long.fillna(False)] = "LONG"
     bias = verdict.map({"LONG": "long", "SHORT": "short"}).fillna("neutral")
-    return {"index": index, "entry_long": long, "entry_short": short, "go_flat": flat,
-            "verdict": verdict, "score": score, "bias": bias}
+    return {"index": index, "price": factors["close"], "entry_long": long, "entry_short": short,
+            "go_flat": flat, "verdict": verdict, "score": score, "bias": bias}
 
 
 # ① 因子(只算原始量,不做判断)
@@ -82,20 +84,26 @@ def _forecast(factors: dict, p: dict) -> dict:
     spread = ((close - ma) / ma).abs()
     up = (prev_c <= prev_ma) & (close > ma) & (spread > p["entry_threshold"])
     dn = (prev_c >= prev_ma) & (close < ma) & (spread > p["entry_threshold"])
-    return _events(factors["index"], factors["spread"], long=up, flat=dn)
+    return _events(factors, factors["spread"], long=up, flat=dn)
 
 
 # ③ 仓位:forecast → 持仓 / 止损
-def _sizing(fc: dict, held: float = 0.0) -> dict:
-    """③ forecast → position. Built-ins trade a unit position and carry no stop.
+DEFAULT_STOP_PCT = 0.03
+
+
+def _sizing(fc: dict, held: float = 0.0, stop_pct: float = DEFAULT_STOP_PCT) -> dict:
+    """③ forecast → position + protective stop price.
 
     The target is stateful (no event = keep the position), so sizing needs the position
-    held before ``fc`` starts: 0 in a backtest, the account/``ctx.state`` holding live.
+    held before ``fc`` starts: 0 in a backtest, the exchange holding live. ``stop`` is
+    ``price × (1 ∓ stop_pct)`` on the held side and NaN when flat.
     """
     long, short = _hold_forward(fc["entry_long"], fc["entry_short"], fc["go_flat"], fc["index"],
                                 held)
     position = long.astype(float) - short.astype(float)
-    return {"long": long, "short": short, "position": position, "stop": None}
+    price = fc["price"]
+    stop = (price * (1.0 - stop_pct)).where(long, (price * (1.0 + stop_pct)).where(short))
+    return {"long": long, "short": short, "position": position, "stop": stop}
 
 
 def _last(series):
@@ -111,10 +119,10 @@ def _analyze(symbol: str, df: pd.DataFrame, p: dict = PARAMS, held: float = 0.0)
     """
     factors = _factors(df, p)
     fc = _forecast(factors, p)
-    size = _sizing(fc, held)
+    size = _sizing(fc, held, p["stop_pct"])
     return {"symbol": symbol, "verdict": fc["verdict"].iloc[-1], "score": _last(fc["score"]),
             "bias": fc["bias"].iloc[-1], "target_position": int(size["position"].iloc[-1]),
-            "stop": size["stop"], "missing": list(factors.get("missing", [])),
+            "stop": _last(size["stop"]), "missing": list(factors.get("missing", [])),
             "factors": {k: _last(v) for k, v in factors.items() if isinstance(v, pd.Series)}}
 
 
@@ -163,9 +171,10 @@ def _num(rec: dict, *keys) -> float:
 
 
 def _asset_qty(records, asset: str) -> float:
+    """可用 + 冻结(挂着的保护止损单会冻结基础币,持仓判断要算上)。"""
     for r in records:
         if (r.get("asset") or r.get("coin")) == asset:
-            return _num(r, "free", "available", "balance", "wallet_balance")
+            return _num(r, "free", "available", "balance", "wallet_balance") + _num(r, "locked")
     return 0.0
 
 
@@ -234,6 +243,14 @@ def _qty(notional: float, price: float) -> float:
     return float((Decimal(str(notional)) / Decimal(str(price))).quantize(STEP, rounding=ROUND_DOWN))
 
 
+def _round_qty(qty: float) -> float:
+    return float(Decimal(str(qty)).quantize(STEP, rounding=ROUND_DOWN))
+
+
+def _round_px(price: float) -> float:
+    return float(Decimal(str(price)).quantize(TICK))
+
+
 @node("exec:entry")
 async def rebalance(signal: dict, position: dict, price: float) -> dict:
     """只做多现货:目标 1 且空仓 → 市价买入;目标 0 且持仓 → 卖出全部基础币(完整往返)。"""
@@ -245,8 +262,13 @@ async def rebalance(signal: dict, position: dict, price: float) -> dict:
                     "reason": "equity_too_small", "notional": notional}
         order = place_order(instrument=SYMBOL, side="BUY", quote_size=round(notional, 2),
                             order_type="MARKET")
+        qty = _num(order or {}, "executed_qty", "executedQty", "filled_qty") or notional / price
+        # 保护止损:买入后立即挂 STOP_LOSS(价格来自 _sizing 的 stop)
+        stop = place_order(instrument=SYMBOL, side="SELL", size=_round_qty(qty),
+                           order_type="STOP_LOSS", stop_price=_round_px(signal["stop"]))
         return {"changed": True, "from": held, "to": 1, "action": "enter", "order": order,
-                "notional": round(notional, 2)}
+                "notional": round(notional, 2), "stop_price": _round_px(signal["stop"]),
+                "stop_order": stop}
     if target == 0 and held > 0:
         order = place_order(instrument=SYMBOL, side="SELL", size=position["base_qty"],
                             order_type="MARKET")

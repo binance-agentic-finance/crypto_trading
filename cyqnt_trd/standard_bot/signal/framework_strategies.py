@@ -77,9 +77,11 @@ def _missing(df, *names: str) -> list:
     return [name for name in names if name not in df.columns]
 
 
-def _events(index, score: pd.Series, *, long=None, short=None, flat=None) -> dict:
+def _events(factors: dict, score: pd.Series, *, long=None, short=None, flat=None) -> dict:
     """Event masks → forecast dict. ``verdict`` is the bar's target event, with the same
-    long > short > flat precedence as :func:`_hold_forward`; ``KEEP`` means no event."""
+    long > short > flat precedence as :func:`_hold_forward`; ``KEEP`` means no event.
+    ``price`` (the close) is passed through so sizing can place a stop."""
+    index = factors["index"]
     none = pd.Series(False, index=index)
     long = none if long is None else long
     short = none if short is None else short
@@ -89,8 +91,8 @@ def _events(index, score: pd.Series, *, long=None, short=None, flat=None) -> dic
     verdict[short.fillna(False)] = "SHORT"
     verdict[long.fillna(False)] = "LONG"
     bias = verdict.map({"LONG": "long", "SHORT": "short"}).fillna("neutral")
-    return {"index": index, "entry_long": long, "entry_short": short, "go_flat": flat,
-            "verdict": verdict, "score": score, "bias": bias}
+    return {"index": index, "price": factors["close"], "entry_long": long, "entry_short": short,
+            "go_flat": flat, "verdict": verdict, "score": score, "bias": bias}
 
 
 def _channel_position(close: pd.Series, upper: pd.Series, lower: pd.Series) -> pd.Series:
@@ -100,30 +102,38 @@ def _channel_position(close: pd.Series, upper: pd.Series, lower: pd.Series) -> p
 
 
 # ------------------------------------------------------------------ ③ sizing
-def _sizing(fc: dict, held: float = 0.0) -> dict:
-    """③ forecast → position. Built-ins trade a unit position and carry no stop.
+#: Protective stop distance used by sizing. The built-in backtest does not simulate stops, so
+#: this only reaches the live/submission code; positions (and so backtest parity) ignore it.
+DEFAULT_STOP_PCT = 0.03
+
+
+def _sizing(fc: dict, held: float = 0.0, stop_pct: float = DEFAULT_STOP_PCT) -> dict:
+    """③ forecast → position + protective stop price.
 
     The target is stateful (no event = keep the position), so sizing needs the position
-    held before ``fc`` starts: 0 in a backtest, the account/``ctx.state`` holding live.
+    held before ``fc`` starts: 0 in a backtest, the exchange holding live. ``stop`` is
+    ``price × (1 ∓ stop_pct)`` on the held side and NaN when flat.
     """
     long, short = _hold_forward(fc["entry_long"], fc["entry_short"], fc["go_flat"], fc["index"],
                                 held)
     position = long.astype(float) - short.astype(float)
-    return {"long": long, "short": short, "position": position, "stop": None}
+    price = fc["price"]
+    stop = (price * (1.0 - stop_pct)).where(long, (price * (1.0 + stop_pct)).where(short))
+    return {"long": long, "short": short, "position": position, "stop": stop}
 
 
 # ------------------------------------------------------- per-strategy ① + ②
 def _moving_average_cross_factors(df, p: dict) -> dict:
     fast = df["close"].rolling(p["fast_window"]).mean()
     slow = df["close"].rolling(p["slow_window"]).mean()
-    return {"index": df.index, "fast_ma": fast, "slow_ma": slow, "spread": (fast - slow) / slow}
+    return {"index": df.index, "close": df["close"], "fast_ma": fast, "slow_ma": slow, "spread": (fast - slow) / slow}
 
 
 def _moving_average_cross_forecast(factors: dict, p: dict) -> dict:
     spread = factors["spread"]
     buy = spread > p["entry_threshold"]
     sell = spread < -p["entry_threshold"]                  # SELL -> FLAT (long-only)
-    return _events(factors["index"], spread, long=buy, flat=sell)
+    return _events(factors, spread, long=buy, flat=sell)
 
 
 def _price_moving_average_factors(df, p: dict) -> dict:
@@ -139,7 +149,7 @@ def _price_moving_average_forecast(factors: dict, p: dict) -> dict:
     spread = ((close - ma) / ma).abs()
     up = (prev_c <= prev_ma) & (close > ma) & (spread > p["entry_threshold"])
     dn = (prev_c >= prev_ma) & (close < ma) & (spread > p["entry_threshold"])
-    return _events(factors["index"], factors["spread"], long=up, flat=dn)
+    return _events(factors, factors["spread"], long=up, flat=dn)
 
 
 def _rsi_reversion_factors(df, p: dict) -> dict:
@@ -149,14 +159,14 @@ def _rsi_reversion_factors(df, p: dict) -> dict:
     avg_loss = (-delta.clip(upper=0.0)).rolling(period).sum() / period
     rs = avg_gain / avg_loss.replace(0.0, np.nan)
     rsi = (100.0 - 100.0 / (1.0 + rs)).where(avg_loss != 0.0, 100.0)
-    return {"index": df.index, "rsi": rsi}
+    return {"index": df.index, "close": df["close"], "rsi": rsi}
 
 
 def _rsi_reversion_forecast(factors: dict, p: dict) -> dict:
     rsi = factors["rsi"]
     buy = rsi < p["oversold"]
     sell = rsi > p["overbought"]                            # SELL -> FLAT
-    return _events(factors["index"], (50.0 - rsi) / 50.0, long=buy, flat=sell)
+    return _events(factors, (50.0 - rsi) / 50.0, long=buy, flat=sell)
 
 
 def _donchian_breakout_factors(df, p: dict) -> dict:
@@ -169,14 +179,14 @@ def _donchian_breakout_forecast(factors: dict, p: dict) -> dict:
     close, upper, lower = factors["close"], factors["upper"], factors["lower"]
     buy = close > upper * (1.0 + p["breakout_buffer_bps"] / 1e4)
     sell = close < lower * (1.0 - p["breakout_buffer_bps"] / 1e4)   # SELL -> SHORT
-    return _events(factors["index"], _channel_position(close, upper, lower),
+    return _events(factors, _channel_position(close, upper, lower),
                    long=buy, short=sell)
 
 
 def _multi_timeframe_ma_spread_factors(df, p: dict) -> dict:
     primary_ma = df["close"].rolling(p["primary_period"]).mean()
     secondary_ma = df["close"].rolling(max(2, p["secondary_period"] * p["secondary_factor"])).mean()
-    return {"index": df.index, "primary_ma": primary_ma, "secondary_ma": secondary_ma,
+    return {"index": df.index, "close": df["close"], "primary_ma": primary_ma, "secondary_ma": secondary_ma,
             "spread": (primary_ma - secondary_ma) / secondary_ma}
 
 
@@ -185,7 +195,7 @@ def _multi_timeframe_ma_spread_forecast(factors: dict, p: dict) -> dict:
     thr = p["threshold_bps"] / 1e4
     buy = spread > thr
     sell = spread < -thr                                    # SELL -> SHORT
-    return _events(factors["index"], spread, long=buy, short=sell)
+    return _events(factors, spread, long=buy, short=sell)
 
 
 def _oi_funding_breakout_factors(df, p: dict) -> dict:
@@ -205,7 +215,7 @@ def _oi_funding_breakout_forecast(factors: dict, p: dict) -> dict:
            & (funding <= p["max_funding_rate_bps"]))
     sell = (oi_ok & (close < lower * (1.0 - p["breakout_buffer_bps"] / 1e4))
             & (funding >= -p["max_funding_rate_bps"]))
-    return _events(factors["index"], _channel_position(close, upper, lower),
+    return _events(factors, _channel_position(close, upper, lower),
                    long=buy, short=sell)
 
 
@@ -214,7 +224,7 @@ def _liquidation_reversal_factors(df, p: dict) -> dict:
     short_liq = _col(df, "short_liq_notional_usd")
     total = long_liq + short_liq
     safe_total = total.replace(0.0, np.nan)
-    return {"index": df.index, "long_liq": long_liq, "short_liq": short_liq, "total": total,
+    return {"index": df.index, "close": df["close"], "long_liq": long_liq, "short_liq": short_liq, "total": total,
             "long_ratio": long_liq / safe_total, "short_ratio": short_liq / safe_total,
             "missing": _missing(df, "long_liq_notional_usd", "short_liq_notional_usd")}
 
@@ -226,7 +236,7 @@ def _liquidation_reversal_forecast(factors: dict, p: dict) -> dict:
            & (long_ratio >= p["liquidation_imbalance_ratio"]))
     sell = ((total > 0.0) & (short_liq >= p["short_liquidation_threshold_usd"])
             & (short_ratio >= p["liquidation_imbalance_ratio"]))
-    return _events(factors["index"], (long_ratio - short_ratio).fillna(0.0),
+    return _events(factors, (long_ratio - short_ratio).fillna(0.0),
                    long=buy, short=sell)
 
 

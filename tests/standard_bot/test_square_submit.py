@@ -141,13 +141,17 @@ def test_missing_derivative_feed_is_reported(sid):
 def test_sizing_held_only_fills_bars_before_the_first_event():
     idx = pd.date_range("2024-01-01", periods=5, freq="h", tz="UTC")
     none = pd.Series(False, index=idx)
-    fc = fs._events(idx, pd.Series(0.0, index=idx))
+    base = {"index": idx, "close": pd.Series(100.0, index=idx)}
+    fc = fs._events(base, pd.Series(0.0, index=idx))
     assert (fs._sizing(fc, held=-1.0)["position"] == -1.0).all()   # no event: keep holding
     long = none.copy()
     long.iloc[2] = True
-    fc = fs._events(idx, pd.Series(0.0, index=idx), long=long)
+    fc = fs._events(base, pd.Series(0.0, index=idx), long=long)
     assert fs._sizing(fc, held=-1.0)["position"].tolist() == [-1.0, -1.0, 1.0, 1.0, 1.0]
     assert fs._sizing(fc)["position"].tolist() == [0.0, 0.0, 1.0, 1.0, 1.0]
+    stop = fs._sizing(fc, held=-1.0, stop_pct=0.05)["stop"].tolist()
+    assert stop[:2] == pytest.approx([105.0, 105.0]) and stop[2:] == pytest.approx([95.0] * 3)
+    assert fs._sizing(fs._events(base, pd.Series(0.0, index=idx)))["stop"].isna().all()
 
 
 # ---------------------------------------------------------------- 3. 提交物
@@ -542,3 +546,34 @@ def test_tiny_equity_skips_instead_of_ordering(sid):
     asyncio.run(ns["execute_strategy"]())
     assert not [c for c in calls if c[0] in ORDER_CAPS]
     assert ctx.state["rebalance"]["action"] == "skip"
+
+
+@pytest.mark.parametrize("sid", GEN)
+def test_entry_places_a_protective_stop_from_sizing(sid):
+    entry = ENTRIES[sid]
+    df = _entry_window(entry)
+    calls = []
+    ns, ctx = _load_code(entry, calls, _feeds(entry, df))
+    asyncio.run(ns["execute_strategy"]())
+    signal = ctx.state["signal_engine"]
+    price, pct = float(df["close"].iloc[-1]), ns["PARAMS"]["stop_pct"]
+    want = price * (1 - pct) if signal["target_position"] > 0 else price * (1 + pct)
+    assert signal["stop"] == pytest.approx(want)
+    if entry["market"] == "spot":
+        stops = [kw for name, kw in calls if name == "place_order" and kw["order_type"] == "STOP_LOSS"]
+        assert len(stops) == 1 and stops[0]["side"] == "SELL"
+        assert stops[0]["stop_price"] == pytest.approx(want, abs=0.01)
+    else:
+        stops = [kw for name, kw in calls
+                 if name == "futures_close_position" and kw["order_type"] == "STOP_MARKET"]
+        assert len(stops) == 1 and stops[0]["close_at_trigger"] is True
+        assert stops[0]["trigger_price"] == pytest.approx(want, abs=0.1)
+    names = [name for name, _ in calls if name in ORDER_CAPS]
+    assert names[-1] in {"place_order", "futures_close_position"}      # stop comes after the entry
+
+
+def test_backtest_parity_ignores_the_stop():
+    df = _df(seed=9)
+    for sid in SIDS:
+        pd.testing.assert_series_equal(fs.analyze(sid, df)["long"],
+                                       legacy.FRAMEWORK_STRATEGIES[sid](df)[0])

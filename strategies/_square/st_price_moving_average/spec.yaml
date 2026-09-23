@@ -69,6 +69,13 @@ nodes:
     min: 0.01
     max: 1.0
     step: 0.01
+  - key: stop_pct
+    value: 0.03
+    label: 止损比例
+    widget: number
+    min: 0.005
+    max: 0.2
+    step: 0.005
   code: |
     def _hold_forward(entry_long: pd.Series, entry_short: pd.Series, go_flat: pd.Series,
                       index, held: float = 0.0) -> tuple:
@@ -87,9 +94,11 @@ nodes:
         return pos > 0, pos < 0
 
 
-    def _events(index, score: pd.Series, *, long=None, short=None, flat=None) -> dict:
+    def _events(factors: dict, score: pd.Series, *, long=None, short=None, flat=None) -> dict:
         """Event masks → forecast dict. ``verdict`` is the bar's target event, with the same
-        long > short > flat precedence as :func:`_hold_forward`; ``KEEP`` means no event."""
+        long > short > flat precedence as :func:`_hold_forward`; ``KEEP`` means no event.
+        ``price`` (the close) is passed through so sizing can place a stop."""
+        index = factors["index"]
         none = pd.Series(False, index=index)
         long = none if long is None else long
         short = none if short is None else short
@@ -99,8 +108,8 @@ nodes:
         verdict[short.fillna(False)] = "SHORT"
         verdict[long.fillna(False)] = "LONG"
         bias = verdict.map({"LONG": "long", "SHORT": "short"}).fillna("neutral")
-        return {"index": index, "entry_long": long, "entry_short": short, "go_flat": flat,
-                "verdict": verdict, "score": score, "bias": bias}
+        return {"index": index, "price": factors["close"], "entry_long": long, "entry_short": short,
+                "go_flat": flat, "verdict": verdict, "score": score, "bias": bias}
 
 
     # ① 因子(只算原始量,不做判断)
@@ -118,20 +127,26 @@ nodes:
         spread = ((close - ma) / ma).abs()
         up = (prev_c <= prev_ma) & (close > ma) & (spread > p["entry_threshold"])
         dn = (prev_c >= prev_ma) & (close < ma) & (spread > p["entry_threshold"])
-        return _events(factors["index"], factors["spread"], long=up, flat=dn)
+        return _events(factors, factors["spread"], long=up, flat=dn)
 
 
     # ③ 仓位:forecast → 持仓 / 止损
-    def _sizing(fc: dict, held: float = 0.0) -> dict:
-        """③ forecast → position. Built-ins trade a unit position and carry no stop.
+    DEFAULT_STOP_PCT = 0.03
+
+
+    def _sizing(fc: dict, held: float = 0.0, stop_pct: float = DEFAULT_STOP_PCT) -> dict:
+        """③ forecast → position + protective stop price.
 
         The target is stateful (no event = keep the position), so sizing needs the position
-        held before ``fc`` starts: 0 in a backtest, the account/``ctx.state`` holding live.
+        held before ``fc`` starts: 0 in a backtest, the exchange holding live. ``stop`` is
+        ``price × (1 ∓ stop_pct)`` on the held side and NaN when flat.
         """
         long, short = _hold_forward(fc["entry_long"], fc["entry_short"], fc["go_flat"], fc["index"],
                                     held)
         position = long.astype(float) - short.astype(float)
-        return {"long": long, "short": short, "position": position, "stop": None}
+        price = fc["price"]
+        stop = (price * (1.0 - stop_pct)).where(long, (price * (1.0 + stop_pct)).where(short))
+        return {"long": long, "short": short, "position": position, "stop": stop}
 
 
     def _last(series):
@@ -147,10 +162,10 @@ nodes:
         """
         factors = _factors(df, p)
         fc = _forecast(factors, p)
-        size = _sizing(fc, held)
+        size = _sizing(fc, held, p["stop_pct"])
         return {"symbol": symbol, "verdict": fc["verdict"].iloc[-1], "score": _last(fc["score"]),
                 "bias": fc["bias"].iloc[-1], "target_position": int(size["position"].iloc[-1]),
-                "stop": size["stop"], "missing": list(factors.get("missing", [])),
+                "stop": _last(size["stop"]), "missing": list(factors.get("missing", [])),
                 "factors": {k: _last(v) for k, v in factors.items() if isinstance(v, pd.Series)}}
 - id: rebalance
   type: execution
@@ -171,6 +186,8 @@ nodes:
     value: MARKET
   - key: target_notional
     value: '{{ state.signal_engine.params.target_fraction }} × 权益(USDT + 持仓市值)'
+  - key: stop_order
+    value: place_order(SELL, order_type=STOP_LOSS, stop_price={{ state.signal_engine.output.stop }})
 - id: notify_signal
   type: execution
   function: notify

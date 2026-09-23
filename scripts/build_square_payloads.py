@@ -41,6 +41,8 @@ KLINE_LIMIT = 1000
 LIVE_PARAMS = {
     "target_fraction": (0.2, {"label": "目标仓位占权益比例", "widget": "number",
                               "min": 0.01, "max": 1.0, "step": 0.01}),
+    "stop_pct": (0.03, {"label": "止损比例", "widget": "number",
+                        "min": 0.005, "max": 0.2, "step": 0.005}),
 }
 INTERVAL_SEC = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400}
 
@@ -100,7 +102,8 @@ def stage_source(builtin: str) -> str:
     parts = [_source(h) for h in helpers]
     parts += ["# ① 因子(只算原始量,不做判断)\n" + _source(factors_fn, "_factors"),
               "# ② forecast:因子 → verdict / score / bias\n" + _source(forecast_fn, "_forecast"),
-              "# ③ 仓位:forecast → 持仓 / 止损\n" + _source(fs._sizing)]
+              "# ③ 仓位:forecast → 持仓 / 止损\n"
+              + f"DEFAULT_STOP_PCT = {fs.DEFAULT_STOP_PCT!r}\n\n\n" + _source(fs._sizing)]
     return "\n\n".join(parts)
 
 
@@ -118,10 +121,10 @@ def _analyze(symbol: str, df: pd.DataFrame, p: dict = PARAMS, held: float = 0.0)
     """
     factors = _factors(df, p)
     fc = _forecast(factors, p)
-    size = _sizing(fc, held)
+    size = _sizing(fc, held, p["stop_pct"])
     return {"symbol": symbol, "verdict": fc["verdict"].iloc[-1], "score": _last(fc["score"]),
             "bias": fc["bias"].iloc[-1], "target_position": int(size["position"].iloc[-1]),
-            "stop": size["stop"], "missing": list(factors.get("missing", [])),
+            "stop": _last(size["stop"]), "missing": list(factors.get("missing", [])),
             "factors": {k: _last(v) for k, v in factors.items() if isinstance(v, pd.Series)}}
 '''
 
@@ -206,9 +209,10 @@ def _num(rec: dict, *keys) -> float:
 
 
 def _asset_qty(records, asset: str) -> float:
+    """可用 + 冻结(挂着的保护止损单会冻结基础币,持仓判断要算上)。"""
     for r in records:
         if (r.get("asset") or r.get("coin")) == asset:
-            return _num(r, "free", "available", "balance", "wallet_balance")
+            return _num(r, "free", "available", "balance", "wallet_balance") + _num(r, "locked")
     return 0.0
 
 
@@ -382,6 +386,14 @@ def _notional(position: dict, price: float) -> float:
 
 def _qty(notional: float, price: float) -> float:
     return float((Decimal(str(notional)) / Decimal(str(price))).quantize(STEP, rounding=ROUND_DOWN))
+
+
+def _round_qty(qty: float) -> float:
+    return float(Decimal(str(qty)).quantize(STEP, rounding=ROUND_DOWN))
+
+
+def _round_px(price: float) -> float:
+    return float(Decimal(str(price)).quantize(TICK))
 ''')
     if spot:
         nodes.append('''\
@@ -396,8 +408,13 @@ async def rebalance(signal: dict, position: dict, price: float) -> dict:
                     "reason": "equity_too_small", "notional": notional}
         order = place_order(instrument=SYMBOL, side="BUY", quote_size=round(notional, 2),
                             order_type="MARKET")
+        qty = _num(order or {}, "executed_qty", "executedQty", "filled_qty") or notional / price
+        # 保护止损:买入后立即挂 STOP_LOSS(价格来自 _sizing 的 stop)
+        stop = place_order(instrument=SYMBOL, side="SELL", size=_round_qty(qty),
+                           order_type="STOP_LOSS", stop_price=_round_px(signal["stop"]))
         return {"changed": True, "from": held, "to": 1, "action": "enter", "order": order,
-                "notional": round(notional, 2)}
+                "notional": round(notional, 2), "stop_price": _round_px(signal["stop"]),
+                "stop_order": stop}
     if target == 0 and held > 0:
         order = place_order(instrument=SYMBOL, side="SELL", size=position["base_qty"],
                             order_type="MARKET")
@@ -426,9 +443,13 @@ async def rebalance(signal: dict, position: dict, price: float) -> dict:
                                       side="BUY" if target > 0 else "SELL",
                                       position_side="LONG" if target > 0 else "SHORT",
                                       size=qty, order_type="MARKET")
+        # 保护止损:开仓后立即挂 STOP_MARKET 平仓单(价格来自 _sizing 的 stop)
+        futures_close_position(venue_class=VENUE_CLASS, instrument=SYMBOL, close_at_trigger=True,
+                               order_type="STOP_MARKET", trigger_price=_round_px(signal["stop"]))
     else:
         target = 0                    # 已平仓,但权益不够开新仓
     return {"changed": True, "from": held, "to": target, "qty": qty,
+            "stop_price": _round_px(signal["stop"]) if target else None,
             "action": "flip" if held and target else ("enter" if target else "exit"),
             "order": order}
 ''')
@@ -546,14 +567,19 @@ def build_spec(entry: dict) -> dict:
                             {"key": "side", "value": "BUY 进场 / SELL 离场(卖出全部基础币)"},
                             {"key": "quote_size", "value": "target_fraction × 权益(BUY)"},
                             {"key": "size", "value": "{{ state.fetch_position.output.base_qty }}(SELL)"},
-                            {"key": "order_type", "value": "MARKET"}, notional]
+                            {"key": "order_type", "value": "MARKET"}, notional,
+                            {"key": "stop_order", "value": "place_order(SELL, order_type=STOP_LOSS, "
+                                                           "stop_price={{ state.signal_engine.output.stop }})"}]
     else:
         rebalance_params = [{"key": "venue_class", "value": "um"},
                             {"key": "instrument", "value": symbol},
                             {"key": "size", "value": "target_fraction × 权益 × LEVERAGE / close,按 STEP 取整"},
                             {"key": "side", "value": "BUY / SELL(target_position > 0 → BUY 开多,< 0 → SELL 开空)"},
                             {"key": "position_side", "value": "LONG / SHORT"},
-                            {"key": "order_type", "value": "MARKET"}, notional]
+                            {"key": "order_type", "value": "MARKET"}, notional,
+                            {"key": "stop_order", "value": "futures_close_position(close_at_trigger=True, "
+                                                           "order_type=STOP_MARKET, "
+                                                           "trigger_price={{ state.signal_engine.output.stop }})"}]
     nodes.append({
         "id": "rebalance", "type": "execution",
         "function": "place_order" if spot else "futures_open_position",

@@ -54,6 +54,11 @@ code 在桩运行时下与仓库信号相同、spec 与 code 同步。
 - 仓位:`target_fraction`(custom 参数,默认 0.2)× 真实权益 —— 现货权益 = 可用 USDT + 基础币市值
   (`account_balances(balance_type="spot")`),合约权益 = 钱包余额(`account_balances(balance_type="futures")`);
   随盈亏复利,不写死金额。低于 `MIN_NOTIONAL` 时本轮跳过(`action: skip`),不下单。
+- **止损(live 有、回测没有)**:`_sizing` 输出 `stop = price × (1 ∓ stop_pct)`(`stop_pct` 是 custom 参数,
+  默认 0.03)。开仓后立即挂保护单:现货 `place_order(side="SELL", size=, order_type="STOP_LOSS", stop_price=)`,
+  合约 `futures_close_position(close_at_trigger=True, order_type="STOP_MARKET", trigger_price=)`。
+  仓库内置策略的框架回测不模拟止损,所以 **live 会比回测多出止损离场**,回测数字不能直接当作 live 预期;
+  回测侧 position 不受影响(parity 测试只比 position)。现货持仓判断把被止损单冻结的基础币(`locked`)也算上。
 - `ctx.log` 统一是 `ctx.log(level, event, {...})`;`main` 对 `CancelledError` 直接抛出,其它异常记录后跳过本轮。
 - icon 是短标识(`ma_cross` / `ma` / `rsi` / `breakout` / `trend` / `oi` / `liquidation`),节点里的 `emoji` 另算。
 
