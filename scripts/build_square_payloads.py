@@ -153,10 +153,6 @@ def _klines_frame(result) -> pd.DataFrame:
 
 FEED_SRC = {
     "fetch_open_interest": '''\
-def _records(out) -> list:
-    return [r for r in ((out or {}).get("records") or []) if isinstance(r, dict)]
-
-
 def _attach_open_interest(df: pd.DataFrame, out) -> pd.DataFrame:
     """持仓量历史 → 最后一根 K 线的 oi_change_bps(相邻两期变化,bps)。
 
@@ -188,6 +184,39 @@ def _attach_funding(df: pd.DataFrame, out) -> pd.DataFrame:
     return df
 ''',
 }
+#: Account helpers. Record field names are read defensively (pending SDK confirmation).
+ACCOUNT_SRC = '''\
+def _records(out) -> list:
+    return [r for r in ((out or {}).get("records") or []) if isinstance(r, dict)]
+
+
+def _num(rec: dict, *keys) -> float:
+    for key in keys:
+        if rec.get(key) not in (None, ""):
+            try:
+                return float(rec[key])
+            except (TypeError, ValueError):
+                pass
+    return 0.0
+
+
+def _asset_qty(records, asset: str) -> float:
+    for r in records:
+        if (r.get("asset") or r.get("coin")) == asset:
+            return _num(r, "free", "available", "balance", "wallet_balance")
+    return 0.0
+
+
+def _position_amt(records, symbol: str) -> float:
+    """带符号的持仓数量:多 > 0,空 < 0。"""
+    for r in records:
+        if (r.get("symbol") or r.get("instrument")) == symbol:
+            amt = _num(r, "positionAmt", "position_amt", "size")
+            side = str(r.get("positionSide") or r.get("position_side") or "").upper()
+            return -abs(amt) if side == "SHORT" else amt
+    return 0.0
+'''
+
 ATTACH_FN = {"fetch_open_interest": "_attach_open_interest",
              "fetch_funding_rate": "_attach_funding"}
 
@@ -212,7 +241,23 @@ def build_code(entry: dict) -> str:
     builtin = entry["builtin"]
     params = fs.strategy_defaults(builtin)
     feeds = DERIVATIVE_FEEDS.get(builtin, [])
-    data_imports = ", ".join(["klines"] + sorted({f[1] for f in feeds}))
+    market = entry["market"]
+    spot = market == "spot"
+    ledger = "account_balances" if spot else "futures_position_risk"
+    data_imports = ", ".join(["klines"] + sorted({ledger} | {f[1] for f in feeds}))
+    exec_imports = ("notify, place_order" if spot else
+                    "(\n    futures_account_config, futures_close_position, futures_open_position, notify)")
+    quote = "USDT"
+    base = entry["symbol"][:-len(quote)]
+    rules = ('STEP = Decimal("0.00001")          # 数量步长\n'
+             'TICK = Decimal("0.01")             # 价格步长\n'
+             'MIN_NOTIONAL = Decimal("5")        # 最小名义金额 (USDT)\n') if spot else \
+            ('STEP = Decimal("0.001")            # 数量步长\n'
+             'TICK = Decimal("0.1")              # 价格步长\n'
+             'MIN_NOTIONAL = Decimal("100")      # 最小名义金额 (USDT)\n'
+             'MAX_LEV = 125\n')
+    venue = "" if spot else 'VENUE_CLASS = "um"                 # U 本位永续\n'
+    leverage = "" if spot else "LEVERAGE = 1\n"
     out = [f'''"""{entry["name"]} —— {entry["description"]}
 
 strategyId: {entry["strategyId"]}  version: {entry["version"]}
@@ -230,31 +275,26 @@ import numpy as np
 import pandas as pd
 
 from binance.strategy.node.capabilities.data import {data_imports}
-from binance.strategy.node.capabilities.execution import (
-    futures_account_config, futures_close_position, futures_open_position, notify)
+from binance.strategy.node.capabilities.execution import {exec_imports}
 from binance.strategy.runtime import ctx, node, workflow
 
 # ── 交易所规则 ────────────────────────────────────────────────
 SYMBOL = "{entry["symbol"]}"
-STEP = Decimal("0.001")            # 数量步长
-TICK = Decimal("0.1")              # 价格步长
-MIN_NOTIONAL = Decimal("100")      # 最小名义金额 (USDT)
-MAX_LEV = 125
-
+BASE, QUOTE = "{base}", "{quote}"
+{rules}
 # ── STRATEGY PARAMS ──────────────────────────────────────────
 INTERVAL = "{entry["interval"]}"
-MARKET_TYPE = "{entry["market"]}"
-VENUE_CLASS = "um"                 # U 本位永续
-INTERVAL_SEC = {INTERVAL_SEC[entry["interval"]]}
+MARKET_TYPE = "{market}"
+{venue}INTERVAL_SEC = {INTERVAL_SEC[entry["interval"]]}
 PANDAS_FREQ = "{_pandas_freq(entry["interval"])}"
 KLINE_LIMIT = {KLINE_LIMIT}                  # 持仓是事件驱动的(无事件 = 继续持有),窗口要够长
 ORDER_NOTIONAL_USDT = Decimal("100")
-LEVERAGE = 1
-PARAMS = {pprint.pformat(params, sort_dicts=False, width=90)}
+{leverage}PARAMS = {pprint.pformat(params, sort_dicts=False, width=90)}
 ''']
     out.append(stage_source(builtin))
     out.append(ANALYZE_SRC)
     out.append(KLINES_SRC)
+    out.append(ACCOUNT_SRC)
     out += [FEED_SRC[f[0]] for f in feeds]
 
     nodes = ['''\
@@ -269,11 +309,38 @@ async def fetch_klines():
 async def {node_id}():
     return {capability}({_call_src(call)})
 ''')
+    if spot:
+        nodes.append('''\
+@node("std:fetch", retries=2)
+async def fetch_position() -> dict:
+    """持仓账本 = 交易所:现货读基础币 / 计价币余额。"""
+    recs = _records(account_balances(balance_type="spot"))
+    return {"records": recs, "base_qty": _asset_qty(recs, BASE), "quote_free": _asset_qty(recs, QUOTE)}
+
+
+def _held(position: dict, price: float) -> int:
+    """持有的基础币市值达到最小名义金额才算持仓(碎币不算)。"""
+    return 1 if position["base_qty"] * price >= float(MIN_NOTIONAL) else 0
+''')
+    else:
+        nodes.append('''\
+@node("std:fetch", retries=2)
+async def fetch_position() -> dict:
+    """持仓账本 = 交易所:合约读 futures_position_risk。"""
+    recs = _records(futures_position_risk(risk_type="positions"))
+    return {"records": recs, "position_amt": _position_amt(recs, SYMBOL)}
+
+
+def _held(position: dict, price: float) -> int:
+    amt = position["position_amt"]
+    if abs(amt) * price < float(MIN_NOTIONAL):
+        return 0
+    return 1 if amt > 0 else -1
+''')
     nodes.append('''\
 @node("std:signal")
-async def signal_engine(df: pd.DataFrame) -> dict:
-    # ctx.state["position"] 是跨轮次的持仓状态(不是 spec 节点),由 rebalance 维护。
-    held = int(ctx.state.get("position", 0))
+async def signal_engine(df: pd.DataFrame, position: dict) -> dict:
+    held = _held(position, float(df["close"].iloc[-1]))
     out = _analyze(SYMBOL, df, PARAMS, held=float(held))
     if out["missing"]:
         # 缺衍生品数据时 _factors 会补 0,信号就退化成别的策略(或永不触发);宁可这一轮不交易。
@@ -284,32 +351,51 @@ async def signal_engine(df: pd.DataFrame) -> dict:
     return out
 
 
-def _qty(price: float) -> Decimal:
+def _qty(price: float) -> float:
     px = Decimal(str(price))
     qty = (ORDER_NOTIONAL_USDT / px).quantize(STEP, rounding=ROUND_DOWN)
     floor = (MIN_NOTIONAL / px).quantize(STEP, rounding=ROUND_UP)
-    return max(qty, floor)
-
-
+    return float(max(qty, floor))
+''')
+    if spot:
+        nodes.append('''\
 @node("exec:entry")
-async def rebalance(signal: dict, price: float) -> dict:
-    """目标仓位 ≠ 当前仓位:先平旧仓,再按 ORDER_NOTIONAL_USDT 开新仓(+1 多 / -1 空 / 0 空仓)。"""
-    current = int(ctx.state.get("position", 0))
-    target = int(signal["target_position"])
-    if target == current:
-        return {"changed": False, "from": current, "to": target}
-    if current != 0:
+async def rebalance(signal: dict, position: dict, price: float) -> dict:
+    """只做多现货:目标 1 且空仓 → 市价买入;目标 0 且持仓 → 卖出全部基础币(完整往返)。"""
+    held, target = signal["held_position"], signal["target_position"]
+    if target > 0 and held == 0:
+        order = place_order(instrument=SYMBOL, side="BUY", quote_size=float(ORDER_NOTIONAL_USDT),
+                            order_type="MARKET")
+        return {"changed": True, "from": held, "to": 1, "action": "enter", "order": order}
+    if target == 0 and held > 0:
+        order = place_order(instrument=SYMBOL, side="SELL", size=position["base_qty"],
+                            order_type="MARKET")
+        return {"changed": True, "from": held, "to": 0, "action": "exit", "order": order}
+    return {"changed": False, "from": held, "to": held, "action": "hold"}
+''')
+    else:
+        nodes.append('''\
+@node("exec:entry")
+async def rebalance(signal: dict, position: dict, price: float) -> dict:
+    """目标仓位 ≠ 当前仓位:先市价平旧仓,再按新方向开仓(+1 多 / -1 空 / 0 空仓)。"""
+    held, target = signal["held_position"], signal["target_position"]
+    if target == held:
+        return {"changed": False, "from": held, "to": held, "action": "hold"}
+    if held != 0:
         # 立即市价平仓(样例里 close_at_trigger=True + STOP_MARKET 是挂止损,这里不是)
         futures_close_position(venue_class=VENUE_CLASS, instrument=SYMBOL,
                                close_at_trigger=False, order_type="MARKET")
+    order = None
     if target != 0:
-        futures_open_position(venue_class=VENUE_CLASS, instrument=SYMBOL,
-                              size=str(_qty(price)),
-                              side="BUY" if target > 0 else "SELL", order_type="MARKET")
-    ctx.state["position"] = target
-    return {"changed": True, "from": current, "to": target}
-
-
+        order = futures_open_position(venue_class=VENUE_CLASS, instrument=SYMBOL,
+                                      side="BUY" if target > 0 else "SELL",
+                                      position_side="LONG" if target > 0 else "SHORT",
+                                      size=_qty(price), order_type="MARKET")
+    return {"changed": True, "from": held, "to": target,
+            "action": "flip" if held and target else ("enter" if target else "exit"),
+            "order": order}
+''')
+    nodes.append('''\
 @node("exec:notify")
 async def notify_signal(signal: dict, fill: dict) -> dict:
     message = (f"{signal['symbol']} {signal['verdict']} bias={signal['bias']} "
@@ -319,39 +405,31 @@ async def notify_signal(signal: dict, fill: dict) -> dict:
 ''')
     out += nodes
 
-    if feeds:
-        names = ", ".join(["klines_raw"] + [f"{f[0]}_raw" for f in feeds])
-        calls = ", ".join(["fetch_klines()"] + [f"{f[0]}()" for f in feeds])
-        fetch = f"    {names} = await asyncio.gather({calls})\n"
-        fetch += '    ctx.state["fetch_klines"] = klines_raw\n'
-        fetch += "".join(f'    ctx.state["{f[0]}"] = {f[0]}_raw\n' for f in feeds)
-        fetch += "    df = _klines_frame(klines_raw)\n"
-        fetch += "".join(f"    df = {ATTACH_FN[f[0]]}(df, {f[0]}_raw)\n" for f in feeds)
-    else:
-        fetch = ('    klines_raw = await fetch_klines()\n'
-                 '    ctx.state["fetch_klines"] = klines_raw\n'
-                 '    df = _klines_frame(klines_raw)\n')
+    fetch_ids = ["fetch_klines", "fetch_position"] + [f[0] for f in feeds]
+    names = ", ".join(["klines_raw", "position"] + [f"{f[0]}_raw" for f in feeds])
+    calls = ", ".join(f"{n}()" for n in fetch_ids)
+    fetch = f"    {names} = await asyncio.gather(\n        {calls})\n"
+    fetch += '    ctx.state["fetch_klines"] = klines_raw\n'
+    fetch += '    ctx.state["fetch_position"] = position\n'
+    fetch += "".join(f'    ctx.state["{f[0]}"] = {f[0]}_raw\n' for f in feeds)
+    fetch += "    df = _klines_frame(klines_raw)\n"
+    fetch += "".join(f"    df = {ATTACH_FN[f[0]]}(df, {f[0]}_raw)\n" for f in feeds)
     out.append(f'''\
 @workflow
 async def execute_strategy():
-{fetch}    signal = await signal_engine(df)
+{fetch}    signal = await signal_engine(df, position)
     ctx.state["signal_engine"] = signal
     if signal["rebalance_needed"]:
-        fill = await rebalance(signal, float(df["close"].iloc[-1]))
+        fill = await rebalance(signal, position, float(df["close"].iloc[-1]))
         ctx.state["rebalance"] = fill
         if fill["changed"]:
             ctx.state["notify_signal"] = await notify_signal(signal, fill)
 
 
 async def main():
-    configured = False
-    while True:
+{{configure}}    while True:
         try:
-            if not configured:
-                futures_account_config(instrument=SYMBOL, leverage=LEVERAGE,
-                                       margin_type="ISOLATED")
-                configured = True
-            await execute_strategy()
+{{configure_once}}            await execute_strategy()
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001 —— 单轮失败只记日志,不让循环崩掉
@@ -362,7 +440,15 @@ async def main():
 if __name__ == "__main__":
     asyncio.run(main())
 ''')
-    return "\n\n".join(part.rstrip() + "\n" for part in out)
+    text = "\n\n".join(part.rstrip() + "\n" for part in out)
+    if spot:
+        return text.replace("{configure}", "").replace("{configure_once}", "")
+    return (text.replace("{configure}", "    configured = False\n")
+                .replace("{configure_once}",
+                         "            if not configured:\n"
+                         "                futures_account_config(instrument=SYMBOL, leverage=LEVERAGE,\n"
+                         "                                       margin_type=\"ISOLATED\")\n"
+                         "                configured = True\n"))
 
 
 # ------------------------------------------------------------------ spec
@@ -398,6 +484,12 @@ def build_spec(entry: dict) -> dict:
                           "widget": "number", "min": 200, "max": 1500},
                          {"key": "market_type", "value": entry["market"], "label": "市场"},
                          {"key": "closed_only", "value": True, "label": "只用已收盘K线"}]}]
+    spot = entry["market"] == "spot"
+    nodes.append({"id": "fetch_position", "type": "data",
+                  "function": "account_balances" if spot else "futures_position_risk",
+                  "name": "现货余额(持仓账本)" if spot else "合约持仓(持仓账本)", "emoji": "💰",
+                  "params": [{"key": "balance_type", "value": "spot"}] if spot else
+                            [{"key": "risk_type", "value": "positions"}]})
     for node_id, capability, call, name, emoji in feeds:
         params = [{"key": k, "value": {"SYMBOL": symbol, "INTERVAL": interval}.get(v, v),
                    **FEED_WIDGETS[k]} for k, v in call.items()]
@@ -409,17 +501,27 @@ def build_spec(entry: dict) -> dict:
         "emoji": "🧠",
         "params": [{"key": k, "value": v, **widgets[k]} for k, v in defaults.items()],
         "code": stage_source(builtin) + "\n\n" + ANALYZE_SRC})
+    notional = {"key": "notional_usdt", "value": 100.0, "label": "单笔名义金额(USDT)",
+                "widget": "number", "min": 5.0 if spot else 100.0, "max": 10000.0, "step": 5.0}
+    if spot:
+        rebalance_params = [{"key": "instrument", "value": symbol},
+                            {"key": "side", "value": "BUY 进场 / SELL 离场(卖出全部基础币)"},
+                            {"key": "quote_size", "value": "notional_usdt(BUY)"},
+                            {"key": "size", "value": "{{ state.fetch_position.output.base_qty }}(SELL)"},
+                            {"key": "order_type", "value": "MARKET"}, notional]
+    else:
+        rebalance_params = [{"key": "venue_class", "value": "um"},
+                            {"key": "instrument", "value": symbol},
+                            {"key": "size", "value": "notional_usdt / close,按 STEP 取整"},
+                            {"key": "side", "value": "BUY / SELL(target_position > 0 → BUY 开多,< 0 → SELL 开空)"},
+                            {"key": "position_side", "value": "LONG / SHORT"},
+                            {"key": "order_type", "value": "MARKET"}, notional]
     nodes.append({
-        "id": "rebalance", "type": "execution", "function": "futures_open_position",
+        "id": "rebalance", "type": "execution",
+        "function": "place_order" if spot else "futures_open_position",
         "name": "调仓到目标仓位", "emoji": "⚖️",
         "condition": "{{ state.signal_engine.output.rebalance_needed }}",
-        "params": [{"key": "venue_class", "value": "um"},
-                   {"key": "instrument", "value": symbol},
-                   {"key": "size", "value": "ORDER_NOTIONAL_USDT / close,按 STEP 取整"},
-                   {"key": "side", "value": "BUY / SELL(target_position > 0 → BUY 开多,< 0 → SELL 开空)"},
-                   {"key": "order_type", "value": "MARKET"},
-                   {"key": "notional_usdt", "value": 100.0, "label": "单笔名义金额(USDT)",
-                    "widget": "number", "min": 100.0, "max": 10000.0, "step": 10.0}]})
+        "params": rebalance_params})
     nodes.append({
         "id": "notify_signal", "type": "execution", "function": "notify",
         "name": "推送调仓通知", "emoji": "🔔",

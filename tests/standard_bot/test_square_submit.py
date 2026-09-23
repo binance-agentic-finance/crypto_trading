@@ -34,6 +34,7 @@ _spec.loader.exec_module(builder)
 SIDS = sorted(fs.FRAMEWORK_STRATEGIES)
 ENTRIES = {e["builtin"]: e for e in builder.entries(builder.load_registry())}
 #: Built-ins that get a submission package (liquidation_reversal has no platform data feed).
+ORDER_CAPS = {"place_order", "futures_open_position", "futures_close_position"}
 GEN = sorted(e["builtin"] for e in builder.submittable(builder.load_registry()))
 
 
@@ -209,7 +210,7 @@ def _load_code(entry, calls, feeds):
                  "derivatives_market_metrics", "factor_evaluate"):
         setattr(data, name, cap(name))
     for name in ("futures_account_config", "futures_close_position",
-                 "futures_open_position", "notify"):
+                 "futures_open_position", "notify", "place_order"):
         setattr(execution, name, cap(name))
     mods = {"binance": types.ModuleType("binance"),
             "binance.strategy": types.ModuleType("binance.strategy"),
@@ -269,34 +270,82 @@ def _kline_rows(df):
     return {"close": [float(c) for c in df["close"]], "rows": rows}
 
 
+def _venue(entry, held: int, price: float, usdt: float = 1000.0) -> dict:
+    """Account stubs: the ledger is the venue, so ``held`` is expressed as a balance/position."""
+    if entry["market"] == "spot":
+        qty = 0.5 * usdt / price if held > 0 else 0.0
+        return {"account_balances": lambda balance_type, **_: {"records": [
+            {"asset": "USDT", "free": str(usdt)}, {"asset": "BTC", "free": str(qty)}]}}
+    amt = held * 0.5 * usdt / price
+    return {"futures_position_risk": lambda risk_type, **_: {"records": [
+                {"symbol": "BTCUSDT", "positionAmt": str(amt)}]},
+            "account_balances": lambda balance_type, **_: {"records": [
+                {"asset": "USDT", "wallet_balance": str(usdt)}]}}
+
+
+def _feeds(entry, df, held=0):
+    return {"klines": _kline_rows(df), "derivatives_market_metrics": _derivatives(n_oi=50),
+            **_venue(entry, held, float(df["close"].iloc[-1]))}
+
+
 @pytest.mark.parametrize("sid", GEN)
 def test_generated_workflow_runs_and_trades_on_a_target_change(sid):
+    entry = ENTRIES[sid]
     df = _df(n=300, seed=5)
-    ms = df.index.asi8 // 1_000_000
-    feeds = {"klines": _kline_rows(df),
-             "derivatives_market_metrics": _derivatives(n_oi=50)}
+    feeds = _feeds(entry, df, held=0)
     calls = []
-    ns, ctx = _load_code(ENTRIES[sid], calls, feeds)
+    ns, ctx = _load_code(entry, calls, feeds)
     asyncio.run(ns["execute_strategy"]())
     signal = ctx.state["signal_engine"]
     assert ctx.state["fetch_klines"] is feeds["klines"]          # raw return, keyed by node id
+    assert "fetch_position" in ctx.state
+    assert signal["held_position"] == 0
     assert signal["rebalance_needed"] == (signal["target_position"] != 0)
-    if signal["target_position"] != 0:
-        assert ctx.state["rebalance"]["changed"] and "message" in ctx.state["notify_signal"]
     assert signal["missing"] == []
     assert signal["verdict"] in {"LONG", "SHORT", "FLAT", "KEEP"}
     kl = next(kw for name, kw in calls if name == "klines")
     assert kl == {"symbol": "BTCUSDT", "timeframe": "1h", "limit": builder.KLINE_LIMIT,
-                  "market_type": "futures", "closed_only": True}
-    opened = [kw for name, kw in calls if name == "futures_open_position"]
-    if signal["target_position"] != 0:
-        assert opened and opened[0]["side"] in {"BUY", "SELL"}
-        assert opened[0]["side"] == ("BUY" if signal["target_position"] > 0 else "SELL")
-        assert set(opened[0]) == {"venue_class", "instrument", "size", "side", "order_type"}
-        assert opened[0]["venue_class"] == "um" and opened[0]["order_type"] == "MARKET"
-        assert ctx.state["position"] == signal["target_position"]
+                  "market_type": entry["market"], "closed_only": True}
+    if entry["market"] == "spot":
+        assert not [c for c in calls if c[0].startswith("futures_")]
+        buys = [kw for name, kw in calls if name == "place_order" and kw["order_type"] == "MARKET"]
+        if signal["target_position"] > 0:
+            assert buys and buys[0]["side"] == "BUY" and buys[0]["instrument"] == "BTCUSDT"
+            assert "quote_size" in buys[0]
+        else:
+            assert not buys
     else:
-        assert not opened
+        assert not [c for c in calls if c[0] == "place_order"]
+        opened = [kw for name, kw in calls if name == "futures_open_position"
+                  and kw["order_type"] == "MARKET"]
+        if signal["target_position"] != 0:
+            assert opened and opened[0]["side"] in {"BUY", "SELL"}
+            assert opened[0]["side"] == ("BUY" if signal["target_position"] > 0 else "SELL")
+            assert opened[0]["position_side"] == ("LONG" if signal["target_position"] > 0 else "SHORT")
+            assert opened[0]["venue_class"] == "um"
+        else:
+            assert not opened
+    if signal["target_position"] != 0:
+        assert ctx.state["rebalance"]["changed"] and "message" in ctx.state["notify_signal"]
+
+
+@pytest.mark.parametrize("sid", ["moving_average_cross", "rsi_reversion"])
+def test_spot_exit_sells_the_whole_base_balance(sid):
+    entry = ENTRIES[sid]
+    df = _df(n=400, seed=5)
+    pos = fs.analyze(sid, df)["position"]
+    n = next(i for i in range(200, len(df)) if pos.iloc[i - 1] == 1 and pos.iloc[i] == 0)
+    window = df.iloc[:n + 1]
+    calls = []
+    feeds = _feeds(entry, window, held=1)
+    ns, ctx = _load_code(entry, calls, feeds)
+    asyncio.run(ns["execute_strategy"]())
+    assert ctx.state["signal_engine"]["held_position"] == 1
+    sells = [kw for name, kw in calls if name == "place_order" and kw["side"] == "SELL"
+             and kw["order_type"] == "MARKET"]
+    assert len(sells) == 1
+    assert sells[0]["size"] == pytest.approx(ctx.state["fetch_position"]["base_qty"])
+    assert ctx.state["rebalance"]["action"] == "exit"
 
 
 @pytest.mark.parametrize("sid", ["oi_funding_breakout"])
@@ -306,7 +355,7 @@ def test_generated_code_refuses_to_trade_without_its_feed(sid):
     ns, ctx = _load_code(ENTRIES[sid], calls, {"klines": _kline_rows(df)})
     with pytest.raises(RuntimeError, match="missing feeds"):
         asyncio.run(ns["execute_strategy"]())
-    assert not [c for c in calls if c[0].startswith("futures_")]
+    assert not [c for c in calls if c[0] in ORDER_CAPS]
     assert ctx.logs and ctx.logs[0][:2] == ("WARN", "missing_feeds")
 
 
@@ -386,19 +435,20 @@ def test_payloads_carry_every_submit_field(tmp_path):
 
 @pytest.mark.parametrize("sid", ["donchian_breakout", "multi_timeframe_ma_spread"])
 def test_generated_code_flips_by_closing_then_opening_with_buy_sell(sid):
+    entry = ENTRIES[sid]
     df = _df(n=300, seed=5)
-    probe, _ = _load_code(ENTRIES[sid], [], {})
+    probe, _ = _load_code(entry, [], {})
     target = probe["_analyze"]("BTCUSDT", df, probe["PARAMS"])["target_position"]
     assert target != 0
     calls = []
-    ns, ctx = _load_code(ENTRIES[sid], calls, {"klines": _kline_rows(df)})
-    ctx.state["position"] = -target                  # hold the opposite side
+    ns, ctx = _load_code(entry, calls, _feeds(entry, df, held=-target))   # venue holds the opposite side
     asyncio.run(ns["execute_strategy"]())
-    trades = [(name, kw) for name, kw in calls if name.startswith("futures_")]
+    trades = [(name, kw) for name, kw in calls
+              if name.startswith("futures_") and kw.get("order_type") == "MARKET"]
     assert [name for name, _ in trades] == ["futures_close_position", "futures_open_position"]
     assert trades[1][1]["side"] in {"BUY", "SELL"}
     assert trades[1][1]["side"] == ("BUY" if target > 0 else "SELL")
-    assert ctx.state["position"] == target
+    assert ctx.state["rebalance"]["action"] == "flip"
 
 
 @pytest.mark.parametrize("sid", GEN)

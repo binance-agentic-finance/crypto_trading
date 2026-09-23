@@ -35,6 +35,14 @@ nodes:
   - key: closed_only
     value: true
     label: 只用已收盘K线
+- id: fetch_position
+  type: data
+  function: futures_position_risk
+  name: 合约持仓(持仓账本)
+  emoji: 💰
+  params:
+  - key: risk_type
+    value: positions
 - id: signal_engine
   type: custom
   name: 三段式信号:因子 → forecast → 仓位
@@ -162,9 +170,11 @@ nodes:
   - key: instrument
     value: BTCUSDT
   - key: size
-    value: ORDER_NOTIONAL_USDT / close,按 STEP 取整
+    value: notional_usdt / close,按 STEP 取整
   - key: side
     value: BUY / SELL(target_position > 0 → BUY 开多,< 0 → SELL 开空)
+  - key: position_side
+    value: LONG / SHORT
   - key: order_type
     value: MARKET
   - key: notional_usdt
@@ -173,7 +183,7 @@ nodes:
     widget: number
     min: 100.0
     max: 10000.0
-    step: 10.0
+    step: 5.0
 - id: notify_signal
   type: execution
   function: notify
@@ -190,6 +200,8 @@ nodes:
     value: app
 edges:
 - from: fetch_klines
+  to: signal_engine
+- from: fetch_position
   to: signal_engine
 - from: signal_engine
   to: rebalance

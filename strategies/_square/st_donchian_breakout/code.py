@@ -14,13 +14,14 @@ from decimal import ROUND_DOWN, ROUND_UP, Decimal
 import numpy as np
 import pandas as pd
 
-from binance.strategy.node.capabilities.data import klines
+from binance.strategy.node.capabilities.data import klines, futures_position_risk
 from binance.strategy.node.capabilities.execution import (
     futures_account_config, futures_close_position, futures_open_position, notify)
 from binance.strategy.runtime import ctx, node, workflow
 
 # ── 交易所规则 ────────────────────────────────────────────────
 SYMBOL = "BTCUSDT"
+BASE, QUOTE = "BTC", "USDT"
 STEP = Decimal("0.001")            # 数量步长
 TICK = Decimal("0.1")              # 价格步长
 MIN_NOTIONAL = Decimal("100")      # 最小名义金额 (USDT)
@@ -156,16 +157,60 @@ def _klines_frame(result) -> pd.DataFrame:
     return df
 
 
+def _records(out) -> list:
+    return [r for r in ((out or {}).get("records") or []) if isinstance(r, dict)]
+
+
+def _num(rec: dict, *keys) -> float:
+    for key in keys:
+        if rec.get(key) not in (None, ""):
+            try:
+                return float(rec[key])
+            except (TypeError, ValueError):
+                pass
+    return 0.0
+
+
+def _asset_qty(records, asset: str) -> float:
+    for r in records:
+        if (r.get("asset") or r.get("coin")) == asset:
+            return _num(r, "free", "available", "balance", "wallet_balance")
+    return 0.0
+
+
+def _position_amt(records, symbol: str) -> float:
+    """带符号的持仓数量:多 > 0,空 < 0。"""
+    for r in records:
+        if (r.get("symbol") or r.get("instrument")) == symbol:
+            amt = _num(r, "positionAmt", "position_amt", "size")
+            side = str(r.get("positionSide") or r.get("position_side") or "").upper()
+            return -abs(amt) if side == "SHORT" else amt
+    return 0.0
+
+
 @node("std:fetch", retries=2)
 async def fetch_klines():
     return klines(symbol=SYMBOL, timeframe=INTERVAL, limit=KLINE_LIMIT,
                   market_type=MARKET_TYPE, closed_only=True)
 
 
+@node("std:fetch", retries=2)
+async def fetch_position() -> dict:
+    """持仓账本 = 交易所:合约读 futures_position_risk。"""
+    recs = _records(futures_position_risk(risk_type="positions"))
+    return {"records": recs, "position_amt": _position_amt(recs, SYMBOL)}
+
+
+def _held(position: dict, price: float) -> int:
+    amt = position["position_amt"]
+    if abs(amt) * price < float(MIN_NOTIONAL):
+        return 0
+    return 1 if amt > 0 else -1
+
+
 @node("std:signal")
-async def signal_engine(df: pd.DataFrame) -> dict:
-    # ctx.state["position"] 是跨轮次的持仓状态(不是 spec 节点),由 rebalance 维护。
-    held = int(ctx.state.get("position", 0))
+async def signal_engine(df: pd.DataFrame, position: dict) -> dict:
+    held = _held(position, float(df["close"].iloc[-1]))
     out = _analyze(SYMBOL, df, PARAMS, held=float(held))
     if out["missing"]:
         # 缺衍生品数据时 _factors 会补 0,信号就退化成别的策略(或永不触发);宁可这一轮不交易。
@@ -176,30 +221,32 @@ async def signal_engine(df: pd.DataFrame) -> dict:
     return out
 
 
-def _qty(price: float) -> Decimal:
+def _qty(price: float) -> float:
     px = Decimal(str(price))
     qty = (ORDER_NOTIONAL_USDT / px).quantize(STEP, rounding=ROUND_DOWN)
     floor = (MIN_NOTIONAL / px).quantize(STEP, rounding=ROUND_UP)
-    return max(qty, floor)
+    return float(max(qty, floor))
 
 
 @node("exec:entry")
-async def rebalance(signal: dict, price: float) -> dict:
-    """目标仓位 ≠ 当前仓位:先平旧仓,再按 ORDER_NOTIONAL_USDT 开新仓(+1 多 / -1 空 / 0 空仓)。"""
-    current = int(ctx.state.get("position", 0))
-    target = int(signal["target_position"])
-    if target == current:
-        return {"changed": False, "from": current, "to": target}
-    if current != 0:
+async def rebalance(signal: dict, position: dict, price: float) -> dict:
+    """目标仓位 ≠ 当前仓位:先市价平旧仓,再按新方向开仓(+1 多 / -1 空 / 0 空仓)。"""
+    held, target = signal["held_position"], signal["target_position"]
+    if target == held:
+        return {"changed": False, "from": held, "to": held, "action": "hold"}
+    if held != 0:
         # 立即市价平仓(样例里 close_at_trigger=True + STOP_MARKET 是挂止损,这里不是)
         futures_close_position(venue_class=VENUE_CLASS, instrument=SYMBOL,
                                close_at_trigger=False, order_type="MARKET")
+    order = None
     if target != 0:
-        futures_open_position(venue_class=VENUE_CLASS, instrument=SYMBOL,
-                              size=str(_qty(price)),
-                              side="BUY" if target > 0 else "SELL", order_type="MARKET")
-    ctx.state["position"] = target
-    return {"changed": True, "from": current, "to": target}
+        order = futures_open_position(venue_class=VENUE_CLASS, instrument=SYMBOL,
+                                      side="BUY" if target > 0 else "SELL",
+                                      position_side="LONG" if target > 0 else "SHORT",
+                                      size=_qty(price), order_type="MARKET")
+    return {"changed": True, "from": held, "to": target,
+            "action": "flip" if held and target else ("enter" if target else "exit"),
+            "order": order}
 
 
 @node("exec:notify")
@@ -212,13 +259,15 @@ async def notify_signal(signal: dict, fill: dict) -> dict:
 
 @workflow
 async def execute_strategy():
-    klines_raw = await fetch_klines()
+    klines_raw, position = await asyncio.gather(
+        fetch_klines(), fetch_position())
     ctx.state["fetch_klines"] = klines_raw
+    ctx.state["fetch_position"] = position
     df = _klines_frame(klines_raw)
-    signal = await signal_engine(df)
+    signal = await signal_engine(df, position)
     ctx.state["signal_engine"] = signal
     if signal["rebalance_needed"]:
-        fill = await rebalance(signal, float(df["close"].iloc[-1]))
+        fill = await rebalance(signal, position, float(df["close"].iloc[-1]))
         ctx.state["rebalance"] = fill
         if fill["changed"]:
             ctx.state["notify_signal"] = await notify_signal(signal, fill)

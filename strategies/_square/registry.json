@@ -16,12 +16,12 @@
       "strategyId": "st_moving_average_cross",
       "platformStrategyId": "",
       "name": "快慢均线交叉(只做多)",
-      "description": "BTC 1h 快慢 SMA 价差:快线高于慢线持多,低于慢线平仓,只做多。",
+      "description": "BTC 1h 快慢 SMA 价差:快线高于慢线持多,低于慢线卖出,只做多现货。",
       "tags": [
         "趋势",
         "均线",
         "只做多",
-        "合约",
+        "现货",
         "BTC"
       ],
       "icon": "ma_cross",
@@ -47,19 +47,20 @@
           "max": 0.05,
           "step": 0.0005
         }
-      }
+      },
+      "market": "spot"
     },
     {
       "builtin": "price_moving_average",
       "strategyId": "st_price_moving_average",
       "platformStrategyId": "",
       "name": "价格穿越均线(只做多)",
-      "description": "BTC 1h 收盘价上穿 SMA 开多、下穿平仓,只做多。",
+      "description": "BTC 1h 收盘价上穿 SMA 开多、下穿卖出,只做多现货。",
       "tags": [
         "趋势",
         "均线",
         "只做多",
-        "合约",
+        "现货",
         "BTC"
       ],
       "icon": "ma",
@@ -78,19 +79,20 @@
           "max": 0.05,
           "step": 0.0005
         }
-      }
+      },
+      "market": "spot"
     },
     {
       "builtin": "rsi_reversion",
       "strategyId": "st_rsi_reversion",
       "platformStrategyId": "",
       "name": "RSI 均值回归(只做多)",
-      "description": "BTC 1h 简单均值 RSI:低于超卖线开多,高于超买线平仓,只做多。",
+      "description": "BTC 1h 简单均值 RSI:低于超卖线开多,高于超买线卖出,只做多现货。",
       "tags": [
         "均值回归",
         "RSI",
         "只做多",
-        "合约",
+        "现货",
         "BTC"
       ],
       "icon": "rsi",
@@ -116,7 +118,8 @@
           "max": 95.0,
           "step": 1.0
         }
-      }
+      },
+      "market": "spot"
     },
     {
       "builtin": "donchian_breakout",

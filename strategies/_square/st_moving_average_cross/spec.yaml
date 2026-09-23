@@ -2,7 +2,7 @@ strategy:
   id: st_moving_average_cross
   version: "1.0"
   name: 快慢均线交叉(只做多)
-  description: BTC 1h 快慢 SMA 价差:快线高于慢线持多,低于慢线平仓,只做多。
+  description: BTC 1h 快慢 SMA 价差:快线高于慢线持多,低于慢线卖出,只做多现货。
   source: cyqnt_trd.standard_bot.signal.framework_strategies:moving_average_cross
 trigger:
   type: schedule
@@ -30,11 +30,19 @@ nodes:
     min: 200
     max: 1500
   - key: market_type
-    value: futures
+    value: spot
     label: 市场
   - key: closed_only
     value: true
     label: 只用已收盘K线
+- id: fetch_position
+  type: data
+  function: account_balances
+  name: 现货余额(持仓账本)
+  emoji: 💰
+  params:
+  - key: balance_type
+    value: spot
 - id: signal_engine
   type: custom
   name: 三段式信号:因子 → forecast → 仓位
@@ -143,28 +151,28 @@ nodes:
                 "factors": {k: _last(v) for k, v in factors.items() if isinstance(v, pd.Series)}}
 - id: rebalance
   type: execution
-  function: futures_open_position
+  function: place_order
   name: 调仓到目标仓位
   emoji: ⚖️
   condition: '{{ state.signal_engine.output.rebalance_needed }}'
   params:
-  - key: venue_class
-    value: um
   - key: instrument
     value: BTCUSDT
-  - key: size
-    value: ORDER_NOTIONAL_USDT / close,按 STEP 取整
   - key: side
-    value: BUY / SELL(target_position > 0 → BUY 开多,< 0 → SELL 开空)
+    value: BUY 进场 / SELL 离场(卖出全部基础币)
+  - key: quote_size
+    value: notional_usdt(BUY)
+  - key: size
+    value: '{{ state.fetch_position.output.base_qty }}(SELL)'
   - key: order_type
     value: MARKET
   - key: notional_usdt
     value: 100.0
     label: 单笔名义金额(USDT)
     widget: number
-    min: 100.0
+    min: 5.0
     max: 10000.0
-    step: 10.0
+    step: 5.0
 - id: notify_signal
   type: execution
   function: notify
@@ -181,6 +189,8 @@ nodes:
     value: app
 edges:
 - from: fetch_klines
+  to: signal_engine
+- from: fetch_position
   to: signal_engine
 - from: signal_engine
   to: rebalance
