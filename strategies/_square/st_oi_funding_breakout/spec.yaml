@@ -17,10 +17,14 @@ nodes:
   params:
   - key: symbol
     value: BTCUSDT
-  - key: interval
+  - key: timeframe
     value: 1h
   - key: limit
     value: 1000
+  - key: market_type
+    value: futures
+  - key: closed_only
+    value: true
 - id: fetch_open_interest
   type: data
   function: open_interest_hist
@@ -194,12 +198,23 @@ nodes:
   emoji: ⚖️
   condition: '{{ state.signal_engine.output.target_position }} != {{ state.position }}'
   params:
-  - key: symbol
+  - key: venue_class
+    value: um
+  - key: instrument
     value: BTCUSDT
+  - key: size
+    value: ORDER_NOTIONAL_USDT / close,按 STEP 取整
+  - key: side
+    value: LONG / SHORT(按 target_position 符号)
+  - key: order_type
+    value: MARKET
   - key: notional_usdt
     value: 100.0
-  - key: leverage
-    value: 1
+    label: 单笔名义金额(USDT)
+    widget: number
+    min: 100.0
+    max: 10000.0
+    step: 10.0
 - id: notify_signal
   type: execution
   function: notify
@@ -209,6 +224,8 @@ nodes:
   params:
   - key: message
     value: '{{ state.signal_engine.output.symbol }} {{ state.signal_engine.output.verdict }}'
+  - key: channel
+    value: app
 edges:
 - from: fetch_klines
   to: signal_engine

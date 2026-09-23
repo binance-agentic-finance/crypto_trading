@@ -221,6 +221,8 @@ MAX_LEV = 125
 
 # ── STRATEGY PARAMS ──────────────────────────────────────────
 INTERVAL = "{entry["interval"]}"
+MARKET_TYPE = "{entry["market"]}"
+VENUE_CLASS = "um"                 # U 本位永续
 INTERVAL_SEC = {INTERVAL_SEC[entry["interval"]]}
 PANDAS_FREQ = "{_pandas_freq(entry["interval"])}"
 KLINE_LIMIT = {KLINE_LIMIT}                  # 持仓是事件驱动的(无事件 = 继续持有),窗口要够长
@@ -236,7 +238,8 @@ PARAMS = {pprint.pformat(params, sort_dicts=False, width=90)}
     nodes = ['''\
 @node("std:fetch", retries=2)
 async def fetch_klines() -> pd.DataFrame:
-    return _klines_frame(await klines(symbol=SYMBOL, interval=INTERVAL, limit=KLINE_LIMIT))
+    return _klines_frame(await klines(symbol=SYMBOL, timeframe=INTERVAL, limit=KLINE_LIMIT,
+                                      market_type=MARKET_TYPE, closed_only=True))
 ''']
     for node_id, capability, _, _ in feeds:
         nodes.append(f'''\
@@ -269,10 +272,13 @@ async def rebalance(signal: dict, price: float) -> dict:
     if target == current:
         return {"changed": False, "from": current, "to": target}
     if current != 0:
-        await futures_close_position(symbol=SYMBOL)
+        # 立即市价平仓(样例里 close_at_trigger=True + STOP_MARKET 是挂止损,这里不是)
+        await futures_close_position(venue_class=VENUE_CLASS, instrument=SYMBOL,
+                                     close_at_trigger=False, order_type="MARKET")
     if target != 0:
-        await futures_open_position(symbol=SYMBOL, side="LONG" if target > 0 else "SHORT",
-                                    quantity=str(_qty(price)), leverage=LEVERAGE)
+        await futures_open_position(venue_class=VENUE_CLASS, instrument=SYMBOL,
+                                    size=str(_qty(price)),
+                                    side="LONG" if target > 0 else "SHORT", order_type="MARKET")
     ctx.state["position"] = target
     return {"changed": True, "from": current, "to": target}
 
@@ -280,7 +286,8 @@ async def rebalance(signal: dict, price: float) -> dict:
 @node("exec:notify")
 async def notify_signal(signal: dict, fill: dict) -> None:
     await notify(message=f"{signal['symbol']} {signal['verdict']} bias={signal['bias']} "
-                         f"score={signal['score']} position {fill['from']} -> {fill['to']}")
+                         f"score={signal['score']} position {fill['from']} -> {fill['to']}",
+                 channel="app")
 ''')
     out += nodes
 
@@ -308,7 +315,8 @@ async def main():
     while True:
         try:
             if not configured:
-                await futures_account_config(symbol=SYMBOL, leverage=LEVERAGE)
+                await futures_account_config(instrument=SYMBOL, leverage=LEVERAGE,
+                                             margin_type="ISOLATED")
                 configured = True
             await execute_strategy()
         except Exception as exc:  # noqa: BLE001 —— 单轮失败只记日志,不让循环崩掉
@@ -342,8 +350,10 @@ def build_spec(entry: dict) -> dict:
     symbol, interval = entry["symbol"], entry["interval"]
     nodes = [{"id": "fetch_klines", "type": "data", "function": "klines",
               "name": f"{symbol} {interval} K线", "emoji": "🕯️",
-              "params": [{"key": "symbol", "value": symbol}, {"key": "interval", "value": interval},
-                         {"key": "limit", "value": KLINE_LIMIT}]}]
+              "params": [{"key": "symbol", "value": symbol}, {"key": "timeframe", "value": interval},
+                         {"key": "limit", "value": KLINE_LIMIT},
+                         {"key": "market_type", "value": entry["market"]},
+                         {"key": "closed_only", "value": True}]}]
     for node_id, capability, name, emoji in feeds:
         call = dict(kv.split("=") for kv in FEED_CALL[capability].split(", "))
         params = [{"key": k, "value": {"SYMBOL": symbol, "INTERVAL": interval}.get(v, v)}
@@ -362,16 +372,21 @@ def build_spec(entry: dict) -> dict:
         "id": "rebalance", "type": "execution", "function": "futures_open_position",
         "name": "调仓到目标仓位", "emoji": "⚖️",
         "condition": "{{ state.signal_engine.output.target_position }} != {{ state.position }}",
-        "params": [{"key": "symbol", "value": symbol},
-                   {"key": "notional_usdt", "value": 100.0},
-                   {"key": "leverage", "value": 1}]})
+        "params": [{"key": "venue_class", "value": "um"},
+                   {"key": "instrument", "value": symbol},
+                   {"key": "size", "value": "ORDER_NOTIONAL_USDT / close,按 STEP 取整"},
+                   {"key": "side", "value": "LONG / SHORT(按 target_position 符号)"},
+                   {"key": "order_type", "value": "MARKET"},
+                   {"key": "notional_usdt", "value": 100.0, "label": "单笔名义金额(USDT)",
+                    "widget": "number", "min": 100.0, "max": 10000.0, "step": 10.0}]})
     nodes.append({
         "id": "notify_signal", "type": "execution", "function": "notify",
         "name": "推送调仓通知", "emoji": "🔔",
         "condition": "{{ state.rebalance.output.changed }} == true",
         "params": [{"key": "message",
                     "value": "{{ state.signal_engine.output.symbol }} "
-                             "{{ state.signal_engine.output.verdict }}"}]})
+                             "{{ state.signal_engine.output.verdict }}"},
+                   {"key": "channel", "value": "app"}]})
     edges = [{"from": n["id"], "to": "signal_engine"} for n in nodes if n["type"] == "data"]
     edges += [{"from": "signal_engine", "to": "rebalance", "label": "目标仓位变化"},
               {"from": "rebalance", "to": "notify_signal", "label": "已调仓"}]

@@ -28,6 +28,8 @@ MAX_LEV = 125
 
 # ── STRATEGY PARAMS ──────────────────────────────────────────
 INTERVAL = "1h"
+MARKET_TYPE = "futures"
+VENUE_CLASS = "um"                 # U 本位永续
 INTERVAL_SEC = 3600
 PANDAS_FREQ = "1h"
 KLINE_LIMIT = 1000                  # 持仓是事件驱动的(无事件 = 继续持有),窗口要够长
@@ -151,7 +153,8 @@ def _klines_frame(rows) -> pd.DataFrame:
 
 @node("std:fetch", retries=2)
 async def fetch_klines() -> pd.DataFrame:
-    return _klines_frame(await klines(symbol=SYMBOL, interval=INTERVAL, limit=KLINE_LIMIT))
+    return _klines_frame(await klines(symbol=SYMBOL, timeframe=INTERVAL, limit=KLINE_LIMIT,
+                                      market_type=MARKET_TYPE, closed_only=True))
 
 
 @node("std:signal")
@@ -178,10 +181,13 @@ async def rebalance(signal: dict, price: float) -> dict:
     if target == current:
         return {"changed": False, "from": current, "to": target}
     if current != 0:
-        await futures_close_position(symbol=SYMBOL)
+        # 立即市价平仓(样例里 close_at_trigger=True + STOP_MARKET 是挂止损,这里不是)
+        await futures_close_position(venue_class=VENUE_CLASS, instrument=SYMBOL,
+                                     close_at_trigger=False, order_type="MARKET")
     if target != 0:
-        await futures_open_position(symbol=SYMBOL, side="LONG" if target > 0 else "SHORT",
-                                    quantity=str(_qty(price)), leverage=LEVERAGE)
+        await futures_open_position(venue_class=VENUE_CLASS, instrument=SYMBOL,
+                                    size=str(_qty(price)),
+                                    side="LONG" if target > 0 else "SHORT", order_type="MARKET")
     ctx.state["position"] = target
     return {"changed": True, "from": current, "to": target}
 
@@ -189,7 +195,8 @@ async def rebalance(signal: dict, price: float) -> dict:
 @node("exec:notify")
 async def notify_signal(signal: dict, fill: dict) -> None:
     await notify(message=f"{signal['symbol']} {signal['verdict']} bias={signal['bias']} "
-                         f"score={signal['score']} position {fill['from']} -> {fill['to']}")
+                         f"score={signal['score']} position {fill['from']} -> {fill['to']}",
+                 channel="app")
 
 
 @workflow
@@ -209,7 +216,8 @@ async def main():
     while True:
         try:
             if not configured:
-                await futures_account_config(symbol=SYMBOL, leverage=LEVERAGE)
+                await futures_account_config(instrument=SYMBOL, leverage=LEVERAGE,
+                                             margin_type="ISOLATED")
                 configured = True
             await execute_strategy()
         except Exception as exc:  # noqa: BLE001 —— 单轮失败只记日志,不让循环崩掉

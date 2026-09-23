@@ -263,9 +263,14 @@ def test_generated_workflow_runs_and_trades_on_a_target_change(sid):
     signal = ctx.state["signal_engine"]["output"]
     assert signal["missing"] == []
     assert signal["verdict"] in {"LONG", "SHORT", "FLAT", "KEEP"}
+    kl = next(kw for name, kw in calls if name == "klines")
+    assert kl == {"symbol": "BTCUSDT", "timeframe": "1h", "limit": builder.KLINE_LIMIT,
+                  "market_type": "futures", "closed_only": True}
     opened = [kw for name, kw in calls if name == "futures_open_position"]
     if signal["target_position"] != 0:
         assert opened and opened[0]["side"] == ("LONG" if signal["target_position"] > 0 else "SHORT")
+        assert set(opened[0]) == {"venue_class", "instrument", "size", "side", "order_type"}
+        assert opened[0]["venue_class"] == "um" and opened[0]["order_type"] == "MARKET"
         assert ctx.state["position"] == signal["target_position"]
     else:
         assert not opened
