@@ -239,7 +239,8 @@ def test_generated_code_reproduces_repo_signals(sid):
     ns, _ = _load_code(ENTRIES[sid], [], {})
     df = _df(seed=11)
     p = ns["PARAMS"]
-    assert p == fs.strategy_defaults(sid)
+    assert p == {**fs.strategy_defaults(sid),
+                 **{k: v for k, (v, _) in builder.LIVE_PARAMS.items()}}
     size = ns["_sizing"](ns["_forecast"](ns["_factors"](df, p), p))
     long, short = fs.FRAMEWORK_STRATEGIES[sid](df)
     pd.testing.assert_series_equal(size["long"], long)
@@ -395,7 +396,11 @@ def test_spec_nodes_and_edges_match_code_workflow(sid):
     for e in spec["edges"]:
         assert e["from"] in ids and e["to"] in ids
     custom = next(n for n in spec["nodes"] if n["id"] == "signal_engine")
-    assert {p["key"]: p["value"] for p in custom["params"]} == fs.strategy_defaults(sid)
+    custom_params = {p["key"]: p for p in custom["params"]}
+    assert {k: p["value"] for k, p in custom_params.items()} == {
+        **fs.strategy_defaults(sid), **{k: v for k, (v, _) in builder.LIVE_PARAMS.items()}}
+    for k in builder.LIVE_PARAMS:
+        assert {"label", "widget", "min", "max"} <= set(custom_params[k])
     for fn in ("def _factors(", "def _forecast(", "def _sizing(", "def _analyze("):
         assert fn in custom["code"] and fn in code
 
@@ -495,3 +500,45 @@ def test_generated_code_never_awaits_a_capability(sid):
     called = {n.func.id for n in ast.walk(ast.parse(code))
               if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
     assert "klines" in called
+
+
+def _entry_window(entry):
+    """The shortest fixture window on whose last bar the live code enters from flat."""
+    df = _df(n=500, seed=5)
+    for n in range(250, len(df)):
+        window = df.iloc[:n]
+        ns, ctx = _load_code(entry, [], _feeds(entry, window))
+        asyncio.run(ns["execute_strategy"]())
+        if ctx.state["signal_engine"]["target_position"] != 0:
+            return window
+    raise AssertionError("fixture never produces an entry")
+
+
+@pytest.mark.parametrize("sid", GEN)
+def test_order_size_is_target_fraction_of_real_equity(sid):
+    entry = ENTRIES[sid]
+    df = _entry_window(entry)
+    price = float(df["close"].iloc[-1])
+    for usdt in (1000.0, 5000.0):                        # size follows equity, not a constant
+        calls = []
+        ns, _ = _load_code(entry, calls, {**_feeds(entry, df, held=0), **_venue(entry, 0, price, usdt)})
+        asyncio.run(ns["execute_strategy"]())
+        frac = ns["PARAMS"]["target_fraction"]
+        if entry["market"] == "spot":
+            buy = next(kw for name, kw in calls if name == "place_order" and kw["side"] == "BUY")
+            assert buy["quote_size"] == pytest.approx(frac * usdt, abs=0.01)
+        else:
+            opened = next(kw for name, kw in calls if name == "futures_open_position")
+            assert opened["size"] * price == pytest.approx(frac * usdt, rel=0.01)
+
+
+@pytest.mark.parametrize("sid", ["rsi_reversion", "donchian_breakout"])
+def test_tiny_equity_skips_instead_of_ordering(sid):
+    entry = ENTRIES[sid]
+    df = _entry_window(entry)
+    calls = []
+    price = float(df["close"].iloc[-1])
+    ns, ctx = _load_code(entry, calls, {**_feeds(entry, df), **_venue(entry, 0, price, usdt=1.0)})
+    asyncio.run(ns["execute_strategy"]())
+    assert not [c for c in calls if c[0] in ORDER_CAPS]
+    assert ctx.state["rebalance"]["action"] == "skip"

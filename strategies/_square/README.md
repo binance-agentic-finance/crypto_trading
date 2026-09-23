@@ -51,6 +51,9 @@ code 在桩运行时下与仓库信号相同、spec 与 code 同步。
 - 市场:只做多的 3 个(`st_moving_average_cross` / `st_price_moving_average` / `st_rsi_reversion`)走**现货**:
   `place_order(instrument, side="BUY", quote_size=, order_type="MARKET")` 进场、
   `place_order(instrument, side="SELL", size=<全部基础币>, order_type="MARKET")` 离场;多空的走 U 本位合约。
+- 仓位:`target_fraction`(custom 参数,默认 0.2)× 真实权益 —— 现货权益 = 可用 USDT + 基础币市值
+  (`account_balances(balance_type="spot")`),合约权益 = 钱包余额(`account_balances(balance_type="futures")`);
+  随盈亏复利,不写死金额。低于 `MIN_NOTIONAL` 时本轮跳过(`action: skip`),不下单。
 - `ctx.log` 统一是 `ctx.log(level, event, {...})`;`main` 对 `CancelledError` 直接抛出,其它异常记录后跳过本轮。
 - icon 是短标识(`ma_cross` / `ma` / `rsi` / `breakout` / `trend` / `oi` / `liquidation`),节点里的 `emoji` 另算。
 

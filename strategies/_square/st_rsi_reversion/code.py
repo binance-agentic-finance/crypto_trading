@@ -31,8 +31,7 @@ MARKET_TYPE = "spot"
 INTERVAL_SEC = 3600
 PANDAS_FREQ = "1h"
 KLINE_LIMIT = 1000                  # 持仓是事件驱动的(无事件 = 继续持有),窗口要够长
-ORDER_NOTIONAL_USDT = Decimal("100")
-PARAMS = {'period': 14, 'oversold': 30.0, 'overbought': 70.0}
+PARAMS = {'period': 14, 'oversold': 30.0, 'overbought': 70.0, 'target_fraction': 0.2}
 
 
 def _hold_forward(entry_long: pd.Series, entry_short: pd.Series, go_flat: pd.Series,
@@ -171,6 +170,16 @@ def _asset_qty(records, asset: str) -> float:
     return 0.0
 
 
+def _equity(records) -> float:
+    """合约账户权益(钱包余额)。"""
+    for r in records:
+        if (r.get("asset") or r.get("coin") or "USDT") == "USDT":
+            value = _num(r, "wallet_balance", "walletBalance", "marginBalance", "balance", "total")
+            if value:
+                return value
+    return 0.0
+
+
 def _position_amt(records, symbol: str) -> float:
     """带符号的持仓数量:多 > 0,空 < 0。"""
     for r in records:
@@ -194,6 +203,11 @@ async def fetch_position() -> dict:
     return {"records": recs, "base_qty": _asset_qty(recs, BASE), "quote_free": _asset_qty(recs, QUOTE)}
 
 
+def _equity_usdt(position: dict, price: float) -> float:
+    """现货权益 = 可用 USDT + 基础币市值。"""
+    return position["quote_free"] + position["base_qty"] * price
+
+
 def _held(position: dict, price: float) -> int:
     """持有的基础币市值达到最小名义金额才算持仓(碎币不算)。"""
     return 1 if position["base_qty"] * price >= float(MIN_NOTIONAL) else 0
@@ -212,11 +226,13 @@ async def signal_engine(df: pd.DataFrame, position: dict) -> dict:
     return out
 
 
-def _qty(price: float) -> float:
-    px = Decimal(str(price))
-    qty = (ORDER_NOTIONAL_USDT / px).quantize(STEP, rounding=ROUND_DOWN)
-    floor = (MIN_NOTIONAL / px).quantize(STEP, rounding=ROUND_UP)
-    return float(max(qty, floor))
+def _notional(position: dict, price: float) -> float:
+    """目标名义金额 = target_fraction × 真实权益(随盈亏复利,不写死金额)。"""
+    return PARAMS["target_fraction"] * _equity_usdt(position, price)
+
+
+def _qty(notional: float, price: float) -> float:
+    return float((Decimal(str(notional)) / Decimal(str(price))).quantize(STEP, rounding=ROUND_DOWN))
 
 
 @node("exec:entry")
@@ -224,9 +240,14 @@ async def rebalance(signal: dict, position: dict, price: float) -> dict:
     """只做多现货:目标 1 且空仓 → 市价买入;目标 0 且持仓 → 卖出全部基础币(完整往返)。"""
     held, target = signal["held_position"], signal["target_position"]
     if target > 0 and held == 0:
-        order = place_order(instrument=SYMBOL, side="BUY", quote_size=float(ORDER_NOTIONAL_USDT),
+        notional = _notional(position, price)
+        if notional < float(MIN_NOTIONAL):
+            return {"changed": False, "from": held, "to": held, "action": "skip",
+                    "reason": "equity_too_small", "notional": notional}
+        order = place_order(instrument=SYMBOL, side="BUY", quote_size=round(notional, 2),
                             order_type="MARKET")
-        return {"changed": True, "from": held, "to": 1, "action": "enter", "order": order}
+        return {"changed": True, "from": held, "to": 1, "action": "enter", "order": order,
+                "notional": round(notional, 2)}
     if target == 0 and held > 0:
         order = place_order(instrument=SYMBOL, side="SELL", size=position["base_qty"],
                             order_type="MARKET")

@@ -37,6 +37,11 @@ REGISTRY = SQUARE_DIR / "registry.json"
 PAYLOAD_DIR = REPO / "dist" / "square_payloads"
 SHARE_LEVELS = ("READ_ONLY", "FULL")
 KLINE_LIMIT = 1000
+#: Live-only knobs (the built-in backtest has neither): exposed as signal_engine custom params.
+LIVE_PARAMS = {
+    "target_fraction": (0.2, {"label": "目标仓位占权益比例", "widget": "number",
+                              "min": 0.01, "max": 1.0, "step": 0.01}),
+}
 INTERVAL_SEC = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400}
 
 #: Derivative feeds: builtin -> [(node id, capability, call kwargs (code), readable name, emoji)].
@@ -207,6 +212,16 @@ def _asset_qty(records, asset: str) -> float:
     return 0.0
 
 
+def _equity(records) -> float:
+    """合约账户权益(钱包余额)。"""
+    for r in records:
+        if (r.get("asset") or r.get("coin") or "USDT") == "USDT":
+            value = _num(r, "wallet_balance", "walletBalance", "marginBalance", "balance", "total")
+            if value:
+                return value
+    return 0.0
+
+
 def _position_amt(records, symbol: str) -> float:
     """带符号的持仓数量:多 > 0,空 < 0。"""
     for r in records:
@@ -239,12 +254,12 @@ def _pandas_freq(interval: str) -> str:
 
 def build_code(entry: dict) -> str:
     builtin = entry["builtin"]
-    params = fs.strategy_defaults(builtin)
+    params = {**fs.strategy_defaults(builtin), **{k: v for k, (v, _) in LIVE_PARAMS.items()}}
     feeds = DERIVATIVE_FEEDS.get(builtin, [])
     market = entry["market"]
     spot = market == "spot"
     ledger = "account_balances" if spot else "futures_position_risk"
-    data_imports = ", ".join(["klines"] + sorted({ledger} | {f[1] for f in feeds}))
+    data_imports = ", ".join(["klines"] + sorted({ledger, "account_balances"} | {f[1] for f in feeds}))
     exec_imports = ("notify, place_order" if spot else
                     "(\n    futures_account_config, futures_close_position, futures_open_position, notify)")
     quote = "USDT"
@@ -288,7 +303,6 @@ MARKET_TYPE = "{market}"
 {venue}INTERVAL_SEC = {INTERVAL_SEC[entry["interval"]]}
 PANDAS_FREQ = "{_pandas_freq(entry["interval"])}"
 KLINE_LIMIT = {KLINE_LIMIT}                  # 持仓是事件驱动的(无事件 = 继续持有),窗口要够长
-ORDER_NOTIONAL_USDT = Decimal("100")
 {leverage}PARAMS = {pprint.pformat(params, sort_dicts=False, width=90)}
 ''']
     out.append(stage_source(builtin))
@@ -318,6 +332,11 @@ async def fetch_position() -> dict:
     return {"records": recs, "base_qty": _asset_qty(recs, BASE), "quote_free": _asset_qty(recs, QUOTE)}
 
 
+def _equity_usdt(position: dict, price: float) -> float:
+    """现货权益 = 可用 USDT + 基础币市值。"""
+    return position["quote_free"] + position["base_qty"] * price
+
+
 def _held(position: dict, price: float) -> int:
     """持有的基础币市值达到最小名义金额才算持仓(碎币不算)。"""
     return 1 if position["base_qty"] * price >= float(MIN_NOTIONAL) else 0
@@ -328,7 +347,12 @@ def _held(position: dict, price: float) -> int:
 async def fetch_position() -> dict:
     """持仓账本 = 交易所:合约读 futures_position_risk。"""
     recs = _records(futures_position_risk(risk_type="positions"))
-    return {"records": recs, "position_amt": _position_amt(recs, SYMBOL)}
+    equity = _equity(_records(account_balances(balance_type="futures")))
+    return {"records": recs, "position_amt": _position_amt(recs, SYMBOL), "equity": equity}
+
+
+def _equity_usdt(position: dict, price: float) -> float:
+    return position["equity"]
 
 
 def _held(position: dict, price: float) -> int:
@@ -351,11 +375,13 @@ async def signal_engine(df: pd.DataFrame, position: dict) -> dict:
     return out
 
 
-def _qty(price: float) -> float:
-    px = Decimal(str(price))
-    qty = (ORDER_NOTIONAL_USDT / px).quantize(STEP, rounding=ROUND_DOWN)
-    floor = (MIN_NOTIONAL / px).quantize(STEP, rounding=ROUND_UP)
-    return float(max(qty, floor))
+def _notional(position: dict, price: float) -> float:
+    """目标名义金额 = target_fraction × 真实权益(随盈亏复利,不写死金额)。"""
+    return PARAMS["target_fraction"] * _equity_usdt(position, price)
+
+
+def _qty(notional: float, price: float) -> float:
+    return float((Decimal(str(notional)) / Decimal(str(price))).quantize(STEP, rounding=ROUND_DOWN))
 ''')
     if spot:
         nodes.append('''\
@@ -364,9 +390,14 @@ async def rebalance(signal: dict, position: dict, price: float) -> dict:
     """只做多现货:目标 1 且空仓 → 市价买入;目标 0 且持仓 → 卖出全部基础币(完整往返)。"""
     held, target = signal["held_position"], signal["target_position"]
     if target > 0 and held == 0:
-        order = place_order(instrument=SYMBOL, side="BUY", quote_size=float(ORDER_NOTIONAL_USDT),
+        notional = _notional(position, price)
+        if notional < float(MIN_NOTIONAL):
+            return {"changed": False, "from": held, "to": held, "action": "skip",
+                    "reason": "equity_too_small", "notional": notional}
+        order = place_order(instrument=SYMBOL, side="BUY", quote_size=round(notional, 2),
                             order_type="MARKET")
-        return {"changed": True, "from": held, "to": 1, "action": "enter", "order": order}
+        return {"changed": True, "from": held, "to": 1, "action": "enter", "order": order,
+                "notional": round(notional, 2)}
     if target == 0 and held > 0:
         order = place_order(instrument=SYMBOL, side="SELL", size=position["base_qty"],
                             order_type="MARKET")
@@ -381,17 +412,23 @@ async def rebalance(signal: dict, position: dict, price: float) -> dict:
     held, target = signal["held_position"], signal["target_position"]
     if target == held:
         return {"changed": False, "from": held, "to": held, "action": "hold"}
+    qty = _qty(_notional(position, price) * LEVERAGE, price) if target else 0.0
+    if target and qty * price < float(MIN_NOTIONAL) and held == 0:
+        return {"changed": False, "from": held, "to": held, "action": "skip",
+                "reason": "equity_too_small"}
     if held != 0:
         # 立即市价平仓(样例里 close_at_trigger=True + STOP_MARKET 是挂止损,这里不是)
         futures_close_position(venue_class=VENUE_CLASS, instrument=SYMBOL,
                                close_at_trigger=False, order_type="MARKET")
     order = None
-    if target != 0:
+    if target != 0 and qty * price >= float(MIN_NOTIONAL):
         order = futures_open_position(venue_class=VENUE_CLASS, instrument=SYMBOL,
                                       side="BUY" if target > 0 else "SELL",
                                       position_side="LONG" if target > 0 else "SHORT",
-                                      size=_qty(price), order_type="MARKET")
-    return {"changed": True, "from": held, "to": target,
+                                      size=qty, order_type="MARKET")
+    else:
+        target = 0                    # 已平仓,但权益不够开新仓
+    return {"changed": True, "from": held, "to": target, "qty": qty,
             "action": "flip" if held and target else ("enter" if target else "exit"),
             "order": order}
 ''')
@@ -499,20 +536,21 @@ def build_spec(entry: dict) -> dict:
     nodes.append({
         "id": "signal_engine", "type": "custom", "name": "三段式信号:因子 → forecast → 仓位",
         "emoji": "🧠",
-        "params": [{"key": k, "value": v, **widgets[k]} for k, v in defaults.items()],
+        "params": [{"key": k, "value": v, **widgets[k]} for k, v in defaults.items()]
+                  + [{"key": k, "value": v, **w} for k, (v, w) in LIVE_PARAMS.items()],
         "code": stage_source(builtin) + "\n\n" + ANALYZE_SRC})
-    notional = {"key": "notional_usdt", "value": 100.0, "label": "单笔名义金额(USDT)",
-                "widget": "number", "min": 5.0 if spot else 100.0, "max": 10000.0, "step": 5.0}
+    notional = {"key": "target_notional",
+                "value": "{{ state.signal_engine.params.target_fraction }} × 权益(USDT + 持仓市值)"}
     if spot:
         rebalance_params = [{"key": "instrument", "value": symbol},
                             {"key": "side", "value": "BUY 进场 / SELL 离场(卖出全部基础币)"},
-                            {"key": "quote_size", "value": "notional_usdt(BUY)"},
+                            {"key": "quote_size", "value": "target_fraction × 权益(BUY)"},
                             {"key": "size", "value": "{{ state.fetch_position.output.base_qty }}(SELL)"},
                             {"key": "order_type", "value": "MARKET"}, notional]
     else:
         rebalance_params = [{"key": "venue_class", "value": "um"},
                             {"key": "instrument", "value": symbol},
-                            {"key": "size", "value": "notional_usdt / close,按 STEP 取整"},
+                            {"key": "size", "value": "target_fraction × 权益 × LEVERAGE / close,按 STEP 取整"},
                             {"key": "side", "value": "BUY / SELL(target_position > 0 → BUY 开多,< 0 → SELL 开空)"},
                             {"key": "position_side", "value": "LONG / SHORT"},
                             {"key": "order_type", "value": "MARKET"}, notional]

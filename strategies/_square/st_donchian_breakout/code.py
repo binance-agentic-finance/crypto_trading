@@ -14,7 +14,7 @@ from decimal import ROUND_DOWN, ROUND_UP, Decimal
 import numpy as np
 import pandas as pd
 
-from binance.strategy.node.capabilities.data import klines, futures_position_risk
+from binance.strategy.node.capabilities.data import klines, account_balances, futures_position_risk
 from binance.strategy.node.capabilities.execution import (
     futures_account_config, futures_close_position, futures_open_position, notify)
 from binance.strategy.runtime import ctx, node, workflow
@@ -34,9 +34,8 @@ VENUE_CLASS = "um"                 # U 本位永续
 INTERVAL_SEC = 3600
 PANDAS_FREQ = "1h"
 KLINE_LIMIT = 1000                  # 持仓是事件驱动的(无事件 = 继续持有),窗口要够长
-ORDER_NOTIONAL_USDT = Decimal("100")
 LEVERAGE = 1
-PARAMS = {'lookback_window': 20, 'breakout_buffer_bps': 0.0}
+PARAMS = {'lookback_window': 20, 'breakout_buffer_bps': 0.0, 'target_fraction': 0.2}
 
 
 def _hold_forward(entry_long: pd.Series, entry_short: pd.Series, go_flat: pd.Series,
@@ -178,6 +177,16 @@ def _asset_qty(records, asset: str) -> float:
     return 0.0
 
 
+def _equity(records) -> float:
+    """合约账户权益(钱包余额)。"""
+    for r in records:
+        if (r.get("asset") or r.get("coin") or "USDT") == "USDT":
+            value = _num(r, "wallet_balance", "walletBalance", "marginBalance", "balance", "total")
+            if value:
+                return value
+    return 0.0
+
+
 def _position_amt(records, symbol: str) -> float:
     """带符号的持仓数量:多 > 0,空 < 0。"""
     for r in records:
@@ -198,7 +207,12 @@ async def fetch_klines():
 async def fetch_position() -> dict:
     """持仓账本 = 交易所:合约读 futures_position_risk。"""
     recs = _records(futures_position_risk(risk_type="positions"))
-    return {"records": recs, "position_amt": _position_amt(recs, SYMBOL)}
+    equity = _equity(_records(account_balances(balance_type="futures")))
+    return {"records": recs, "position_amt": _position_amt(recs, SYMBOL), "equity": equity}
+
+
+def _equity_usdt(position: dict, price: float) -> float:
+    return position["equity"]
 
 
 def _held(position: dict, price: float) -> int:
@@ -221,11 +235,13 @@ async def signal_engine(df: pd.DataFrame, position: dict) -> dict:
     return out
 
 
-def _qty(price: float) -> float:
-    px = Decimal(str(price))
-    qty = (ORDER_NOTIONAL_USDT / px).quantize(STEP, rounding=ROUND_DOWN)
-    floor = (MIN_NOTIONAL / px).quantize(STEP, rounding=ROUND_UP)
-    return float(max(qty, floor))
+def _notional(position: dict, price: float) -> float:
+    """目标名义金额 = target_fraction × 真实权益(随盈亏复利,不写死金额)。"""
+    return PARAMS["target_fraction"] * _equity_usdt(position, price)
+
+
+def _qty(notional: float, price: float) -> float:
+    return float((Decimal(str(notional)) / Decimal(str(price))).quantize(STEP, rounding=ROUND_DOWN))
 
 
 @node("exec:entry")
@@ -234,17 +250,23 @@ async def rebalance(signal: dict, position: dict, price: float) -> dict:
     held, target = signal["held_position"], signal["target_position"]
     if target == held:
         return {"changed": False, "from": held, "to": held, "action": "hold"}
+    qty = _qty(_notional(position, price) * LEVERAGE, price) if target else 0.0
+    if target and qty * price < float(MIN_NOTIONAL) and held == 0:
+        return {"changed": False, "from": held, "to": held, "action": "skip",
+                "reason": "equity_too_small"}
     if held != 0:
         # 立即市价平仓(样例里 close_at_trigger=True + STOP_MARKET 是挂止损,这里不是)
         futures_close_position(venue_class=VENUE_CLASS, instrument=SYMBOL,
                                close_at_trigger=False, order_type="MARKET")
     order = None
-    if target != 0:
+    if target != 0 and qty * price >= float(MIN_NOTIONAL):
         order = futures_open_position(venue_class=VENUE_CLASS, instrument=SYMBOL,
                                       side="BUY" if target > 0 else "SELL",
                                       position_side="LONG" if target > 0 else "SHORT",
-                                      size=_qty(price), order_type="MARKET")
-    return {"changed": True, "from": held, "to": target,
+                                      size=qty, order_type="MARKET")
+    else:
+        target = 0                    # 已平仓,但权益不够开新仓
+    return {"changed": True, "from": held, "to": target, "qty": qty,
             "action": "flip" if held and target else ("enter" if target else "exit"),
             "order": order}
 

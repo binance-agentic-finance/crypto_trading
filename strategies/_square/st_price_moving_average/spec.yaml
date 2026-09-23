@@ -62,6 +62,13 @@ nodes:
     min: 0.0
     max: 0.05
     step: 0.0005
+  - key: target_fraction
+    value: 0.2
+    label: 目标仓位占权益比例
+    widget: number
+    min: 0.01
+    max: 1.0
+    step: 0.01
   code: |
     def _hold_forward(entry_long: pd.Series, entry_short: pd.Series, go_flat: pd.Series,
                       index, held: float = 0.0) -> tuple:
@@ -157,18 +164,13 @@ nodes:
   - key: side
     value: BUY 进场 / SELL 离场(卖出全部基础币)
   - key: quote_size
-    value: notional_usdt(BUY)
+    value: target_fraction × 权益(BUY)
   - key: size
     value: '{{ state.fetch_position.output.base_qty }}(SELL)'
   - key: order_type
     value: MARKET
-  - key: notional_usdt
-    value: 100.0
-    label: 单笔名义金额(USDT)
-    widget: number
-    min: 5.0
-    max: 10000.0
-    step: 5.0
+  - key: target_notional
+    value: '{{ state.signal_engine.params.target_fraction }} × 权益(USDT + 持仓市值)'
 - id: notify_signal
   type: execution
   function: notify
