@@ -268,7 +268,8 @@ def test_generated_workflow_runs_and_trades_on_a_target_change(sid):
                   "market_type": "futures", "closed_only": True}
     opened = [kw for name, kw in calls if name == "futures_open_position"]
     if signal["target_position"] != 0:
-        assert opened and opened[0]["side"] == ("LONG" if signal["target_position"] > 0 else "SHORT")
+        assert opened and opened[0]["side"] in {"BUY", "SELL"}
+        assert opened[0]["side"] == ("BUY" if signal["target_position"] > 0 else "SELL")
         assert set(opened[0]) == {"venue_class", "instrument", "size", "side", "order_type"}
         assert opened[0]["venue_class"] == "um" and opened[0]["order_type"] == "MARKET"
         assert ctx.state["position"] == signal["target_position"]
@@ -326,3 +327,20 @@ def test_payloads_carry_every_submit_field(tmp_path):
         assert f.stem == payload["strategyId"]
         assert yaml.safe_load(payload["spec"])["strategy"]["id"] == payload["strategyId"]
         compile(payload["code"], f.name, "exec")
+
+
+@pytest.mark.parametrize("sid", ["donchian_breakout", "multi_timeframe_ma_spread"])
+def test_generated_code_flips_by_closing_then_opening_with_buy_sell(sid):
+    df = _df(n=300, seed=5)
+    probe, _ = _load_code(ENTRIES[sid], [], {})
+    target = probe["_analyze"]("BTCUSDT", df, probe["PARAMS"])["target_position"]
+    assert target != 0
+    calls = []
+    ns, ctx = _load_code(ENTRIES[sid], calls, {"klines": _kline_rows(df)})
+    ctx.state["position"] = -target                  # hold the opposite side
+    asyncio.run(ns["execute_strategy"]())
+    trades = [(name, kw) for name, kw in calls if name.startswith("futures_")]
+    assert [name for name, _ in trades] == ["futures_close_position", "futures_open_position"]
+    assert trades[1][1]["side"] in {"BUY", "SELL"}
+    assert trades[1][1]["side"] == ("BUY" if target > 0 else "SELL")
+    assert ctx.state["position"] == target

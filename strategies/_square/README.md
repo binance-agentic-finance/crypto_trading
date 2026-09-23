@@ -29,6 +29,6 @@ code 在桩运行时下与仓库信号相同、spec 与 code 同步。
   `futures_close_position(venue_class="um", instrument, close_at_trigger=False, order_type="MARKET")`
   (样例的 `close_at_trigger=True` + `STOP_MARKET` 是挂止损单;这里是信号翻转时立即平仓)、
   `notify(message, channel="app")`;取数节点都是 `@node("std:fetch", retries=2)`。
-  `side` 取值(`LONG`/`SHORT`)样例未给出,**待 SDK 确认**。
+  `side`:开多 `BUY`、开空 `SELL`(verdict 仍是 `LONG`/`SHORT`,只在执行层映射);翻转时先平旧仓再按新方向开。
 - **待 SDK 确认**:持仓量 / 资金费率 / 强平订单的 data 节点名(`open_interest_hist` /
   `funding_rate_history` / `liquidation_orders`)、参数与返回字段 —— 样例里没有,保持现状。

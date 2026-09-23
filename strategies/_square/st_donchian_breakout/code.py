@@ -190,7 +190,7 @@ async def rebalance(signal: dict, price: float) -> dict:
     if target != 0:
         await futures_open_position(venue_class=VENUE_CLASS, instrument=SYMBOL,
                                     size=str(_qty(price)),
-                                    side="LONG" if target > 0 else "SHORT", order_type="MARKET")
+                                    side="BUY" if target > 0 else "SELL", order_type="MARKET")
     ctx.state["position"] = target
     return {"changed": True, "from": current, "to": target}
 

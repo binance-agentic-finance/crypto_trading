@@ -278,7 +278,7 @@ async def rebalance(signal: dict, price: float) -> dict:
     if target != 0:
         await futures_open_position(venue_class=VENUE_CLASS, instrument=SYMBOL,
                                     size=str(_qty(price)),
-                                    side="LONG" if target > 0 else "SHORT", order_type="MARKET")
+                                    side="BUY" if target > 0 else "SELL", order_type="MARKET")
     ctx.state["position"] = target
     return {"changed": True, "from": current, "to": target}
 
@@ -375,7 +375,7 @@ def build_spec(entry: dict) -> dict:
         "params": [{"key": "venue_class", "value": "um"},
                    {"key": "instrument", "value": symbol},
                    {"key": "size", "value": "ORDER_NOTIONAL_USDT / close,按 STEP 取整"},
-                   {"key": "side", "value": "LONG / SHORT(按 target_position 符号)"},
+                   {"key": "side", "value": "BUY / SELL(target_position > 0 → BUY 开多,< 0 → SELL 开空)"},
                    {"key": "order_type", "value": "MARKET"},
                    {"key": "notional_usdt", "value": 100.0, "label": "单笔名义金额(USDT)",
                     "widget": "number", "min": 100.0, "max": 10000.0, "step": 10.0}]})

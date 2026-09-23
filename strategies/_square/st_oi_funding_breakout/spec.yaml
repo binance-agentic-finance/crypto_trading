@@ -205,7 +205,7 @@ nodes:
   - key: size
     value: ORDER_NOTIONAL_USDT / close,按 STEP 取整
   - key: side
-    value: LONG / SHORT(按 target_position 符号)
+    value: BUY / SELL(target_position > 0 → BUY 开多,< 0 → SELL 开空)
   - key: order_type
     value: MARKET
   - key: notional_usdt
