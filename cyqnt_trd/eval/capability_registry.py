@@ -214,10 +214,11 @@ NORMALIZERS: dict[str, Callable[..., pd.DataFrame]] = {
 
 # ------------------------------------------------------------------- resolution
 def _ensure_upstream_importable(module: str) -> None:
-    """Put the repo root on `sys.path` so upstream blocks import.
+    """Make an upstream's top-level package importable from a source checkout.
 
-    `python -m cyqnt_trd.eval` only adds `eval/`, so `cyqnt_trd` is not visible.
-    Same bootstrap `__main__.py` performs for `eval/` itself.
+    Upstreams under `cyqnt_trd` are always importable here (this module is
+    part of that package), so this only matters for an upstream declared in a
+    sibling top-level package of the checkout; it is a no-op otherwise.
     """
     top = module.split(".", 1)[0]
     if importlib.util.find_spec(top) is not None:

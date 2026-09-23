@@ -2,7 +2,7 @@
 
 对标 `jqfactor_analyzer.preprocess`（winsorize / winsorize_med / standardlize /
 neutralize）。这里只保留在加密截面上真正用得到的部分，并且**不做行业中性**——
-没有可回测的 PIT 行业分类，用事后分类回填就是泄漏（见 alpha101_crypto 的说明）。
+没有可回测的 PIT 行业分类，用事后分类回填就是泄漏（见 `eval-alpha101/construct` 分支 `eval/alpha101_crypto/` 的说明）。
 
 一句话区别：`zscore` 会被后续的 rank 吃掉（矩阵内部按截面秩打分），所以它对**裁决**
 没有影响；真正会改变裁决的是 `winsorize_mad`（改变极端值的相对次序）和 `neutralize`

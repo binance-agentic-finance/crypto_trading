@@ -1,8 +1,8 @@
 """CLI:  python -m cyqnt_trd.eval <score|calibrate|demo|bundle>
 
-    cd eval
     python -m cyqnt_trd.eval demo
-    python -m cyqnt_trd.eval score --factor cyqnt_trd.eval/examples/example_factors.py:reversal_5d
+    python -m cyqnt_trd.eval score --factor cyqnt_trd/eval/examples/example_factors.py:reversal_5d
+    python -m cyqnt_trd.eval score --factor cyqnt_trd.eval.examples.example_factors:reversal_5d
     python -m cyqnt_trd.eval score --factor my_ideas.py:my_factor --markdown card.md --json card.json
     python -m cyqnt_trd.eval calibrate --trials 100 --h 5 --cost 12
 """
@@ -18,8 +18,12 @@ import numpy as np
 import pandas as pd
 
 HERE = Path(__file__).resolve().parent
-if str(HERE.parent) not in sys.path:
-    sys.path.insert(0, str(HERE.parent))
+# Repository root, so `python cyqnt_trd/eval/__main__.py` also resolves the
+# `cyqnt_trd` package. (Inserting `cyqnt_trd/` itself would expose its
+# subpackages — `utils`, `strategies`, ... — as top-level names.)
+REPO_ROOT = HERE.parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from cyqnt_trd.eval import evaluate, load_bundle          # noqa: E402
 from cyqnt_trd.eval.engine import DEFAULT_SPLITS, evaluate_factor   # noqa: E402
