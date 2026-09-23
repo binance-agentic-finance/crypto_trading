@@ -21,7 +21,7 @@ through the identical pipeline, not from taste.
 
 What it deliberately does not do: search. One factor, one frozen direction, one
 primary horizon. If you scan variants, that is a search and the thresholds here
-no longer hold — the reference study in `eval/alpha101_crypto/` shows how far a
+no longer hold — the reference study (`eval/alpha101_crypto/` on branch `eval-alpha101/construct`) shows how far a
 101-formula scan drifts from its own single-factor statistics.
 """
 from __future__ import annotations
@@ -316,7 +316,7 @@ def evaluate(factor, panel: Panel | None = None, *, name: str = "factor",
                              "calibration_contract": calibration_contract(
                                  panel, primary_h=primary_h, cost_bps=cost_bps, splits=splits, entry_lag=entry_lag),
                              "trials_seen": int(trials_seen),
-                             "evaluation_scope": "single_cyqnt_trd.evaluation_matrix" if with_diagnostics else "six_gate_research_screen",
+                             "evaluation_scope": "single_factor_evaluation_matrix" if with_diagnostics else "six_gate_research_screen",
                              "diagnostics_enabled": bool(with_diagnostics),
                              "strategy_combination": "NOT_EVALUATED",
                              "selection_caveat": panel.meta.get("selection_caveat", "universe provenance not supplied"),

@@ -17,9 +17,15 @@ Three things the bundle carries that a bare OHLCV table does not:
 
 Selection caveat, repeated because it changes how results read: the ten names are
 chosen by volume **as of the snapshot date** and then looked at backwards. That is
-retrospective selection. `eval/alpha101_crypto/` also evaluates a point-in-time
-monthly top-ten for comparison; the framework defaults to the fixed ten because a
-capability users can re-run must be reproducible, not because it is less biased.
+retrospective selection. `cyqnt_trd.eval.snapshot` can also build the point-in-time
+monthly top-ten (`--pool historical`) for comparison; the framework defaults to the
+fixed ten because a capability users can re-run must be reproducible, not because
+it is less biased.
+
+A bundle written by `cyqnt_trd.eval.snapshot.build_bundle` may carry more than the
+shipped one: ``extras`` fields (e.g. ``open_interest``) are stored as further
+``field`` values, and a non-daily grid records its ``cell_scheme`` in the meta
+file. The shipped bundle has neither, so loading it is unchanged.
 """
 from __future__ import annotations
 
@@ -34,6 +40,8 @@ from pandas.api.types import is_bool_dtype, is_complex_dtype, is_numeric_dtype
 HERE = Path(__file__).resolve().parent
 DEFAULT_BUNDLE = HERE / "data" / "top10_daily.parquet"
 PRICE_FIELDS = ("open", "high", "low", "close", "volume", "quote_volume")
+#: Field names a bundle file reserves; anything else in its ``field`` column is an extra.
+CORE_FIELDS = (*PRICE_FIELDS, "funding", "eligible")
 
 
 @dataclass(frozen=True)
@@ -95,8 +103,11 @@ class Panel:
     def describe(self) -> str:
         first, last = self.index[0].date(), self.index[-1].date()
         per_day = float(self.mask.sum(axis=1).mean())
-        return (f"{len(self.symbols)} symbols, {len(self.index)} daily bars "
-                f"{first} → {last}, {per_day:.1f} eligible names/day")
+        if self.cell_scheme == "daily_utc":
+            return (f"{len(self.symbols)} symbols, {len(self.index)} daily bars "
+                    f"{first} → {last}, {per_day:.1f} eligible names/day")
+        return (f"{len(self.symbols)} symbols, {len(self.index)} {self.cell_scheme} bars "
+                f"{first} → {last}, {per_day:.1f} eligible names/bar")
 
     def validate(self) -> None:
         ref = self.close
@@ -174,8 +185,9 @@ def load_bundle(path: str | Path | None = None) -> Panel:
     if not path.exists():
         raise FileNotFoundError(
             f"bundle not found: {path}\n"
-            "The tracked bundle lives at cyqnt_trd.eval/data/top10_daily.parquet. "
-            "To build a different universe, see eval/README.md.")
+            "The tracked bundle lives at cyqnt_trd/eval/data/top10_daily.parquet. "
+            "To build a different universe, see cyqnt_trd/eval/README.md "
+            "(python -m cyqnt_trd.eval.snapshot.build_bundle --help).")
     long = pd.read_parquet(path)
     if not {"ts", "symbol", "field", "value"}.issubset(long.columns):
         raise ValueError("bundle requires ts, symbol, field, and value columns")
@@ -200,6 +212,8 @@ def load_bundle(path: str | Path | None = None) -> Panel:
         funding=frames["funding"],
         mask=eligible.astype(bool),
         meta=meta,
+        extras={f: frames[f] for f in frames if f not in CORE_FIELDS},
+        cell_scheme=meta.get("cell_scheme", "daily_utc"),
     )
     panel.validate()
     return panel
@@ -209,8 +223,12 @@ def to_long(panel: Panel) -> pd.DataFrame:
     """Inverse of the loader's reshape; used when writing a bundle."""
     panel.validate()
     out = []
+    clash = sorted(set(panel.extras) & set(CORE_FIELDS))
+    if clash:
+        raise ValueError(f"panel extras {clash} collide with reserved bundle fields")
     fields = {**{f: getattr(panel, f) for f in PRICE_FIELDS},
-              "funding": panel.funding, "eligible": panel.mask.astype(float)}
+              "funding": panel.funding, "eligible": panel.mask.astype(float),
+              **panel.extras}
     for name, frame in fields.items():
         x = frame.rename_axis(index="ts", columns="symbol").reset_index().melt(
             id_vars="ts", var_name="symbol", value_name="value")

@@ -1,7 +1,7 @@
 """The five things a new factor has to beat before it is interesting.
 
 None of these is clever. That is the point: each is one line of public data, and
-in the reference study (`eval/alpha101_crypto/`) several of them out-scored most
+in the reference study (`eval/alpha101_crypto/` on branch `eval-alpha101/construct`) several of them out-scored most
 of the 101 published formulas out of sample. A factor that cannot separate itself
 from ``B_size`` is not a finding, it is a re-parameterisation of "hold the big
 names".

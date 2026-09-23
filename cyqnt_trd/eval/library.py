@@ -6,7 +6,8 @@ Two sources feed the matrix.
     The production path -- operators declared by the capability SDK.
 
 `alpha101_factors`
-    The reference study in `eval/alpha101_crypto/`. A hundred and one published
+    The reference study (`eval/alpha101_crypto/` on branch `eval-alpha101/construct`;
+    formulas in :mod:`cyqnt_trd.eval.alpha101`). A hundred and one published
     formulas make a fast, adversarial smoke test of the whole chain: they are not
     tuned for this panel, most of them are weak, and several are near-copies of
     each other, which is exactly the situation de-duplication has to survive.
@@ -32,7 +33,7 @@ __all__ = ["alpha101_factors", "sample_factors", "rank_corr", "deduplicate"]
 def alpha101_factors(panel, *, mode: str = "paper", names=None) -> dict[str, pd.DataFrame]:
     """Compute the Alpha101 reference formulas on a panel.
 
-    Shape adaptation only -- the formulas stay in `eval/alpha101_crypto/factors.py`
+    Shape adaptation only -- the formulas stay in :mod:`cyqnt_trd.eval.alpha101`
     and are not copied here. All 101 are computed in one pass because that module
     shares operator state across the set; `names` then selects from the result.
     """
