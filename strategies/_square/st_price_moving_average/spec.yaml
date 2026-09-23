@@ -9,6 +9,37 @@ trigger:
   config:
     interval: 1h
 nodes:
+- id: gate
+  type: analysis
+  function: factor_evaluate
+  name: 研究闸门(factor_evaluate)
+  emoji: 🚦
+  params:
+  - key: factor
+    value:
+      operator:
+        mode: emit
+        function_name: price_ma_spread
+        impl_source: |
+          def price_ma_spread(*, close, period=20):
+              c = [float(v) for v in close if v is not None]
+              if len(c) < period:
+                  return {'value': None}
+              ma = sum(c[-period:]) / period
+              return {'value': (c[-1] - ma) / ma if ma else None}
+      binding:
+        inputs:
+          close: close
+        params:
+          period: 20
+        window: 20
+        output: value
+      name: price_ma_spread
+  - key: tradeable_verdicts
+    value:
+    - PASS
+    - PASS_CONDITIONAL
+    - HOLD_INFO
 - id: fetch_klines
   type: data
   function: klines
@@ -203,6 +234,9 @@ nodes:
   - key: channel
     value: app
 edges:
+- from: gate
+  to: signal_engine
+  label: verdict ∈ PASS / PASS_CONDITIONAL / HOLD_INFO 才交易
 - from: fetch_klines
   to: signal_engine
 - from: fetch_position

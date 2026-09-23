@@ -192,6 +192,81 @@ def _attach_funding(df: pd.DataFrame, out) -> pd.DataFrame:
     return df
 ''',
 }
+#: Gate factors: builtin -> (function name, impl_source, inputs, window from params).
+#: Each is the strategy's core factor (the forecast ``score``) as one list-only function that
+#: ``factor_evaluate`` can score; tests check it equals the repo's score on the last bar.
+#: oi_funding_breakout's edge is the OI / funding confirmation, which is not in a price-only
+#: binding, so its gate is a fixed HOLD_INFO (see README).
+GATE_FACTORS = {
+    "moving_average_cross": ("ma_spread", '''\
+def ma_spread(*, close, fast_window=5, slow_window=20):
+    c = [float(v) for v in close if v is not None]
+    if len(c) < max(fast_window, slow_window):
+        return {'value': None}
+    fast = sum(c[-fast_window:]) / fast_window
+    slow = sum(c[-slow_window:]) / slow_window
+    return {'value': (fast - slow) / slow if slow else None}
+''', ("close",), lambda p: max(p["fast_window"], p["slow_window"])),
+    "price_moving_average": ("price_ma_spread", '''\
+def price_ma_spread(*, close, period=20):
+    c = [float(v) for v in close if v is not None]
+    if len(c) < period:
+        return {'value': None}
+    ma = sum(c[-period:]) / period
+    return {'value': (c[-1] - ma) / ma if ma else None}
+''', ("close",), lambda p: p["period"]),
+    "rsi_reversion": ("rsi_reversion_score", '''\
+def rsi_reversion_score(*, close, period=14):
+    c = [float(v) for v in close if v is not None]
+    if len(c) < period + 1:
+        return {'value': None}
+    d = [c[i] - c[i - 1] for i in range(len(c) - period, len(c))]
+    gain = sum(x for x in d if x > 0) / period
+    loss = sum(-x for x in d if x < 0) / period
+    rsi = 100.0 if loss == 0 else 100.0 - 100.0 / (1.0 + gain / loss)
+    return {'value': (50.0 - rsi) / 50.0}
+''', ("close",), lambda p: p["period"] + 1),
+    "donchian_breakout": ("donchian_position", '''\
+def donchian_position(*, high, low, close, lookback_window=20):
+    h = [float(v) for v in high if v is not None]
+    lo = [float(v) for v in low if v is not None]
+    c = [float(v) for v in close if v is not None]
+    if min(len(h), len(lo), len(c)) < lookback_window + 1:
+        return {'value': None}
+    upper = max(h[-lookback_window - 1:-1])
+    lower = min(lo[-lookback_window - 1:-1])
+    if upper == lower:
+        return {'value': None}
+    return {'value': 2.0 * (c[-1] - (upper + lower) / 2.0) / (upper - lower)}
+''', ("high", "low", "close"), lambda p: p["lookback_window"] + 1),
+    "multi_timeframe_ma_spread": ("mtf_ma_spread", '''\
+def mtf_ma_spread(*, close, primary_period=20, secondary_period=20, secondary_factor=4):
+    c = [float(v) for v in close if v is not None]
+    span = max(2, secondary_period * secondary_factor)
+    if len(c) < max(primary_period, span):
+        return {'value': None}
+    primary = sum(c[-primary_period:]) / primary_period
+    secondary = sum(c[-span:]) / span
+    return {'value': (primary - secondary) / secondary if secondary else None}
+''', ("close",), lambda p: max(p["primary_period"],
+                                  max(2, p["secondary_period"] * p["secondary_factor"]))),
+}
+TRADEABLE_VERDICTS = ("PASS", "PASS_CONDITIONAL", "HOLD_INFO")
+
+
+def gate_spec(builtin: str) -> dict | None:
+    """The nl2factor operator spec ``factor_evaluate`` scores, or None (fixed HOLD_INFO)."""
+    if builtin not in GATE_FACTORS:
+        return None
+    name, src, inputs, window = GATE_FACTORS[builtin]
+    params = {k: v for k, v in fs.strategy_defaults(builtin).items()
+              if re.search(rf"\b{k}\b", src.split(":", 1)[0])}
+    return {"operator": {"mode": "emit", "function_name": name, "impl_source": src},
+            "binding": {"inputs": {k: k for k in inputs}, "params": params,
+                        "window": window(fs.strategy_defaults(builtin)), "output": "value"},
+            "name": name}
+
+
 #: Account helpers. Record field names are read defensively (pending SDK confirmation).
 ACCOUNT_SRC = '''\
 def _records(out) -> list:
@@ -264,6 +339,8 @@ def build_code(entry: dict) -> str:
     spot = market == "spot"
     ledger = "account_balances" if spot else "futures_position_risk"
     data_imports = ", ".join(["klines"] + sorted({ledger, "account_balances"} | {f[1] for f in feeds}))
+    analysis_import = ("from binance.strategy.node.capabilities.analysis import factor_evaluate\n"
+                       if gate_spec(builtin) else "")
     exec_imports = ("notify, place_order" if spot else
                     "(\n    futures_account_config, futures_close_position, futures_open_position, notify)")
     quote = "USDT"
@@ -294,7 +371,7 @@ import numpy as np
 import pandas as pd
 
 from binance.strategy.node.capabilities.data import {data_imports}
-from binance.strategy.node.capabilities.execution import {exec_imports}
+{analysis_import}from binance.strategy.node.capabilities.execution import {exec_imports}
 from binance.strategy.runtime import ctx, node, workflow
 
 # ── 交易所规则 ────────────────────────────────────────────────
@@ -315,7 +392,23 @@ KLINE_LIMIT = {KLINE_LIMIT}                  # 持仓是事件驱动的(无事�
     out.append(ACCOUNT_SRC)
     out += [FEED_SRC[f[0]] for f in feeds]
 
-    nodes = ['''\
+    spec = gate_spec(builtin)
+    if spec:
+        gate_src = (f"_FACTOR_SPEC = {pprint.pformat(spec, sort_dicts=False, width=90)}\n"
+                    f"_TRADEABLE = {TRADEABLE_VERDICTS!r}\n\n\n"
+                    '@node("std:gate")\n'
+                    "async def gate() -> dict:\n"
+                    '    """研究闸门:factor_evaluate 给出的 verdict 决定这个因子能不能交易。"""\n'
+                    "    res = factor_evaluate(factor=_FACTOR_SPEC)\n"
+                    '    verdict = res.get("verdict") if res.get("status") == "ok" else None\n'
+                    '    return {"verdict": verdict, "tradeable": verdict in _TRADEABLE}\n')
+    else:
+        gate_src = ('@node("std:gate")\n'
+                    "async def gate() -> dict:\n"
+                    '    """这个策略的因子依赖 OI / 资金费率确认,不能写成只吃价格的单函数 operator,\n'
+                    '    factor_evaluate 评不了 —— 固定 HOLD_INFO(可交易,但没有研究证据)。"""\n'
+                    '    return {"verdict": "HOLD_INFO", "tradeable": True, "reason": "factor_not_expressible"}\n')
+    nodes = [gate_src, '''\
 @node("std:fetch", retries=2)
 async def fetch_klines():
     return klines(symbol=SYMBOL, timeframe=INTERVAL, limit=KLINE_LIMIT,
@@ -475,6 +568,11 @@ async def notify_signal(signal: dict, fill: dict) -> dict:
     out.append(f'''\
 @workflow
 async def execute_strategy():
+    if "gate" not in ctx.state:                  # 首轮评一次并缓存(检查和写入用同一个 key)
+        ctx.state["gate"] = await gate()
+    if not ctx.state["gate"]["tradeable"]:
+        ctx.log("WARN", "gate_blocked", {{"verdict": ctx.state["gate"]["verdict"]}})
+        return {{"action": "skip", "reason": "gate", "verdict": ctx.state["gate"]["verdict"]}}
 {fetch}    signal = await signal_engine(df, position)
     ctx.state["signal_engine"] = signal
     if signal["rebalance_needed"]:
@@ -533,7 +631,16 @@ def build_spec(entry: dict) -> dict:
     defaults = fs.strategy_defaults(builtin)
     feeds = DERIVATIVE_FEEDS.get(builtin, [])
     symbol, interval = entry["symbol"], entry["interval"]
-    nodes = [{"id": "fetch_klines", "type": "data", "function": "klines",
+    gate = gate_spec(builtin)
+    nodes = [{"id": "gate", "type": "analysis", "function": "factor_evaluate",
+              "name": "研究闸门(factor_evaluate)", "emoji": "🚦",
+              "params": [{"key": "factor", "value": gate},
+                         {"key": "tradeable_verdicts", "value": list(TRADEABLE_VERDICTS)}]}
+             if gate else
+             {"id": "gate", "type": "custom", "name": "研究闸门(固定 HOLD_INFO)", "emoji": "🚦",
+              "params": [{"key": "verdict", "value": "HOLD_INFO"}],
+              "code": "return {'verdict': 'HOLD_INFO', 'tradeable': True}\n"}]
+    nodes += [{"id": "fetch_klines", "type": "data", "function": "klines",
               "name": f"{symbol} {interval} K线", "emoji": "🕯️",
               "params": [{"key": "symbol", "value": symbol, "label": "交易对", "widget": "text"},
                          {"key": "timeframe", "value": interval, "label": "K线周期",
@@ -596,7 +703,9 @@ def build_spec(entry: dict) -> dict:
                              "{{ state.rebalance.output.from }} -> {{ state.rebalance.output.to }}",
                     "label": "通知内容", "widget": "text"},
                    {"key": "channel", "value": "app"}]})
-    edges = [{"from": n["id"], "to": "signal_engine"} for n in nodes if n["type"] == "data"]
+    edges = [{"from": "gate", "to": "signal_engine",
+              "label": "verdict ∈ PASS / PASS_CONDITIONAL / HOLD_INFO 才交易"}]
+    edges += [{"from": n["id"], "to": "signal_engine"} for n in nodes if n["type"] == "data"]
     edges += [{"from": "signal_engine", "to": "rebalance", "label": "目标仓位变化"},
               {"from": "rebalance", "to": "notify_signal", "label": "已调仓"}]
     return {"strategy": {"id": entry["strategyId"], "version": _Quoted(entry["specVersion"]),

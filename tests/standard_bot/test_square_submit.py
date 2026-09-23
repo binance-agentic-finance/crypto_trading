@@ -210,8 +210,11 @@ def _load_code(entry, calls, feeds):
     runtime.workflow = lambda f: f
     data = types.ModuleType("binance.strategy.node.capabilities.data")
     execution = types.ModuleType("binance.strategy.node.capabilities.execution")
+    analysis = types.ModuleType("binance.strategy.node.capabilities.analysis")
+    analysis.factor_evaluate = cap("factor_evaluate")
+    feeds.setdefault("factor_evaluate", {"status": "ok", "verdict": "PASS"})
     for name in ("klines", "account_balances", "futures_position_risk",
-                 "derivatives_market_metrics", "factor_evaluate"):
+                 "derivatives_market_metrics"):
         setattr(data, name, cap(name))
     for name in ("futures_account_config", "futures_close_position",
                  "futures_open_position", "notify", "place_order"):
@@ -222,6 +225,7 @@ def _load_code(entry, calls, feeds):
             "binance.strategy.node.capabilities": types.ModuleType("binance.strategy.node.capabilities"),
             "binance.strategy.node.capabilities.data": data,
             "binance.strategy.node.capabilities.execution": execution,
+            "binance.strategy.node.capabilities.analysis": analysis,
             "binance.strategy.runtime": runtime}
     saved = {k: sys.modules.get(k) for k in mods}
     sys.modules.update(mods)
@@ -577,3 +581,46 @@ def test_backtest_parity_ignores_the_stop():
     for sid in SIDS:
         pd.testing.assert_series_equal(fs.analyze(sid, df)["long"],
                                        legacy.FRAMEWORK_STRATEGIES[sid](df)[0])
+
+
+@pytest.mark.parametrize("sid", sorted(builder.GATE_FACTORS))
+def test_gate_factor_is_the_repo_score_on_the_last_bar(sid):
+    spec = builder.gate_spec(sid)
+    ns = {}
+    exec(spec["operator"]["impl_source"], ns)
+    fn = ns[spec["operator"]["function_name"]]
+    df = _df(seed=3)
+    score = fs.analyze(sid, df)["score"]
+    for n in (spec["binding"]["window"] - 1, spec["binding"]["window"], 120, 333, len(df)):
+        cols = {k: df[k].iloc[:n].tolist() for k in spec["binding"]["inputs"]}
+        got = fn(**cols, **spec["binding"]["params"])["value"]
+        want = score.iloc[n - 1]
+        if pd.isna(want):
+            assert got is None
+        else:
+            assert got == pytest.approx(float(want), rel=1e-9, abs=1e-12)
+
+
+@pytest.mark.parametrize("sid", GEN)
+def test_gate_runs_once_and_blocks_non_tradeable_verdicts(sid):
+    entry = ENTRIES[sid]
+    df = _entry_window(entry)
+    calls = []
+    ns, ctx = _load_code(entry, calls, {**_feeds(entry, df), "factor_evaluate": {
+        "status": "ok", "verdict": "FAIL"}})
+    asyncio.run(ns["execute_strategy"]())
+    asyncio.run(ns["execute_strategy"]())
+    gated = sid in builder.GATE_FACTORS
+    assert len([c for c in calls if c[0] == "factor_evaluate"]) == (1 if gated else 0)
+    if gated:
+        assert ctx.state["gate"] == {"verdict": "FAIL", "tradeable": False}
+        assert not [c for c in calls if c[0] in ORDER_CAPS or c[0] == "klines"]
+        assert ctx.logs[0][:2] == ("WARN", "gate_blocked")
+    else:
+        assert ctx.state["gate"]["verdict"] == "HOLD_INFO" and ctx.state["gate"]["tradeable"]
+    for verdict in builder.TRADEABLE_VERDICTS:
+        calls = []
+        ns, ctx = _load_code(entry, calls, {**_feeds(entry, df), "factor_evaluate": {
+            "status": "ok", "verdict": verdict}})
+        asyncio.run(ns["execute_strategy"]())
+        assert [c for c in calls if c[0] in ORDER_CAPS], verdict

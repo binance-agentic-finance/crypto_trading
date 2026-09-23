@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 
 from binance.strategy.node.capabilities.data import klines, account_balances, futures_position_risk
+from binance.strategy.node.capabilities.analysis import factor_evaluate
 from binance.strategy.node.capabilities.execution import (
     futures_account_config, futures_close_position, futures_open_position, notify)
 from binance.strategy.runtime import ctx, node, workflow
@@ -206,6 +207,36 @@ def _position_amt(records, symbol: str) -> float:
     return 0.0
 
 
+_FACTOR_SPEC = {'operator': {'mode': 'emit',
+              'function_name': 'mtf_ma_spread',
+              'impl_source': 'def mtf_ma_spread(*, close, primary_period=20, '
+                             'secondary_period=20, secondary_factor=4):\n'
+                             '    c = [float(v) for v in close if v is not None]\n'
+                             '    span = max(2, secondary_period * secondary_factor)\n'
+                             '    if len(c) < max(primary_period, span):\n'
+                             "        return {'value': None}\n"
+                             '    primary = sum(c[-primary_period:]) / primary_period\n'
+                             '    secondary = sum(c[-span:]) / span\n'
+                             "    return {'value': (primary - secondary) / secondary if "
+                             'secondary else None}\n'},
+ 'binding': {'inputs': {'close': 'close'},
+             'params': {'primary_period': 20,
+                        'secondary_period': 20,
+                        'secondary_factor': 4},
+             'window': 80,
+             'output': 'value'},
+ 'name': 'mtf_ma_spread'}
+_TRADEABLE = ('PASS', 'PASS_CONDITIONAL', 'HOLD_INFO')
+
+
+@node("std:gate")
+async def gate() -> dict:
+    """研究闸门:factor_evaluate 给出的 verdict 决定这个因子能不能交易。"""
+    res = factor_evaluate(factor=_FACTOR_SPEC)
+    verdict = res.get("verdict") if res.get("status") == "ok" else None
+    return {"verdict": verdict, "tradeable": verdict in _TRADEABLE}
+
+
 @node("std:fetch", retries=2)
 async def fetch_klines():
     return klines(symbol=SYMBOL, timeframe=INTERVAL, limit=KLINE_LIMIT,
@@ -302,6 +333,11 @@ async def notify_signal(signal: dict, fill: dict) -> dict:
 
 @workflow
 async def execute_strategy():
+    if "gate" not in ctx.state:                  # 首轮评一次并缓存(检查和写入用同一个 key)
+        ctx.state["gate"] = await gate()
+    if not ctx.state["gate"]["tradeable"]:
+        ctx.log("WARN", "gate_blocked", {"verdict": ctx.state["gate"]["verdict"]})
+        return {"action": "skip", "reason": "gate", "verdict": ctx.state["gate"]["verdict"]}
     klines_raw, position = await asyncio.gather(
         fetch_klines(), fetch_position())
     ctx.state["fetch_klines"] = klines_raw

@@ -266,6 +266,13 @@ def _attach_funding(df: pd.DataFrame, out) -> pd.DataFrame:
     return df
 
 
+@node("std:gate")
+async def gate() -> dict:
+    """这个策略的因子依赖 OI / 资金费率确认,不能写成只吃价格的单函数 operator,
+    factor_evaluate 评不了 —— 固定 HOLD_INFO(可交易,但没有研究证据)。"""
+    return {"verdict": "HOLD_INFO", "tradeable": True, "reason": "factor_not_expressible"}
+
+
 @node("std:fetch", retries=2)
 async def fetch_klines():
     return klines(symbol=SYMBOL, timeframe=INTERVAL, limit=KLINE_LIMIT,
@@ -372,6 +379,11 @@ async def notify_signal(signal: dict, fill: dict) -> dict:
 
 @workflow
 async def execute_strategy():
+    if "gate" not in ctx.state:                  # 首轮评一次并缓存(检查和写入用同一个 key)
+        ctx.state["gate"] = await gate()
+    if not ctx.state["gate"]["tradeable"]:
+        ctx.log("WARN", "gate_blocked", {"verdict": ctx.state["gate"]["verdict"]})
+        return {"action": "skip", "reason": "gate", "verdict": ctx.state["gate"]["verdict"]}
     klines_raw, position, fetch_open_interest_raw, fetch_funding_rate_raw = await asyncio.gather(
         fetch_klines(), fetch_position(), fetch_open_interest(), fetch_funding_rate())
     ctx.state["fetch_klines"] = klines_raw

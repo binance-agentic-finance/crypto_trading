@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 
 from binance.strategy.node.capabilities.data import klines, account_balances
+from binance.strategy.node.capabilities.analysis import factor_evaluate
 from binance.strategy.node.capabilities.execution import notify, place_order
 from binance.strategy.runtime import ctx, node, workflow
 
@@ -203,6 +204,35 @@ def _position_amt(records, symbol: str) -> float:
     return 0.0
 
 
+_FACTOR_SPEC = {'operator': {'mode': 'emit',
+              'function_name': 'rsi_reversion_score',
+              'impl_source': 'def rsi_reversion_score(*, close, period=14):\n'
+                             '    c = [float(v) for v in close if v is not None]\n'
+                             '    if len(c) < period + 1:\n'
+                             "        return {'value': None}\n"
+                             '    d = [c[i] - c[i - 1] for i in range(len(c) - period, '
+                             'len(c))]\n'
+                             '    gain = sum(x for x in d if x > 0) / period\n'
+                             '    loss = sum(-x for x in d if x < 0) / period\n'
+                             '    rsi = 100.0 if loss == 0 else 100.0 - 100.0 / (1.0 + '
+                             'gain / loss)\n'
+                             "    return {'value': (50.0 - rsi) / 50.0}\n"},
+ 'binding': {'inputs': {'close': 'close'},
+             'params': {'period': 14},
+             'window': 15,
+             'output': 'value'},
+ 'name': 'rsi_reversion_score'}
+_TRADEABLE = ('PASS', 'PASS_CONDITIONAL', 'HOLD_INFO')
+
+
+@node("std:gate")
+async def gate() -> dict:
+    """研究闸门:factor_evaluate 给出的 verdict 决定这个因子能不能交易。"""
+    res = factor_evaluate(factor=_FACTOR_SPEC)
+    verdict = res.get("verdict") if res.get("status") == "ok" else None
+    return {"verdict": verdict, "tradeable": verdict in _TRADEABLE}
+
+
 @node("std:fetch", retries=2)
 async def fetch_klines():
     return klines(symbol=SYMBOL, timeframe=INTERVAL, limit=KLINE_LIMIT,
@@ -291,6 +321,11 @@ async def notify_signal(signal: dict, fill: dict) -> dict:
 
 @workflow
 async def execute_strategy():
+    if "gate" not in ctx.state:                  # 首轮评一次并缓存(检查和写入用同一个 key)
+        ctx.state["gate"] = await gate()
+    if not ctx.state["gate"]["tradeable"]:
+        ctx.log("WARN", "gate_blocked", {"verdict": ctx.state["gate"]["verdict"]})
+        return {"action": "skip", "reason": "gate", "verdict": ctx.state["gate"]["verdict"]}
     klines_raw, position = await asyncio.gather(
         fetch_klines(), fetch_position())
     ctx.state["fetch_klines"] = klines_raw

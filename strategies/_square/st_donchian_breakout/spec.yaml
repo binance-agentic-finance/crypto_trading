@@ -9,6 +9,44 @@ trigger:
   config:
     interval: 1h
 nodes:
+- id: gate
+  type: analysis
+  function: factor_evaluate
+  name: 研究闸门(factor_evaluate)
+  emoji: 🚦
+  params:
+  - key: factor
+    value:
+      operator:
+        mode: emit
+        function_name: donchian_position
+        impl_source: |
+          def donchian_position(*, high, low, close, lookback_window=20):
+              h = [float(v) for v in high if v is not None]
+              lo = [float(v) for v in low if v is not None]
+              c = [float(v) for v in close if v is not None]
+              if min(len(h), len(lo), len(c)) < lookback_window + 1:
+                  return {'value': None}
+              upper = max(h[-lookback_window - 1:-1])
+              lower = min(lo[-lookback_window - 1:-1])
+              if upper == lower:
+                  return {'value': None}
+              return {'value': 2.0 * (c[-1] - (upper + lower) / 2.0) / (upper - lower)}
+      binding:
+        inputs:
+          high: high
+          low: low
+          close: close
+        params:
+          lookback_window: 20
+        window: 21
+        output: value
+      name: donchian_position
+  - key: tradeable_verdicts
+    value:
+    - PASS
+    - PASS_CONDITIONAL
+    - HOLD_INFO
 - id: fetch_klines
   type: data
   function: klines
@@ -210,6 +248,9 @@ nodes:
   - key: channel
     value: app
 edges:
+- from: gate
+  to: signal_engine
+  label: verdict ∈ PASS / PASS_CONDITIONAL / HOLD_INFO 才交易
 - from: fetch_klines
   to: signal_engine
 - from: fetch_position

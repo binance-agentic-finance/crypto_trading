@@ -9,6 +9,15 @@ trigger:
   config:
     interval: 1h
 nodes:
+- id: gate
+  type: custom
+  name: 研究闸门(固定 HOLD_INFO)
+  emoji: 🚦
+  params:
+  - key: verdict
+    value: HOLD_INFO
+  code: |
+    return {'verdict': 'HOLD_INFO', 'tradeable': True}
 - id: fetch_klines
   type: data
   function: klines
@@ -284,6 +293,9 @@ nodes:
   - key: channel
     value: app
 edges:
+- from: gate
+  to: signal_engine
+  label: verdict ∈ PASS / PASS_CONDITIONAL / HOLD_INFO 才交易
 - from: fetch_klines
   to: signal_engine
 - from: fetch_position

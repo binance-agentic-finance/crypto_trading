@@ -9,6 +9,40 @@ trigger:
   config:
     interval: 1h
 nodes:
+- id: gate
+  type: analysis
+  function: factor_evaluate
+  name: 研究闸门(factor_evaluate)
+  emoji: 🚦
+  params:
+  - key: factor
+    value:
+      operator:
+        mode: emit
+        function_name: rsi_reversion_score
+        impl_source: |
+          def rsi_reversion_score(*, close, period=14):
+              c = [float(v) for v in close if v is not None]
+              if len(c) < period + 1:
+                  return {'value': None}
+              d = [c[i] - c[i - 1] for i in range(len(c) - period, len(c))]
+              gain = sum(x for x in d if x > 0) / period
+              loss = sum(-x for x in d if x < 0) / period
+              rsi = 100.0 if loss == 0 else 100.0 - 100.0 / (1.0 + gain / loss)
+              return {'value': (50.0 - rsi) / 50.0}
+      binding:
+        inputs:
+          close: close
+        params:
+          period: 14
+        window: 15
+        output: value
+      name: rsi_reversion_score
+  - key: tradeable_verdicts
+    value:
+    - PASS
+    - PASS_CONDITIONAL
+    - HOLD_INFO
 - id: fetch_klines
   type: data
   function: klines
@@ -211,6 +245,9 @@ nodes:
   - key: channel
     value: app
 edges:
+- from: gate
+  to: signal_engine
+  label: verdict ∈ PASS / PASS_CONDITIONAL / HOLD_INFO 才交易
 - from: fetch_klines
   to: signal_engine
 - from: fetch_position

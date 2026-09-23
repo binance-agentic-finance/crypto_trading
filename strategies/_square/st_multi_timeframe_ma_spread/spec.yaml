@@ -9,6 +9,41 @@ trigger:
   config:
     interval: 1h
 nodes:
+- id: gate
+  type: analysis
+  function: factor_evaluate
+  name: 研究闸门(factor_evaluate)
+  emoji: 🚦
+  params:
+  - key: factor
+    value:
+      operator:
+        mode: emit
+        function_name: mtf_ma_spread
+        impl_source: |
+          def mtf_ma_spread(*, close, primary_period=20, secondary_period=20, secondary_factor=4):
+              c = [float(v) for v in close if v is not None]
+              span = max(2, secondary_period * secondary_factor)
+              if len(c) < max(primary_period, span):
+                  return {'value': None}
+              primary = sum(c[-primary_period:]) / primary_period
+              secondary = sum(c[-span:]) / span
+              return {'value': (primary - secondary) / secondary if secondary else None}
+      binding:
+        inputs:
+          close: close
+        params:
+          primary_period: 20
+          secondary_period: 20
+          secondary_factor: 4
+        window: 80
+        output: value
+      name: mtf_ma_spread
+  - key: tradeable_verdicts
+    value:
+    - PASS
+    - PASS_CONDITIONAL
+    - HOLD_INFO
 - id: fetch_klines
   type: data
   function: klines
@@ -219,6 +254,9 @@ nodes:
   - key: channel
     value: app
 edges:
+- from: gate
+  to: signal_engine
+  label: verdict ∈ PASS / PASS_CONDITIONAL / HOLD_INFO 才交易
 - from: fetch_klines
   to: signal_engine
 - from: fetch_position

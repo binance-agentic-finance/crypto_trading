@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 
 from binance.strategy.node.capabilities.data import klines, account_balances, futures_position_risk
+from binance.strategy.node.capabilities.analysis import factor_evaluate
 from binance.strategy.node.capabilities.execution import (
     futures_account_config, futures_close_position, futures_open_position, notify)
 from binance.strategy.runtime import ctx, node, workflow
@@ -209,6 +210,38 @@ def _position_amt(records, symbol: str) -> float:
     return 0.0
 
 
+_FACTOR_SPEC = {'operator': {'mode': 'emit',
+              'function_name': 'donchian_position',
+              'impl_source': 'def donchian_position(*, high, low, close, '
+                             'lookback_window=20):\n'
+                             '    h = [float(v) for v in high if v is not None]\n'
+                             '    lo = [float(v) for v in low if v is not None]\n'
+                             '    c = [float(v) for v in close if v is not None]\n'
+                             '    if min(len(h), len(lo), len(c)) < lookback_window + '
+                             '1:\n'
+                             "        return {'value': None}\n"
+                             '    upper = max(h[-lookback_window - 1:-1])\n'
+                             '    lower = min(lo[-lookback_window - 1:-1])\n'
+                             '    if upper == lower:\n'
+                             "        return {'value': None}\n"
+                             "    return {'value': 2.0 * (c[-1] - (upper + lower) / 2.0) "
+                             '/ (upper - lower)}\n'},
+ 'binding': {'inputs': {'high': 'high', 'low': 'low', 'close': 'close'},
+             'params': {'lookback_window': 20},
+             'window': 21,
+             'output': 'value'},
+ 'name': 'donchian_position'}
+_TRADEABLE = ('PASS', 'PASS_CONDITIONAL', 'HOLD_INFO')
+
+
+@node("std:gate")
+async def gate() -> dict:
+    """研究闸门:factor_evaluate 给出的 verdict 决定这个因子能不能交易。"""
+    res = factor_evaluate(factor=_FACTOR_SPEC)
+    verdict = res.get("verdict") if res.get("status") == "ok" else None
+    return {"verdict": verdict, "tradeable": verdict in _TRADEABLE}
+
+
 @node("std:fetch", retries=2)
 async def fetch_klines():
     return klines(symbol=SYMBOL, timeframe=INTERVAL, limit=KLINE_LIMIT,
@@ -305,6 +338,11 @@ async def notify_signal(signal: dict, fill: dict) -> dict:
 
 @workflow
 async def execute_strategy():
+    if "gate" not in ctx.state:                  # 首轮评一次并缓存(检查和写入用同一个 key)
+        ctx.state["gate"] = await gate()
+    if not ctx.state["gate"]["tradeable"]:
+        ctx.log("WARN", "gate_blocked", {"verdict": ctx.state["gate"]["verdict"]})
+        return {"action": "skip", "reason": "gate", "verdict": ctx.state["gate"]["verdict"]}
     klines_raw, position = await asyncio.gather(
         fetch_klines(), fetch_position())
     ctx.state["fetch_klines"] = klines_raw

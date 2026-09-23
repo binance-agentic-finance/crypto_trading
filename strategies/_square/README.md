@@ -59,6 +59,12 @@ code 在桩运行时下与仓库信号相同、spec 与 code 同步。
   合约 `futures_close_position(close_at_trigger=True, order_type="STOP_MARKET", trigger_price=)`。
   仓库内置策略的框架回测不模拟止损,所以 **live 会比回测多出止损离场**,回测数字不能直接当作 live 预期;
   回测侧 position 不受影响(parity 测试只比 position)。现货持仓判断把被止损单冻结的基础币(`locked`)也算上。
+- **研究闸门**:`gate` 节点(`@node("std:gate")`)调 `factor_evaluate(factor=<operator spec>)`,
+  verdict ∈ {PASS, PASS_CONDITIONAL, HOLD_INFO} 才交易;只在首轮评一次,结果缓存在 `ctx.state["gate"]`
+  (检查和写入都是 `"gate"` 这一个 key)。operator 的 `impl_source` 是该策略 forecast 的 `score`
+  (均线价差 / 价格相对均线 / (50−RSI)/50 / 通道位置 / 多周期价差)写成的单函数,测试保证它在最后一根
+  K 线上等于仓库的 score。`st_oi_funding_breakout` 的核心是持仓量 / 资金费率确认,写不成只吃价格的
+  单函数 operator,gate 固定返回 HOLD_INFO(可交易、但没有研究证据)。
 - `ctx.log` 统一是 `ctx.log(level, event, {...})`;`main` 对 `CancelledError` 直接抛出,其它异常记录后跳过本轮。
 - icon 是短标识(`ma_cross` / `ma` / `rsi` / `breakout` / `trend` / `oi` / `liquidation`),节点里的 `emoji` 另算。
 

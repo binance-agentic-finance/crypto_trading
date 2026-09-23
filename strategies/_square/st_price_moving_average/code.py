@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 
 from binance.strategy.node.capabilities.data import klines, account_balances
+from binance.strategy.node.capabilities.analysis import factor_evaluate
 from binance.strategy.node.capabilities.execution import notify, place_order
 from binance.strategy.runtime import ctx, node, workflow
 
@@ -198,6 +199,30 @@ def _position_amt(records, symbol: str) -> float:
     return 0.0
 
 
+_FACTOR_SPEC = {'operator': {'mode': 'emit',
+              'function_name': 'price_ma_spread',
+              'impl_source': 'def price_ma_spread(*, close, period=20):\n'
+                             '    c = [float(v) for v in close if v is not None]\n'
+                             '    if len(c) < period:\n'
+                             "        return {'value': None}\n"
+                             '    ma = sum(c[-period:]) / period\n'
+                             "    return {'value': (c[-1] - ma) / ma if ma else None}\n"},
+ 'binding': {'inputs': {'close': 'close'},
+             'params': {'period': 20},
+             'window': 20,
+             'output': 'value'},
+ 'name': 'price_ma_spread'}
+_TRADEABLE = ('PASS', 'PASS_CONDITIONAL', 'HOLD_INFO')
+
+
+@node("std:gate")
+async def gate() -> dict:
+    """研究闸门:factor_evaluate 给出的 verdict 决定这个因子能不能交易。"""
+    res = factor_evaluate(factor=_FACTOR_SPEC)
+    verdict = res.get("verdict") if res.get("status") == "ok" else None
+    return {"verdict": verdict, "tradeable": verdict in _TRADEABLE}
+
+
 @node("std:fetch", retries=2)
 async def fetch_klines():
     return klines(symbol=SYMBOL, timeframe=INTERVAL, limit=KLINE_LIMIT,
@@ -286,6 +311,11 @@ async def notify_signal(signal: dict, fill: dict) -> dict:
 
 @workflow
 async def execute_strategy():
+    if "gate" not in ctx.state:                  # 首轮评一次并缓存(检查和写入用同一个 key)
+        ctx.state["gate"] = await gate()
+    if not ctx.state["gate"]["tradeable"]:
+        ctx.log("WARN", "gate_blocked", {"verdict": ctx.state["gate"]["verdict"]})
+        return {"action": "skip", "reason": "gate", "verdict": ctx.state["gate"]["verdict"]}
     klines_raw, position = await asyncio.gather(
         fetch_klines(), fetch_position())
     ctx.state["fetch_klines"] = klines_raw
