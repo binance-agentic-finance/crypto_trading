@@ -61,6 +61,14 @@ def entries(registry: dict) -> list[dict]:
     return [{**base, **row} for row in registry["strategies"]]
 
 
+#: Every platform capability the generated code may call. They are **synchronous** on the
+#: platform (``out = klines(...)``); only the ``@node`` / ``@workflow`` functions are async.
+CAPABILITIES = ("klines", "account_balances", "futures_position_risk", "derivatives_market_metrics",
+                "factor_evaluate", "place_order", "futures_open_position",
+                "futures_close_position", "futures_account_config", "notify",
+                "open_interest_hist", "funding_rate_history", "liquidation_orders")
+
+
 # ------------------------------------------------------------------ code
 def _source(fn, rename: str | None = None) -> str:
     src = inspect.getsource(fn)
@@ -245,14 +253,14 @@ PARAMS = {pprint.pformat(params, sort_dicts=False, width=90)}
     nodes = ['''\
 @node("std:fetch", retries=2)
 async def fetch_klines():
-    return await klines(symbol=SYMBOL, timeframe=INTERVAL, limit=KLINE_LIMIT,
-                        market_type=MARKET_TYPE, closed_only=True)
+    return klines(symbol=SYMBOL, timeframe=INTERVAL, limit=KLINE_LIMIT,
+                  market_type=MARKET_TYPE, closed_only=True)
 ''']
     for node_id, capability, _, _ in feeds:
         nodes.append(f'''\
 @node("std:fetch", retries=2)
 async def {node_id}():
-    return await {capability}({FEED_CALL[capability]})
+    return {capability}({FEED_CALL[capability]})
 ''')
     nodes.append('''\
 @node("std:signal")
@@ -285,12 +293,12 @@ async def rebalance(signal: dict, price: float) -> dict:
         return {"changed": False, "from": current, "to": target}
     if current != 0:
         # 立即市价平仓(样例里 close_at_trigger=True + STOP_MARKET 是挂止损,这里不是)
-        await futures_close_position(venue_class=VENUE_CLASS, instrument=SYMBOL,
-                                     close_at_trigger=False, order_type="MARKET")
+        futures_close_position(venue_class=VENUE_CLASS, instrument=SYMBOL,
+                               close_at_trigger=False, order_type="MARKET")
     if target != 0:
-        await futures_open_position(venue_class=VENUE_CLASS, instrument=SYMBOL,
-                                    size=str(_qty(price)),
-                                    side="BUY" if target > 0 else "SELL", order_type="MARKET")
+        futures_open_position(venue_class=VENUE_CLASS, instrument=SYMBOL,
+                              size=str(_qty(price)),
+                              side="BUY" if target > 0 else "SELL", order_type="MARKET")
     ctx.state["position"] = target
     return {"changed": True, "from": current, "to": target}
 
@@ -299,7 +307,7 @@ async def rebalance(signal: dict, price: float) -> dict:
 async def notify_signal(signal: dict, fill: dict) -> dict:
     message = (f"{signal['symbol']} {signal['verdict']} bias={signal['bias']} "
                f"score={signal['score']} position {fill['from']} -> {fill['to']}")
-    await notify(message=message, channel="app")
+    notify(message=message, channel="app")
     return {"message": message, "channel": "app"}
 ''')
     out += nodes
@@ -333,8 +341,8 @@ async def main():
     while True:
         try:
             if not configured:
-                await futures_account_config(instrument=SYMBOL, leverage=LEVERAGE,
-                                             margin_type="ISOLATED")
+                futures_account_config(instrument=SYMBOL, leverage=LEVERAGE,
+                                       margin_type="ISOLATED")
                 configured = True
             await execute_strategy()
         except asyncio.CancelledError:

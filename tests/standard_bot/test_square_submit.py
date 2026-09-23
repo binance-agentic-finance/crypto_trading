@@ -186,7 +186,7 @@ def _load_code(entry, calls, feeds):
     ctx = _Ctx()
 
     def cap(name):
-        async def fn(**kwargs):
+        def fn(**kwargs):                     # platform capabilities are synchronous
             calls.append((name, kwargs))
             return feeds.get(name)
         return fn
@@ -418,3 +418,16 @@ def test_main_loop_logs_a_failed_round_and_keeps_going():
     ns["INTERVAL_SEC"] = 0
     asyncio.run(once())
     assert ctx.logs[0][:2] == ("ERROR", "strategy_round_error")
+
+
+@pytest.mark.parametrize("sid", SIDS)
+def test_generated_code_never_awaits_a_capability(sid):
+    import ast
+    code = (builder.SQUARE_DIR / ENTRIES[sid]["strategyId"] / "code.py").read_text(encoding="utf-8")
+    awaited = [n.value.func.id for n in ast.walk(ast.parse(code))
+               if isinstance(n, ast.Await) and isinstance(n.value, ast.Call)
+               and isinstance(n.value.func, ast.Name)]
+    assert not set(awaited) & set(builder.CAPABILITIES), awaited
+    called = {n.func.id for n in ast.walk(ast.parse(code))
+              if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+    assert "klines" in called

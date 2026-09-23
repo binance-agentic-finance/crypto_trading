@@ -210,18 +210,18 @@ def _attach_funding(df: pd.DataFrame, rows) -> pd.DataFrame:
 
 @node("std:fetch", retries=2)
 async def fetch_klines():
-    return await klines(symbol=SYMBOL, timeframe=INTERVAL, limit=KLINE_LIMIT,
-                        market_type=MARKET_TYPE, closed_only=True)
+    return klines(symbol=SYMBOL, timeframe=INTERVAL, limit=KLINE_LIMIT,
+                  market_type=MARKET_TYPE, closed_only=True)
 
 
 @node("std:fetch", retries=2)
 async def fetch_open_interest():
-    return await open_interest_hist(symbol=SYMBOL, period=INTERVAL, limit=500)
+    return open_interest_hist(symbol=SYMBOL, period=INTERVAL, limit=500)
 
 
 @node("std:fetch", retries=2)
 async def fetch_funding_rate():
-    return await funding_rate_history(symbol=SYMBOL, limit=100)
+    return funding_rate_history(symbol=SYMBOL, limit=100)
 
 
 @node("std:signal")
@@ -254,12 +254,12 @@ async def rebalance(signal: dict, price: float) -> dict:
         return {"changed": False, "from": current, "to": target}
     if current != 0:
         # 立即市价平仓(样例里 close_at_trigger=True + STOP_MARKET 是挂止损,这里不是)
-        await futures_close_position(venue_class=VENUE_CLASS, instrument=SYMBOL,
-                                     close_at_trigger=False, order_type="MARKET")
+        futures_close_position(venue_class=VENUE_CLASS, instrument=SYMBOL,
+                               close_at_trigger=False, order_type="MARKET")
     if target != 0:
-        await futures_open_position(venue_class=VENUE_CLASS, instrument=SYMBOL,
-                                    size=str(_qty(price)),
-                                    side="BUY" if target > 0 else "SELL", order_type="MARKET")
+        futures_open_position(venue_class=VENUE_CLASS, instrument=SYMBOL,
+                              size=str(_qty(price)),
+                              side="BUY" if target > 0 else "SELL", order_type="MARKET")
     ctx.state["position"] = target
     return {"changed": True, "from": current, "to": target}
 
@@ -268,7 +268,7 @@ async def rebalance(signal: dict, price: float) -> dict:
 async def notify_signal(signal: dict, fill: dict) -> dict:
     message = (f"{signal['symbol']} {signal['verdict']} bias={signal['bias']} "
                f"score={signal['score']} position {fill['from']} -> {fill['to']}")
-    await notify(message=message, channel="app")
+    notify(message=message, channel="app")
     return {"message": message, "channel": "app"}
 
 
@@ -295,8 +295,8 @@ async def main():
     while True:
         try:
             if not configured:
-                await futures_account_config(instrument=SYMBOL, leverage=LEVERAGE,
-                                             margin_type="ISOLATED")
+                futures_account_config(instrument=SYMBOL, leverage=LEVERAGE,
+                                       margin_type="ISOLATED")
                 configured = True
             await execute_strategy()
         except asyncio.CancelledError:
