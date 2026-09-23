@@ -83,7 +83,7 @@ def submittable(registry: dict) -> list[dict]:
 
 #: Every platform capability the generated code may call. They are **synchronous** on the
 #: platform (``out = klines(...)``); only the ``@node`` / ``@workflow`` functions are async.
-CAPABILITIES = ("klines", "account_balances", "futures_position_risk", "derivatives_market_metrics",
+CAPABILITIES = ("klines", "rolling_extreme", "account_balances", "futures_position_risk", "derivatives_market_metrics",
                 "factor_evaluate", "place_order", "futures_open_position",
                 "futures_close_position", "futures_account_config", "notify",
                 "open_interest_hist", "funding_rate_history", "liquidation_orders")
@@ -107,12 +107,25 @@ def stage_source(builtin: str) -> str:
     stages = _source(factors_fn, "_factors") + "\n\n" + _source(forecast_fn, "_forecast")
     helpers = [h for h in (fl._sma, fl._gt, fl._lt, fl._channel, fl._channel_position)
                if f"{h.__name__}(" in stages] + [fl._event]
-    parts = [_source(h) for h in helpers]
+    parts = [CHANNEL_SRC if h is fl._channel else _source(h) for h in helpers]
     parts += ["# ① 因子(只算原始量,不做判断)\n" + _source(factors_fn, "_factors"),
               "# ② forecast:因子 → verdict / score / bias\n" + _source(forecast_fn, "_forecast"),
               "# ③ 仓位:forecast → 目标仓位 / 止损\n" + _source(fl._sizing)]
     return "\n\n".join(parts)
 
+
+#: Donchian bands through the platform's rolling_extreme. ``highs[:-1]`` drops the current bar,
+#: exactly like the backtest's ``shift(1)``; max/min carry no rounding, so the bands are the
+#: same numbers as ``framework_live._channel`` (a test runs both on every bar).
+CHANNEL_SRC = """\
+def _channel(high: list, low: list, n: int):
+    \"\"\"唐奇安通道:不含当前 K 线的前 n 根最高 / 最低价(平台 rolling_extreme)。\"\"\"
+    if len(high) < n + 1 or len(low) < n + 1:
+        return None, None
+    upper = rolling_extreme(series=high[:-1], op="max", period=n)["value"]
+    lower = rolling_extreme(series=low[:-1], op="min", period=n)["value"]
+    return upper, lower
+"""
 
 ANALYZE_SRC = """\
 def _analyze(symbol: str, bars: dict, p: dict = PARAMS, held: float = 0.0) -> dict:
@@ -315,8 +328,10 @@ def build_code(entry: dict) -> str:
     spot = market == "spot"
     ledger = "account_balances" if spot else "futures_position_risk"
     data_imports = ", ".join(["klines"] + sorted({ledger, "account_balances"} | {f[1] for f in feeds}))
-    analysis_import = ("from binance.strategy.node.capabilities.analysis import factor_evaluate\n"
-                       if gate_spec(builtin) else "")
+    analysis_names = (["factor_evaluate"] if gate_spec(builtin) else []) + \
+        (["rolling_extreme"] if "_channel(" in stage_source(builtin) else [])
+    analysis_import = (f"from binance.strategy.node.capabilities.analysis import "
+                       f"{', '.join(analysis_names)}\n" if analysis_names else "")
     exec_imports = ("notify, place_order" if spot else
                     "(\n    futures_account_config, futures_close_position, futures_open_position, notify)")
     quote = "USDT"

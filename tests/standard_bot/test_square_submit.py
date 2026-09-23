@@ -196,6 +196,13 @@ class _Ctx:
         self.logs.append((level, event, data))
 
 
+def _rolling_extreme(*, series, op, period):
+    window = [float(v) for v in series[-period:]]
+    if len(window) < period:
+        return {"value": None}
+    return {"value": max(window) if op == "max" else min(window)}
+
+
 def _code_path(entry):
     return builder.SQUARE_DIR / entry["strategyId"] / f"{entry['strategyId']}.py"
 
@@ -219,6 +226,7 @@ def _load_code(entry, calls, feeds):
     execution = types.ModuleType("binance.strategy.node.capabilities.execution")
     analysis = types.ModuleType("binance.strategy.node.capabilities.analysis")
     analysis.factor_evaluate = cap("factor_evaluate")
+    analysis.rolling_extreme = _rolling_extreme      # documented semantics: extreme of the last `period`
     feeds.setdefault("factor_evaluate", {"status": "ok", "verdict": "PASS"})
     for name in ("klines", "account_balances", "futures_position_risk",
                  "derivatives_market_metrics"):
@@ -683,3 +691,21 @@ def test_package_matches_the_demo_layout(sid):
     assert yaml.safe_load(info["spec"])["strategy"]["id"] == info["strategyId"]
     req = (folder / "requirement.md").read_text(encoding="utf-8")
     assert entry["requirement"] in req and "止损" in req and "权益" in req
+
+
+@pytest.mark.parametrize("sid", ["donchian_breakout", "oi_funding_breakout"])
+def test_rolling_extreme_channel_equals_the_backtest_bands(sid):
+    ns, _ = _load_code(ENTRIES[sid], [], {})
+    assert "rolling_extreme(" in _code_path(ENTRIES[sid]).read_text(encoding="utf-8")
+    df = _df(n=300, seed=4)
+    n = fs.strategy_defaults(sid)["lookback_window"]
+    upper = df["high"].shift(1).rolling(n).max()
+    lower = df["low"].shift(1).rolling(n).min()
+    high, low = df["high"].tolist(), df["low"].tolist()
+    for t in range(len(df)):
+        got = ns["_channel"](high[:t + 1], low[:t + 1], n)
+        assert got == fl._channel(high[:t + 1], low[:t + 1], n)
+        if pd.isna(upper.iloc[t]):
+            assert got == (None, None)
+        else:
+            assert got == (upper.iloc[t], lower.iloc[t])

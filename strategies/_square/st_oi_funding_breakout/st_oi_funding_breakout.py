@@ -12,6 +12,7 @@ import time
 from decimal import ROUND_DOWN, Decimal
 
 from binance.strategy.node.capabilities.data import klines, account_balances, derivatives_market_metrics, futures_position_risk
+from binance.strategy.node.capabilities.analysis import rolling_extreme
 from binance.strategy.node.capabilities.execution import (
     futures_account_config, futures_close_position, futures_open_position, notify)
 from binance.strategy.runtime import ctx, node, workflow
@@ -40,10 +41,12 @@ PARAMS = {'lookback_window': 20,
 
 
 def _channel(high: list, low: list, n: int):
-    """Donchian bands over the ``n`` bars before the last one (the current bar is excluded)."""
+    """唐奇安通道:不含当前 K 线的前 n 根最高 / 最低价(平台 rolling_extreme)。"""
     if len(high) < n + 1 or len(low) < n + 1:
         return None, None
-    return max(high[-n - 1:-1]), min(low[-n - 1:-1])
+    upper = rolling_extreme(series=high[:-1], op="max", period=n)["value"]
+    lower = rolling_extreme(series=low[:-1], op="min", period=n)["value"]
+    return upper, lower
 
 
 def _channel_position(close, upper, lower):
