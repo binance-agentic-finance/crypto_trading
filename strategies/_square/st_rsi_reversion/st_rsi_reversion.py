@@ -4,8 +4,8 @@ strategyId: st_rsi_reversion  version: r1
 三段式:_factors(只算因子)→ _forecast(因子 → verdict/score/bias)→ _sizing(forecast → 仓位/止损),
 由 _analyze 串起来,三段之间只传 dict。
 
-由 scripts/build_square_payloads.py 从 cyqnt_trd/standard_bot/signal/framework_strategies.py
-(rsi_reversion)生成;信号与仓库内置策略逐根一致(tests/standard_bot/test_square_submit.py)。不要手改。
+由 scripts/build_square_payloads.py 从 cyqnt_trd/standard_bot/signal/framework_live.py
+(rsi_reversion)生成;信号与仓库内置策略的回测逐根一致(tests/standard_bot/test_square_submit.py)。不要手改。
 """
 import asyncio
 import time

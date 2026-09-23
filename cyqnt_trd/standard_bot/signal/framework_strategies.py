@@ -19,14 +19,15 @@ hand each other a ``dict``::
 
     ① <sid>_factors(df, p)       原始量(均線、通道、RSI、衍生品欄位),不做判斷
     ② <sid>_forecast(factors, p) 因子 → 事件 + verdict / score / bias
-    ③ _sizing(forecast)          事件 → 持倉(+1 / 0 / -1)、止損(內置策略沒有止損)
+    ③ _sizing(forecast)          事件 → 持倉(+1 / 0 / -1)、保護止損價(回測不模擬止損)
 
 This is the single-symbol form of the ``cyqnt_trd.eval`` stage split: ``_factors`` is the
 factor stage, ``_forecast`` is stage 4 (``eval.forecast.make_forecast``: factors → mu) and
 ``_sizing`` is stage 5 (``eval.forecast.positions_from_forecast`` / ``eval.strategy
 .target_weights``: forecast → position). A forecast never reads ``df`` and sizing never reads
-factors, so a stage can be swapped or scored on its own. ``strategies/_square/`` carries the submission spec + code built from these
-same stage functions (``scripts/build_square_payloads.py``).
+factors, so a stage can be swapped or scored on its own. ``strategies/_square/`` carries the
+submission spec + code, built from the list-only last-bar form of these stages in
+:mod:`framework_live` (``scripts/build_square_payloads.py``).
 """
 from __future__ import annotations
 

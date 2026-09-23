@@ -1,6 +1,6 @@
 """Build the square submission artefacts for the built-in strategies.
 
-For every entry in ``strategies/_square/registry.json`` this writes
+For every submittable entry in ``strategies/_square/registry.json`` this writes
 
 * ``strategies/_square/<strategyId>/<strategyId>.py``   — runnable submission code (三段式);
 * ``strategies/_square/<strategyId>/<strategyId>.yaml`` — node/edge spec, one node per ``@node``;
@@ -11,8 +11,9 @@ For every entry in ``strategies/_square/registry.json`` this writes
 * ``dist/square_payloads/<strategyId>.json``            — the same payload, with ``--strategy-id``
   overrides applied (not committed).
 
-The stage functions are copied out of ``cyqnt_trd/standard_bot/signal/framework_strategies.py``
-with :func:`inspect.getsource`, so the submitted code cannot drift from the repo's signals.
+The stage functions are copied out of ``cyqnt_trd/standard_bot/signal/framework_live.py`` (the
+list-only, last-bar form of ``framework_strategies.py``) with :func:`inspect.getsource`; a test
+checks bar by bar that the submitted code matches the backtest signals.
 Nothing is sent anywhere: this only writes files.
 
     python scripts/build_square_payloads.py            # regenerate code/spec + payloads
@@ -351,8 +352,8 @@ strategyId: {entry["strategyId"]}  version: {entry["version"]}
 三段式:_factors(只算因子)→ _forecast(因子 → verdict/score/bias)→ _sizing(forecast → 仓位/止损),
 由 _analyze 串起来,三段之间只传 dict。
 
-由 scripts/build_square_payloads.py 从 cyqnt_trd/standard_bot/signal/framework_strategies.py
-({builtin})生成;信号与仓库内置策略逐根一致(tests/standard_bot/test_square_submit.py)。不要手改。
+由 scripts/build_square_payloads.py 从 cyqnt_trd/standard_bot/signal/framework_live.py
+({builtin})生成;信号与仓库内置策略的回测逐根一致(tests/standard_bot/test_square_submit.py)。不要手改。
 """
 import asyncio
 import time
