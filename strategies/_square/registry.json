@@ -1,8 +1,9 @@
 {
   "schema": "cyqnt.square_registry/v1",
-  "comment": "广场提交元数据的唯一来源。code / spec.yaml 由 scripts/build_square_payloads.py 从 cyqnt_trd/standard_bot/signal/framework_strategies.py 生成,不要手改生成物。params 的 key 必须与内置策略 make_signals 的签名一致(值取签名默认值)。",
+  "comment": "广场提交元数据的唯一来源。code / spec.yaml 由 scripts/build_square_payloads.py 从 cyqnt_trd/standard_bot/signal/framework_strategies.py 生成,不要手改生成物。params 的 key 必须与内置策略 make_signals 的签名一致(值取签名默认值)。 defaults.version 是提交接口的 version(r1);defaults.specVersion 是 spec YAML 里 strategy.version(\"1.0\",与平台样例一致)。 strategyId 是 spec 里的 strategy.id;提交接口要的是平台上已部署过的策略 ID —— 填到 platformStrategyId,或生成时用 --strategy-id <strategyId>=<平台ID> 覆盖。icon 是短标识(小写英文),不是 emoji。",
   "defaults": {
     "version": "r1",
+    "specVersion": "1.0",
     "shareLevel": "FULL",
     "freeFork": true,
     "symbol": "BTCUSDT",
@@ -13,6 +14,7 @@
     {
       "builtin": "moving_average_cross",
       "strategyId": "st_moving_average_cross",
+      "platformStrategyId": "",
       "name": "快慢均线交叉(只做多)",
       "description": "BTC 1h 快慢 SMA 价差:快线高于慢线持多,低于慢线平仓,只做多。",
       "tags": [
@@ -22,7 +24,7 @@
         "合约",
         "BTC"
       ],
-      "icon": "📈",
+      "icon": "ma_cross",
       "params": {
         "fast_window": {
           "label": "快线周期",
@@ -50,6 +52,7 @@
     {
       "builtin": "price_moving_average",
       "strategyId": "st_price_moving_average",
+      "platformStrategyId": "",
       "name": "价格穿越均线(只做多)",
       "description": "BTC 1h 收盘价上穿 SMA 开多、下穿平仓,只做多。",
       "tags": [
@@ -59,7 +62,7 @@
         "合约",
         "BTC"
       ],
-      "icon": "〰️",
+      "icon": "ma",
       "params": {
         "period": {
           "label": "均线周期",
@@ -80,6 +83,7 @@
     {
       "builtin": "rsi_reversion",
       "strategyId": "st_rsi_reversion",
+      "platformStrategyId": "",
       "name": "RSI 均值回归(只做多)",
       "description": "BTC 1h 简单均值 RSI:低于超卖线开多,高于超买线平仓,只做多。",
       "tags": [
@@ -89,7 +93,7 @@
         "合约",
         "BTC"
       ],
-      "icon": "🔄",
+      "icon": "rsi",
       "params": {
         "period": {
           "label": "RSI 周期",
@@ -117,6 +121,7 @@
     {
       "builtin": "donchian_breakout",
       "strategyId": "st_donchian_breakout",
+      "platformStrategyId": "",
       "name": "唐奇安通道突破(多空)",
       "description": "BTC 1h 唐奇安通道(不含当根)向上突破做多、向下突破做空,多空翻转。",
       "tags": [
@@ -126,7 +131,7 @@
         "合约",
         "BTC"
       ],
-      "icon": "🚀",
+      "icon": "breakout",
       "params": {
         "lookback_window": {
           "label": "通道回看根数",
@@ -147,6 +152,7 @@
     {
       "builtin": "multi_timeframe_ma_spread",
       "strategyId": "st_multi_timeframe_ma_spread",
+      "platformStrategyId": "",
       "name": "多周期均线价差(多空)",
       "description": "BTC 1h 主周期 SMA 对高周期 SMA 的价差多空;高周期均线用 secondary_period×secondary_factor 根 1h K 线近似。",
       "tags": [
@@ -156,7 +162,7 @@
         "多空",
         "合约"
       ],
-      "icon": "🧭",
+      "icon": "trend",
       "params": {
         "primary_period": {
           "label": "主周期均线",
@@ -191,6 +197,7 @@
     {
       "builtin": "oi_funding_breakout",
       "strategyId": "st_oi_funding_breakout",
+      "platformStrategyId": "",
       "name": "持仓量确认突破(多空)",
       "description": "BTC 1h 唐奇安突破需持仓量同步上升、资金费率不过热才入场,多空对称;缺持仓量/资金费率数据时不交易。",
       "tags": [
@@ -200,7 +207,7 @@
         "合约",
         "BTC"
       ],
-      "icon": "📊",
+      "icon": "oi",
       "params": {
         "lookback_window": {
           "label": "通道回看根数",
@@ -235,6 +242,7 @@
     {
       "builtin": "liquidation_reversal",
       "strategyId": "st_liquidation_reversal",
+      "platformStrategyId": "",
       "name": "清算潮反转(多空)",
       "description": "BTC 1h 单边清算潮反向:多头爆仓集中时做多,空头爆仓集中时做空;缺清算数据时不交易。",
       "tags": [
@@ -244,7 +252,7 @@
         "合约",
         "BTC"
       ],
-      "icon": "💥",
+      "icon": "liquidation",
       "params": {
         "long_liquidation_threshold_usd": {
           "label": "多头爆仓额下限(USD)",

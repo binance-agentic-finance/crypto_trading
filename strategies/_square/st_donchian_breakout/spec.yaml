@@ -1,6 +1,6 @@
 strategy:
   id: st_donchian_breakout
-  version: r1
+  version: "1.0"
   name: 唐奇安通道突破(多空)
   description: BTC 1h 唐奇安通道(不含当根)向上突破做多、向下突破做空,多空翻转。
   source: cyqnt_trd.standard_bot.signal.framework_strategies:donchian_breakout
@@ -17,14 +17,24 @@ nodes:
   params:
   - key: symbol
     value: BTCUSDT
+    label: 交易对
+    widget: text
   - key: timeframe
     value: 1h
+    label: K线周期
+    widget: text
   - key: limit
     value: 1000
+    label: K线根数
+    widget: number
+    min: 200
+    max: 1500
   - key: market_type
     value: futures
+    label: 市场
   - key: closed_only
     value: true
+    label: 只用已收盘K线
 - id: signal_engine
   type: custom
   name: 三段式信号:因子 → forecast → 仓位
@@ -136,7 +146,7 @@ nodes:
   function: futures_open_position
   name: 调仓到目标仓位
   emoji: ⚖️
-  condition: '{{ state.signal_engine.output.target_position }} != {{ state.position }}'
+  condition: '{{ state.signal_engine.output.rebalance_needed }}'
   params:
   - key: venue_class
     value: um
@@ -160,10 +170,13 @@ nodes:
   function: notify
   name: 推送调仓通知
   emoji: 🔔
-  condition: '{{ state.rebalance.output.changed }} == true'
+  condition: '{{ state.rebalance.output.changed }}'
   params:
   - key: message
-    value: '{{ state.signal_engine.output.symbol }} {{ state.signal_engine.output.verdict }}'
+    value: '{{ state.signal_engine.output.symbol }} {{ state.signal_engine.output.verdict }} {{ state.rebalance.output.from
+      }} -> {{ state.rebalance.output.to }}'
+    label: 通知内容
+    widget: text
   - key: channel
     value: app
 edges:

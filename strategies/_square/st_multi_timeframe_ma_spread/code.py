@@ -140,7 +140,9 @@ def _bar_time(ms) -> pd.DatetimeIndex:
     return pd.to_datetime(pd.Series(ms).astype("int64"), unit="ms", utc=True).dt.floor(PANDAS_FREQ)
 
 
-def _klines_frame(rows) -> pd.DataFrame:
+def _klines_frame(result) -> pd.DataFrame:
+    """klines 能力返回 {"close": [...], "rows": [...]};也兼容直接给 rows 的写法。"""
+    rows = result["rows"] if isinstance(result, dict) else result
     df = _rows_frame(rows, _KLINE_COLUMNS).rename(
         columns={"openTime": "open_time", "closeTime": "close_time", "quoteVolume": "quote_volume"})
     for col in ("open", "high", "low", "close", "volume"):
@@ -153,17 +155,22 @@ def _klines_frame(rows) -> pd.DataFrame:
 
 
 @node("std:fetch", retries=2)
-async def fetch_klines() -> pd.DataFrame:
-    return _klines_frame(await klines(symbol=SYMBOL, timeframe=INTERVAL, limit=KLINE_LIMIT,
-                                      market_type=MARKET_TYPE, closed_only=True))
+async def fetch_klines():
+    return await klines(symbol=SYMBOL, timeframe=INTERVAL, limit=KLINE_LIMIT,
+                        market_type=MARKET_TYPE, closed_only=True)
 
 
 @node("std:signal")
 async def signal_engine(df: pd.DataFrame) -> dict:
-    out = _analyze(SYMBOL, df, PARAMS, held=float(ctx.state.get("position", 0)))
+    # ctx.state["position"] 是跨轮次的持仓状态(不是 spec 节点),由 rebalance 维护。
+    held = int(ctx.state.get("position", 0))
+    out = _analyze(SYMBOL, df, PARAMS, held=float(held))
     if out["missing"]:
         # 缺衍生品数据时 _factors 会补 0,信号就退化成别的策略(或永不触发);宁可这一轮不交易。
+        ctx.log("WARN", "missing_feeds", {"missing": out["missing"]})
         raise RuntimeError(f"missing feeds {out['missing']}; skip this round")
+    out["held_position"] = held
+    out["rebalance_needed"] = out["target_position"] != held
     return out
 
 
@@ -194,22 +201,25 @@ async def rebalance(signal: dict, price: float) -> dict:
 
 
 @node("exec:notify")
-async def notify_signal(signal: dict, fill: dict) -> None:
-    await notify(message=f"{signal['symbol']} {signal['verdict']} bias={signal['bias']} "
-                         f"score={signal['score']} position {fill['from']} -> {fill['to']}",
-                 channel="app")
+async def notify_signal(signal: dict, fill: dict) -> dict:
+    message = (f"{signal['symbol']} {signal['verdict']} bias={signal['bias']} "
+               f"score={signal['score']} position {fill['from']} -> {fill['to']}")
+    await notify(message=message, channel="app")
+    return {"message": message, "channel": "app"}
 
 
 @workflow
 async def execute_strategy():
-    df = await fetch_klines()
+    klines_raw = await fetch_klines()
+    ctx.state["fetch_klines"] = klines_raw
+    df = _klines_frame(klines_raw)
     signal = await signal_engine(df)
-    ctx.state["signal_engine"] = {"output": signal}
-    if signal["target_position"] != int(ctx.state.get("position", 0)):
+    ctx.state["signal_engine"] = signal
+    if signal["rebalance_needed"]:
         fill = await rebalance(signal, float(df["close"].iloc[-1]))
-        ctx.state["rebalance"] = {"output": fill}
+        ctx.state["rebalance"] = fill
         if fill["changed"]:
-            await notify_signal(signal, fill)
+            ctx.state["notify_signal"] = await notify_signal(signal, fill)
 
 
 async def main():
@@ -221,8 +231,10 @@ async def main():
                                              margin_type="ISOLATED")
                 configured = True
             await execute_strategy()
+        except asyncio.CancelledError:
+            raise
         except Exception as exc:  # noqa: BLE001 —— 单轮失败只记日志,不让循环崩掉
-            ctx.log(f"execute_strategy failed: {exc!r}")
+            ctx.log("ERROR", "strategy_round_error", {"error": str(exc)})
         await asyncio.sleep(INTERVAL_SEC)
 
 

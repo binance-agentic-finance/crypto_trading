@@ -176,8 +176,9 @@ class _Ctx:
     def __init__(self):
         self.state, self.logs = {}, []
 
-    def log(self, msg):
-        self.logs.append(msg)
+    def log(self, level, event, data):
+        assert level in {"INFO", "WARN", "ERROR"} and isinstance(data, dict)
+        self.logs.append((level, event, data))
 
 
 def _load_code(entry, calls, feeds):
@@ -240,10 +241,12 @@ def test_generated_code_reproduces_repo_signals(sid):
 
 
 def _kline_rows(df):
+    """Shape of the platform ``klines`` return: {"close": [...], "rows": [...]}."""
     ms = df.index.asi8 // 1_000_000
-    return [[int(t), str(o), str(h), str(l), str(c), str(v), int(t) + 3_599_999]
+    rows = [[int(t), str(o), str(h), str(l), str(c), str(v), int(t) + 3_599_999]
             for t, o, h, l, c, v in zip(ms, df["open"], df["high"], df["low"], df["close"],
                                         df["volume"])]
+    return {"close": [float(c) for c in df["close"]], "rows": rows}
 
 
 @pytest.mark.parametrize("sid", SIDS)
@@ -260,7 +263,11 @@ def test_generated_workflow_runs_and_trades_on_a_target_change(sid):
     calls = []
     ns, ctx = _load_code(ENTRIES[sid], calls, feeds)
     asyncio.run(ns["execute_strategy"]())
-    signal = ctx.state["signal_engine"]["output"]
+    signal = ctx.state["signal_engine"]
+    assert ctx.state["fetch_klines"] is feeds["klines"]          # raw return, keyed by node id
+    assert signal["rebalance_needed"] == (signal["target_position"] != 0)
+    if signal["target_position"] != 0:
+        assert ctx.state["rebalance"]["changed"] and "message" in ctx.state["notify_signal"]
     assert signal["missing"] == []
     assert signal["verdict"] in {"LONG", "SHORT", "FLAT", "KEEP"}
     kl = next(kw for name, kw in calls if name == "klines")
@@ -287,6 +294,7 @@ def test_generated_code_refuses_to_trade_without_its_feed(sid):
     with pytest.raises(RuntimeError, match="missing feeds"):
         asyncio.run(ns["execute_strategy"]())
     assert not [c for c in calls if c[0].startswith("futures_")]
+    assert ctx.logs and ctx.logs[0][:2] == ("WARN", "missing_feeds")
 
 
 @pytest.mark.parametrize("sid", SIDS)
@@ -296,7 +304,8 @@ def test_spec_nodes_and_edges_match_code_workflow(sid):
     spec = yaml.safe_load((folder / "spec.yaml").read_text(encoding="utf-8"))
     code = (folder / "code.py").read_text(encoding="utf-8")
     assert spec["strategy"]["id"] == entry["strategyId"]
-    assert spec["strategy"]["version"] == entry["version"]
+    assert spec["strategy"]["version"] == entry["specVersion"] == "1.0"
+    assert 'version: "1.0"' in (folder / "spec.yaml").read_text(encoding="utf-8")
     assert spec["trigger"] == {"type": "schedule", "config": {"interval": entry["interval"]}}
     node_fns = re.findall(r'^@node\([^)]*\)\nasync def (\w+)\(', code, flags=re.M)
     ids = [n["id"] for n in spec["nodes"]]
@@ -304,6 +313,18 @@ def test_spec_nodes_and_edges_match_code_workflow(sid):
     workflow = code.split("@workflow", 1)[1].split("\n\n\n", 1)[0]
     for node_id in ids:
         assert f"{node_id}(" in workflow, f"{node_id} is not called by the workflow"
+        assert f'ctx.state["{node_id}"] = ' in workflow, f"{node_id} is not written to ctx.state"
+    assert '{"output":' not in code
+    for n in spec["nodes"]:
+        if n["type"] == "data":
+            by_key = {p["key"]: p for p in n["params"]}
+            for p in n["params"]:
+                if p["key"] in ("symbol", "timeframe", "period", "limit"):
+                    assert p.get("label") and p.get("widget") in {"text", "number"}, p
+            assert "min" in by_key["limit"] and "max" in by_key["limit"]
+    for cond in [n["condition"] for n in spec["nodes"] if "condition" in n]:
+        for ref in re.findall(r"state\.(\w+)", cond):
+            assert ref in ids, f"condition refers to non-node state {ref!r}"
     for n in spec["nodes"]:
         assert n["type"] in {"data", "analysis", "custom", "execution"}
         if n["type"] in ("data", "execution"):
@@ -316,6 +337,23 @@ def test_spec_nodes_and_edges_match_code_workflow(sid):
         assert fn in custom["code"] and fn in code
 
 
+def test_icons_are_short_identifiers():
+    for entry in ENTRIES.values():
+        assert re.fullmatch(r"[a-z][a-z0-9_]*", entry["icon"]), entry["icon"]
+
+
+def test_payload_strategy_id_override(tmp_path):
+    assert builder.main(["--payload-dir", str(tmp_path),
+                         "--strategy-id", "st_rsi_reversion=st_btc_rsi_1h_0123abcd"]) == 0
+    rsi = json.loads((tmp_path / "st_rsi_reversion.json").read_text(encoding="utf-8"))
+    assert rsi["strategyId"] == "st_btc_rsi_1h_0123abcd"
+    assert yaml.safe_load(rsi["spec"])["strategy"]["id"] == "st_rsi_reversion"
+    other = json.loads((tmp_path / "st_donchian_breakout.json").read_text(encoding="utf-8"))
+    assert other["strategyId"] == "st_donchian_breakout"
+    with pytest.raises(SystemExit):
+        builder.main(["--payload-dir", str(tmp_path), "--strategy-id", "st_nope=x"])
+
+
 def test_payloads_carry_every_submit_field(tmp_path):
     assert builder.main(["--payload-dir", str(tmp_path)]) == 0
     files = sorted(tmp_path.glob("*.json"))
@@ -325,6 +363,9 @@ def test_payloads_carry_every_submit_field(tmp_path):
         assert set(payload) == {"strategyId", "version", "spec", "code", "description", "tags",
                                 "shareLevel", "freeFork", "icon"}
         assert f.stem == payload["strategyId"]
+        assert isinstance(payload["spec"], str) and isinstance(payload["code"], str)
+        assert payload["version"] == "r1"
+        assert re.fullmatch(r"[a-z][a-z0-9_]*", payload["icon"])
         assert yaml.safe_load(payload["spec"])["strategy"]["id"] == payload["strategyId"]
         compile(payload["code"], f.name, "exec")
 
@@ -344,3 +385,36 @@ def test_generated_code_flips_by_closing_then_opening_with_buy_sell(sid):
     assert trades[1][1]["side"] in {"BUY", "SELL"}
     assert trades[1][1]["side"] == ("BUY" if target > 0 else "SELL")
     assert ctx.state["position"] == target
+
+
+@pytest.mark.parametrize("sid", SIDS)
+def test_generated_code_logs_with_level_event_payload(sid):
+    import ast
+    code = (builder.SQUARE_DIR / ENTRIES[sid]["strategyId"] / "code.py").read_text(encoding="utf-8")
+    logs = [n for n in ast.walk(ast.parse(code)) if isinstance(n, ast.Call)
+            and isinstance(n.func, ast.Attribute) and n.func.attr == "log"
+            and isinstance(n.func.value, ast.Name) and n.func.value.id == "ctx"]
+    assert logs
+    for call in logs:
+        assert len(call.args) == 3 and not call.keywords
+        assert call.args[0].value in {"INFO", "WARN", "ERROR"}
+        assert isinstance(call.args[2], ast.Dict)
+
+
+def test_main_loop_logs_a_failed_round_and_keeps_going():
+    calls = []
+    ns, ctx = _load_code(ENTRIES["rsi_reversion"], calls, {"klines": None})
+
+    async def once():
+        task = asyncio.ensure_future(ns["main"]())
+        for _ in range(20):
+            await asyncio.sleep(0)
+            if ctx.logs:
+                break
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    ns["INTERVAL_SEC"] = 0
+    asyncio.run(once())
+    assert ctx.logs[0][:2] == ("ERROR", "strategy_round_error")

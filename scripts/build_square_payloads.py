@@ -121,7 +121,9 @@ def _bar_time(ms) -> pd.DatetimeIndex:
     return pd.to_datetime(pd.Series(ms).astype("int64"), unit="ms", utc=True).dt.floor(PANDAS_FREQ)
 
 
-def _klines_frame(rows) -> pd.DataFrame:
+def _klines_frame(result) -> pd.DataFrame:
+    """klines 能力返回 {"close": [...], "rows": [...]};也兼容直接给 rows 的写法。"""
+    rows = result["rows"] if isinstance(result, dict) else result
     df = _rows_frame(rows, _KLINE_COLUMNS).rename(
         columns={"openTime": "open_time", "closeTime": "close_time", "quoteVolume": "quote_volume"})
     for col in ("open", "high", "low", "close", "volume"):
@@ -182,6 +184,11 @@ FEED_CALL = {"open_interest_hist": "symbol=SYMBOL, period=INTERVAL, limit=500",
              "liquidation_orders": "symbol=SYMBOL, limit=1000"}
 
 
+FEED_WIDGETS = {"symbol": {"label": "交易对", "widget": "text"},
+                "period": {"label": "统计周期", "widget": "text"},
+                "limit": {"label": "条数", "widget": "number", "min": 50, "max": 1000}}
+
+
 def _pandas_freq(interval: str) -> str:
     return interval[:-1] + {"m": "min", "h": "h", "d": "D"}[interval[-1]]
 
@@ -237,9 +244,9 @@ PARAMS = {pprint.pformat(params, sort_dicts=False, width=90)}
 
     nodes = ['''\
 @node("std:fetch", retries=2)
-async def fetch_klines() -> pd.DataFrame:
-    return _klines_frame(await klines(symbol=SYMBOL, timeframe=INTERVAL, limit=KLINE_LIMIT,
-                                      market_type=MARKET_TYPE, closed_only=True))
+async def fetch_klines():
+    return await klines(symbol=SYMBOL, timeframe=INTERVAL, limit=KLINE_LIMIT,
+                        market_type=MARKET_TYPE, closed_only=True)
 ''']
     for node_id, capability, _, _ in feeds:
         nodes.append(f'''\
@@ -250,10 +257,15 @@ async def {node_id}():
     nodes.append('''\
 @node("std:signal")
 async def signal_engine(df: pd.DataFrame) -> dict:
-    out = _analyze(SYMBOL, df, PARAMS, held=float(ctx.state.get("position", 0)))
+    # ctx.state["position"] 是跨轮次的持仓状态(不是 spec 节点),由 rebalance 维护。
+    held = int(ctx.state.get("position", 0))
+    out = _analyze(SYMBOL, df, PARAMS, held=float(held))
     if out["missing"]:
         # 缺衍生品数据时 _factors 会补 0,信号就退化成别的策略(或永不触发);宁可这一轮不交易。
+        ctx.log("WARN", "missing_feeds", {"missing": out["missing"]})
         raise RuntimeError(f"missing feeds {out['missing']}; skip this round")
+    out["held_position"] = held
+    out["rebalance_needed"] = out["target_position"] != held
     return out
 
 
@@ -284,30 +296,36 @@ async def rebalance(signal: dict, price: float) -> dict:
 
 
 @node("exec:notify")
-async def notify_signal(signal: dict, fill: dict) -> None:
-    await notify(message=f"{signal['symbol']} {signal['verdict']} bias={signal['bias']} "
-                         f"score={signal['score']} position {fill['from']} -> {fill['to']}",
-                 channel="app")
+async def notify_signal(signal: dict, fill: dict) -> dict:
+    message = (f"{signal['symbol']} {signal['verdict']} bias={signal['bias']} "
+               f"score={signal['score']} position {fill['from']} -> {fill['to']}")
+    await notify(message=message, channel="app")
+    return {"message": message, "channel": "app"}
 ''')
     out += nodes
 
     if feeds:
-        names = ", ".join(["kl"] + [f"raw_{i}" for i in range(len(feeds))])
+        names = ", ".join(["klines_raw"] + [f"{f[0]}_raw" for f in feeds])
         calls = ", ".join(["fetch_klines()"] + [f"{f[0]}()" for f in feeds])
-        joins = "".join(f"    df = {ATTACH_FN[f[0]]}(df, raw_{i})\n" for i, f in enumerate(feeds))
-        fetch = f"    {names} = await asyncio.gather({calls})\n    df = kl\n{joins}"
+        fetch = f"    {names} = await asyncio.gather({calls})\n"
+        fetch += '    ctx.state["fetch_klines"] = klines_raw\n'
+        fetch += "".join(f'    ctx.state["{f[0]}"] = {f[0]}_raw\n' for f in feeds)
+        fetch += "    df = _klines_frame(klines_raw)\n"
+        fetch += "".join(f"    df = {ATTACH_FN[f[0]]}(df, {f[0]}_raw)\n" for f in feeds)
     else:
-        fetch = "    df = await fetch_klines()\n"
+        fetch = ('    klines_raw = await fetch_klines()\n'
+                 '    ctx.state["fetch_klines"] = klines_raw\n'
+                 '    df = _klines_frame(klines_raw)\n')
     out.append(f'''\
 @workflow
 async def execute_strategy():
 {fetch}    signal = await signal_engine(df)
-    ctx.state["signal_engine"] = {{"output": signal}}
-    if signal["target_position"] != int(ctx.state.get("position", 0)):
+    ctx.state["signal_engine"] = signal
+    if signal["rebalance_needed"]:
         fill = await rebalance(signal, float(df["close"].iloc[-1]))
-        ctx.state["rebalance"] = {{"output": fill}}
+        ctx.state["rebalance"] = fill
         if fill["changed"]:
-            await notify_signal(signal, fill)
+            ctx.state["notify_signal"] = await notify_signal(signal, fill)
 
 
 async def main():
@@ -319,8 +337,10 @@ async def main():
                                              margin_type="ISOLATED")
                 configured = True
             await execute_strategy()
+        except asyncio.CancelledError:
+            raise
         except Exception as exc:  # noqa: BLE001 —— 单轮失败只记日志,不让循环崩掉
-            ctx.log(f"execute_strategy failed: {{exc!r}}")
+            ctx.log("ERROR", "strategy_round_error", {{"error": str(exc)}})
         await asyncio.sleep(INTERVAL_SEC)
 
 
@@ -340,7 +360,13 @@ def _str(dumper, value: str):
     return dumper.represent_scalar("tag:yaml.org,2002:str", value, style=style)
 
 
+class _Quoted(str):
+    """A scalar dumped with double quotes (spec ``strategy.version`` is ``"1.0"`` in the samples)."""
+
+
 _Dumper.add_representer(str, _str)
+_Dumper.add_representer(_Quoted, lambda d, v: d.represent_scalar("tag:yaml.org,2002:str", str(v),
+                                                                 style='"'))
 
 
 def build_spec(entry: dict) -> dict:
@@ -350,16 +376,20 @@ def build_spec(entry: dict) -> dict:
     symbol, interval = entry["symbol"], entry["interval"]
     nodes = [{"id": "fetch_klines", "type": "data", "function": "klines",
               "name": f"{symbol} {interval} K线", "emoji": "🕯️",
-              "params": [{"key": "symbol", "value": symbol}, {"key": "timeframe", "value": interval},
-                         {"key": "limit", "value": KLINE_LIMIT},
-                         {"key": "market_type", "value": entry["market"]},
-                         {"key": "closed_only", "value": True}]}]
+              "params": [{"key": "symbol", "value": symbol, "label": "交易对", "widget": "text"},
+                         {"key": "timeframe", "value": interval, "label": "K线周期",
+                          "widget": "text"},
+                         {"key": "limit", "value": KLINE_LIMIT, "label": "K线根数",
+                          "widget": "number", "min": 200, "max": 1500},
+                         {"key": "market_type", "value": entry["market"], "label": "市场"},
+                         {"key": "closed_only", "value": True, "label": "只用已收盘K线"}]}]
     for node_id, capability, name, emoji in feeds:
         call = dict(kv.split("=") for kv in FEED_CALL[capability].split(", "))
         params = [{"key": k, "value": {"SYMBOL": symbol, "INTERVAL": interval}.get(v, v)}
                   for k, v in call.items()]
         params = [{**p, "value": int(p["value"]) if str(p["value"]).isdigit() else p["value"]}
                   for p in params]
+        params = [{**p, **FEED_WIDGETS[p["key"]]} for p in params]
         nodes.append({"id": node_id, "type": "data", "function": capability,
                       "name": f"{symbol} {name}", "emoji": emoji, "params": params})
     widgets = entry["params"]
@@ -371,7 +401,7 @@ def build_spec(entry: dict) -> dict:
     nodes.append({
         "id": "rebalance", "type": "execution", "function": "futures_open_position",
         "name": "调仓到目标仓位", "emoji": "⚖️",
-        "condition": "{{ state.signal_engine.output.target_position }} != {{ state.position }}",
+        "condition": "{{ state.signal_engine.output.rebalance_needed }}",
         "params": [{"key": "venue_class", "value": "um"},
                    {"key": "instrument", "value": symbol},
                    {"key": "size", "value": "ORDER_NOTIONAL_USDT / close,按 STEP 取整"},
@@ -382,15 +412,17 @@ def build_spec(entry: dict) -> dict:
     nodes.append({
         "id": "notify_signal", "type": "execution", "function": "notify",
         "name": "推送调仓通知", "emoji": "🔔",
-        "condition": "{{ state.rebalance.output.changed }} == true",
+        "condition": "{{ state.rebalance.output.changed }}",
         "params": [{"key": "message",
                     "value": "{{ state.signal_engine.output.symbol }} "
-                             "{{ state.signal_engine.output.verdict }}"},
+                             "{{ state.signal_engine.output.verdict }} "
+                             "{{ state.rebalance.output.from }} -> {{ state.rebalance.output.to }}",
+                    "label": "通知内容", "widget": "text"},
                    {"key": "channel", "value": "app"}]})
     edges = [{"from": n["id"], "to": "signal_engine"} for n in nodes if n["type"] == "data"]
     edges += [{"from": "signal_engine", "to": "rebalance", "label": "目标仓位变化"},
               {"from": "rebalance", "to": "notify_signal", "label": "已调仓"}]
-    return {"strategy": {"id": entry["strategyId"], "version": entry["version"],
+    return {"strategy": {"id": entry["strategyId"], "version": _Quoted(entry["specVersion"]),
                          "name": entry["name"], "description": entry["description"],
                          "source": f"cyqnt_trd.standard_bot.signal.framework_strategies:{builtin}"},
             "trigger": {"type": "schedule", "config": {"interval": interval}},
@@ -410,6 +442,8 @@ def validate_entry(entry: dict) -> None:
         raise ValueError(f"{sid}: unknown builtin {entry['builtin']!r}")
     if not 3 <= len(entry["tags"]) <= 5:
         raise ValueError(f"{sid}: needs 3-5 tags")
+    if not re.fullmatch(r"[a-z][a-z0-9_]*", entry["icon"]):
+        raise ValueError(f"{sid}: icon must be a short lowercase identifier, got {entry['icon']!r}")
     if entry["shareLevel"] not in SHARE_LEVELS:
         raise ValueError(f"{sid}: shareLevel must be one of {SHARE_LEVELS}")
     if set(entry["params"]) != set(fs.strategy_defaults(entry["builtin"])):
@@ -417,8 +451,19 @@ def validate_entry(entry: dict) -> None:
                          f"{sorted(fs.strategy_defaults(entry['builtin']))}")
 
 
-def build_payload(entry: dict) -> dict:
-    return {"strategyId": entry["strategyId"], "version": entry["version"],
+def platform_strategy_id(entry: dict, overrides: dict | None = None) -> str:
+    """The id the submit API looks up (x-user-id + strategyId + version).
+
+    It must name a strategy that already exists on the platform and has been deployed at least
+    once (paper or live); our ``st_*`` id is only the spec's ``strategy.id``. Falls back to it
+    when neither an override nor ``platformStrategyId`` is set, so the payload is still built.
+    """
+    return ((overrides or {}).get(entry["strategyId"]) or entry.get("platformStrategyId")
+            or entry["strategyId"])
+
+
+def build_payload(entry: dict, overrides: dict | None = None) -> dict:
+    return {"strategyId": platform_strategy_id(entry, overrides), "version": entry["version"],
             "spec": dump_spec(build_spec(entry)), "code": build_code(entry),
             "description": entry["description"], "tags": list(entry["tags"]),
             "shareLevel": entry["shareLevel"], "freeFork": bool(entry["freeFork"]),
@@ -442,7 +487,11 @@ def main(argv=None) -> int:
                     help="only compare committed code/spec against the generator")
     ap.add_argument("--payload-dir", type=Path, default=PAYLOAD_DIR)
     ap.add_argument("--no-payloads", action="store_true")
+    ap.add_argument("--strategy-id", action="append", default=[], metavar="ST_ID=PLATFORM_ID",
+                    help="payload strategyId override: the platform id of an already-deployed "
+                         "strategy (repeatable); defaults to registry platformStrategyId")
     args = ap.parse_args(argv)
+    overrides = dict(item.split("=", 1) for item in args.strategy_id)
 
     registry = load_registry()
     files = artefacts(registry)
@@ -458,11 +507,17 @@ def main(argv=None) -> int:
         print(f"wrote {path.relative_to(REPO)}")
     if not args.no_payloads:
         args.payload_dir.mkdir(parents=True, exist_ok=True)
+        unknown = sorted(set(overrides) - {e["strategyId"] for e in entries(registry)})
+        if unknown:
+            raise SystemExit(f"--strategy-id for unknown strategies: {unknown}")
         for entry in entries(registry):
             out = args.payload_dir / f"{entry['strategyId']}.json"
-            out.write_text(json.dumps(build_payload(entry), ensure_ascii=False, indent=2) + "\n",
+            payload = build_payload(entry, overrides)
+            out.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
                            encoding="utf-8")
-            print(f"wrote {out}")
+            note = "" if payload["strategyId"] != entry["strategyId"] else \
+                "  (strategyId not mapped to a deployed platform strategy yet)"
+            print(f"wrote {out}{note}")
     return 0
 
 
