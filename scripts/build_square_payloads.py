@@ -249,7 +249,7 @@ TRADEABLE_VERDICTS = ("PASS", "PASS_CONDITIONAL", "HOLD_INFO")
 
 
 def gate_spec(builtin: str) -> dict | None:
-    """The nl2factor operator spec ``factor_evaluate`` scores, or None (fixed HOLD_INFO)."""
+    """The operator spec ``factor_evaluate`` scores, or None (fixed HOLD_INFO)."""
     if builtin not in GATE_FACTORS:
         return None
     name, src, inputs, window = GATE_FACTORS[builtin]
