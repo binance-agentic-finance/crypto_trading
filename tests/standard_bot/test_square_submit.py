@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import tempfile
 import json
 import re
 import sys
@@ -31,6 +32,12 @@ _spec = importlib.util.spec_from_file_location("build_square_payloads",
                                                REPO / "scripts" / "build_square_payloads.py")
 builder = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(builder)
+# Packages are no longer committed here (published copy: binance-ai-platform
+# examples/strategy-case-corpus/three_stage/); generate them into a scratch dir for the tests.
+builder.SQUARE_DIR = Path(tempfile.mkdtemp(prefix="square_pkgs_"))
+for _path, _text in builder.artefacts().items():
+    _path.parent.mkdir(parents=True, exist_ok=True)
+    _path.write_text(_text, encoding="utf-8")
 
 SIDS = sorted(fs.FRAMEWORK_STRATEGIES)
 ENTRIES = {e["builtin"]: e for e in builder.entries(builder.load_registry())}
@@ -179,12 +186,12 @@ def test_long_only_builtins_are_tagged_as_such():
         assert ("只做多" in entry["name"]) == (not shorts), sid
 
 
-def test_committed_artefacts_are_in_sync_with_the_generator():
+def test_generated_packages_are_complete_and_not_committed_here():
     files = builder.artefacts()
-    stale = [str(p.relative_to(REPO)) for p, text in files.items()
-             if not p.exists() or p.read_text(encoding="utf-8") != text]
-    stale += [str(p.relative_to(REPO)) for p in builder.extra_files(files)]
-    assert not stale, f"regenerate with `python scripts/build_square_payloads.py`: {stale}"
+    assert all(p.exists() and p.read_text(encoding="utf-8") == t for p, t in files.items())
+    assert not builder.extra_files(files)
+    committed = REPO / "strategies" / "_square"
+    assert not [d for d in committed.iterdir() if d.is_dir() and d.name.startswith("st_")]
 
 
 class _Ctx:

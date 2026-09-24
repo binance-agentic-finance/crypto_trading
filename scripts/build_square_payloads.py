@@ -2,12 +2,12 @@
 
 For every submittable entry in ``strategies/_square/registry.json`` this writes
 
-* ``strategies/_square/<strategyId>/<strategyId>.py``   — runnable submission code (三段式);
-* ``strategies/_square/<strategyId>/<strategyId>.yaml`` — node/edge spec, one node per ``@node``;
-* ``strategies/_square/<strategyId>/basic_info.json``   — the full submit payload (strategyId /
+* ``<out-dir>/<strategyId>/<strategyId>.py``   — runnable submission code (三段式);
+* ``<out-dir>/<strategyId>/<strategyId>.yaml`` — node/edge spec, one node per ``@node``;
+* ``<out-dir>/<strategyId>/basic_info.json``   — the full submit payload (strategyId /
   version / spec / code / description / tags / shareLevel / freeFork / icon; spec and code as
   strings), i.e. the body for ``POST /v1/square/strategies/submit``;
-* ``strategies/_square/<strategyId>/requirement.md``    — the strategy in plain Chinese;
+* ``<out-dir>/<strategyId>/requirement.md``    — the strategy in plain Chinese;
 * ``dist/square_payloads/<strategyId>.json``            — the same payload, with ``--strategy-id``
   overrides applied (not committed).
 
@@ -16,8 +16,11 @@ list-only, last-bar form of ``framework_strategies.py``) with :func:`inspect.get
 checks bar by bar that the submitted code matches the backtest signals.
 Nothing is sent anywhere: this only writes files.
 
-    python scripts/build_square_payloads.py            # regenerate code/spec + payloads
-    python scripts/build_square_payloads.py --check    # fail if committed code/spec are stale
+``<out-dir>`` defaults to ``dist/square`` (git-ignored). The published packages live in
+binance-ai-platform ``examples/strategy-case-corpus/three_stage/``:
+
+    python scripts/build_square_payloads.py --out-dir <platform>/examples/strategy-case-corpus/three_stage
+    python scripts/build_square_payloads.py --out-dir <...>/three_stage --check   # fail if stale
 """
 from __future__ import annotations
 
@@ -38,8 +41,11 @@ if str(REPO) not in sys.path:
 from cyqnt_trd.standard_bot.signal import framework_live as fl  # noqa: E402
 from cyqnt_trd.standard_bot.signal import framework_strategies as fs  # noqa: E402
 
-SQUARE_DIR = REPO / "strategies" / "_square"
-REGISTRY = SQUARE_DIR / "registry.json"
+REGISTRY = REPO / "strategies" / "_square" / "registry.json"
+#: Generated packages are NOT committed here any more: the published copy lives in
+#: binance-ai-platform ``examples/strategy-case-corpus/three_stage/``. Pass ``--out-dir`` pointing
+#: at that checkout to regenerate (or ``--check``) it; the default is a git-ignored scratch dir.
+SQUARE_DIR = REPO / "dist" / "square"
 PAYLOAD_DIR = REPO / "dist" / "square_payloads"
 SHARE_LEVELS = ("READ_ONLY", "FULL")
 KLINE_LIMIT = 500
@@ -772,7 +778,7 @@ def build_requirement(entry: dict) -> str:
 
 
 def artefacts(registry: dict | None = None) -> dict[Path, str]:
-    """Every committed file under ``strategies/_square/<strategyId>/`` → its expected text."""
+    """Every file under ``SQUARE_DIR/<strategyId>/`` → its expected text."""
     files = {}
     for entry in submittable(registry or load_registry()):
         validate_entry(entry)
@@ -796,6 +802,9 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--check", action="store_true",
                     help="only compare committed code/spec against the generator")
+    ap.add_argument("--out-dir", type=Path, default=None,
+                    help="where the <strategyId>/ package folders go (default dist/square); "
+                         "point at binance-ai-platform examples/strategy-case-corpus/three_stage")
     ap.add_argument("--payload-dir", type=Path, default=PAYLOAD_DIR)
     ap.add_argument("--no-payloads", action="store_true")
     ap.add_argument("--strategy-id", action="append", default=[], metavar="ST_ID=PLATFORM_ID",
@@ -803,6 +812,9 @@ def main(argv=None) -> int:
                          "strategy (repeatable); defaults to registry platformStrategyId")
     args = ap.parse_args(argv)
     overrides = dict(item.split("=", 1) for item in args.strategy_id)
+    global SQUARE_DIR
+    if args.out_dir is not None:
+        SQUARE_DIR = args.out_dir.resolve()
 
     registry = load_registry()
     files = artefacts(registry)
@@ -811,7 +823,7 @@ def main(argv=None) -> int:
                  if not p.exists() or p.read_text(encoding="utf-8") != text]
         stale += extra_files(files)
         for p in stale:
-            print(f"stale: {p.relative_to(REPO)}")
+            print(f"stale: {p}")
         return 1 if stale else 0
     for entry in entries(registry):
         if not entry.get("submittable", True):
@@ -819,7 +831,7 @@ def main(argv=None) -> int:
     for path, text in files.items():
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
-        print(f"wrote {path.relative_to(REPO)}")
+        print(f"wrote {path}")
     if not args.no_payloads:
         args.payload_dir.mkdir(parents=True, exist_ok=True)
         unknown = sorted(set(overrides) - {e["strategyId"] for e in submittable(registry)})
