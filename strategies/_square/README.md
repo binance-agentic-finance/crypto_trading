@@ -1,8 +1,8 @@
 # strategies/_square —— 广场提交物的生成源
 
 **生成出来的 6 个提交包已经迁到 binance-ai-platform**:
-`be/binance-ai-platform` 分支 `feat/corpus-three-stage-io` → `examples/strategy-case-corpus/three_stage/`
-(三段式输入/输出规范写在那边的 `three_stage/README.md`)。这里不再提交生成物。
+`be/binance-ai-platform` 分支 `feat/convert-cases-strategies` → `examples/strategy-case-corpus/three_stage/`
+(三段式输入/输出规范写在 `examples/strategy-case-corpus/README.md`)。这里不再提交生成物。
 
 这里只保留:
 
