@@ -35,21 +35,43 @@ def liquidation_check(
     direction: str,
     leverage: int,
     alert_pct: float = 80.0,
+    maintenance_margin_rate: float = 0.0,
 ) -> dict:
-    """Liquidation proximity given approximate ``liq_distance = 100 / leverage`` (%)."""
+    """Liquidation proximity for an isolated position.
+
+    ``maintenance_margin_rate`` (MMR) is a fraction — 0.004 means 0.4%, the
+    ``maintMarginRatio`` of the symbol's first notional bracket. Liquidation is
+    where margin balance falls to maintenance margin, and maintenance margin is
+    charged on the notional *at the liquidation price* (Binance isolated, one-way,
+    first bracket, so the maintenance amount is 0):
+
+        LONG : liq = entry × (1 − 1/leverage) / (1 − MMR)
+        SHORT: liq = entry × (1 + 1/leverage) / (1 + MMR)
+
+    With the default MMR 0 this is the old ``entry × (1 ∓ 1/leverage)``, i.e.
+    ``liq_distance = 100 / leverage`` (%). Ignoring MMR overstates the distance to
+    liquidation (60000 long at 10x: 54000 without MMR, 54216.87 with 0.4%).
+    An MMR at or above ``1 / leverage`` means the position is liquidatable at entry:
+    the distance is ≤ 0 and ``is_danger`` is True.
+    """
     if leverage <= 0 or entry_price <= 0:
         return {"is_danger": False, "reason": "Invalid parameters"}
-    liq_distance_pct = 100.0 / float(leverage)
+    mmr = float(maintenance_margin_rate)
+    if not 0.0 <= mmr < 1.0:
+        return {"is_danger": False, "reason": "Invalid parameters"}
+    entry = float(entry_price)
     if direction.upper() == "LONG":
-        liq_price_est = float(entry_price) * (1.0 - liq_distance_pct / 100.0)
-        current_distance = (float(mark_price) - liq_price_est) / float(entry_price) * 100.0
+        liq_price_est = entry * (1.0 - 1.0 / float(leverage)) / (1.0 - mmr)
+        liq_distance_pct = (entry - liq_price_est) / entry * 100.0
+        current_distance = (float(mark_price) - liq_price_est) / entry * 100.0
     else:
-        liq_price_est = float(entry_price) * (1.0 + liq_distance_pct / 100.0)
-        current_distance = (liq_price_est - float(mark_price)) / float(entry_price) * 100.0
+        liq_price_est = entry * (1.0 + 1.0 / float(leverage)) / (1.0 + mmr)
+        liq_distance_pct = (liq_price_est - entry) / entry * 100.0
+        current_distance = (liq_price_est - float(mark_price)) / entry * 100.0
     used_pct = (
         (liq_distance_pct - current_distance) / liq_distance_pct * 100.0
         if liq_distance_pct > 0
-        else 0.0
+        else 100.0
     )
     return {
         "liquidation_price_est": round(liq_price_est, 8),

@@ -2703,9 +2703,13 @@ _INDICATOR_AGGS = ("last", "min", "max", "mean", "any_negative", "all_negative")
 #: decided (all-NaN at that length, or it raises) is deliberately LEFT OUT: being
 #: wrongly inside this set is a silent wrong answer, being wrongly outside it is
 #: a refusal that says exactly what to do next.
+#:
+#: ``cci`` joined in 0.1.17: its mean deviation used to average each bar against
+#: its own SMA, which needed ``2·period − 1`` bars; Lambert's definition (every TP
+#: in the window against the current SMA) needs exactly ``period`` (BIA-3342).
 _WARMUP_FREE_INDICATORS = frozenset({
     "aroon", "bb_bandwidth", "bb_pct_b", "bb_squeeze", "bollinger",
-    "bollinger_bands", "cmf", "donchian", "highest", "lowest", "mfi",
+    "bollinger_bands", "cci", "cmf", "donchian", "highest", "lowest", "mfi",
     "price_change_pct", "range_gain_pct", "rolling_zscore", "sma",
     "trend_strength", "true_range", "volume_ma", "volume_zscore", "vwma",
     "williams_r", "wma",

@@ -1030,11 +1030,17 @@ def cci(df: pd.DataFrame, period: int = 20) -> pd.Series:
     typical price is from its moving average in units of mean deviation.
     Often capped at ±100 for "overbought/oversold" signal generation.
 
-    Formula:
-        TP        = (high + low + close) / 3
-        SMA_TP    = SMA(TP, period)
-        MeanDev   = mean(|TP − SMA_TP|) over `period`
-        CCI       = (TP − SMA_TP) / (0.015 × MeanDev)
+    Formula (bar t, window = the last `period` bars ending at t):
+        TP_i      = (high_i + low_i + close_i) / 3
+        SMA_t     = mean(TP_i over the window)
+        MeanDev_t = mean(|TP_i − SMA_t| over the window)   ← every TP against the SAME SMA_t
+        CCI_t     = (TP_t − SMA_t) / (0.015 × MeanDev_t)
+
+    It used to average ``|TP_i − SMA_i|`` — each bar against its *own*
+    moving average — which is not Lambert's mean deviation: on SOL 4h the
+    two gave −89.71 vs −110.45 at the same bar, opposite sides of the −100
+    threshold (BIA-3342). That variant also needed ``2·period − 1`` bars of
+    warmup instead of ``period``.
 
     Parameters
     ----------
@@ -1045,13 +1051,20 @@ def cci(df: pd.DataFrame, period: int = 20) -> pd.Series:
     Returns
     -------
     pd.Series
-        CCI; NaN for the first ``period - 1`` bars.
+        CCI; NaN for the first ``period - 1`` bars, and NaN where the window
+        has no deviation at all (MeanDev = 0).
     """
     period = positive_int(period, "period")
     df = ensure_df(df, required=("high", "low", "close"))
     tp = (df["high"].astype(float) + df["low"].astype(float) + df["close"].astype(float)) / 3.0
     sma_tp = sma(tp, period)
-    mean_dev = (tp - sma_tp).abs().rolling(window=period, min_periods=period).mean()
+    values = tp.to_numpy(dtype=float)
+    mean_dev = np.full(len(values), np.nan)
+    if len(values) >= period:
+        windows = np.lib.stride_tricks.sliding_window_view(values, period)
+        # A NaN anywhere in the window propagates, like rolling(min_periods=period).
+        mean_dev[period - 1:] = np.abs(windows - windows.mean(axis=1, keepdims=True)).mean(axis=1)
+    mean_dev = pd.Series(mean_dev, index=tp.index)
     return safe_divide(tp - sma_tp, 0.015 * mean_dev, fill=float("nan"))
 
 
