@@ -165,6 +165,23 @@ class TestCCI:
         # path returns 0 by perturbing one bar
         assert c.iloc[19:].isna().all() or (c.iloc[19:].abs() < 1e-9).all()
 
+    def test_matches_lambert_mean_deviation(self, synth_ohlcv):
+        """Every TP in the window is measured against the SAME SMA (that bar's).
+
+        The old variant averaged |TP_i − SMA_i| (each bar against its own SMA):
+        not Lambert, and on SOL 4h it gave −89.71 where Lambert gives −110.45
+        (BIA-3342). Brute-force reference straight from the definition.
+        """
+        period = 20
+        c = ind.cci(synth_ohlcv, period)
+        tp = ((synth_ohlcv["high"] + synth_ohlcv["low"] + synth_ohlcv["close"]) / 3.0).to_numpy()
+        assert c.first_valid_index() == synth_ohlcv.index[period - 1]
+        for t in range(period - 1, len(tp)):
+            window = tp[t - period + 1:t + 1]
+            mean = window.mean()
+            md = np.abs(window - mean).mean()
+            assert c.iloc[t] == pytest.approx((tp[t] - mean) / (0.015 * md), rel=1e-9)
+
 
 # ---------------------------------------------------------------------------
 # Williams %R

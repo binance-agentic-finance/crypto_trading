@@ -14,6 +14,7 @@ Examples
 
 from __future__ import annotations
 
+import math
 from typing import List, Optional, Tuple
 
 from ._utils import non_negative_float, positive_int
@@ -116,24 +117,89 @@ def kelly_fraction(
 
 
 def grid_levels(
-    center_price: float,
-    range_pct: float,
-    n_grids: int,
-    per_grid_notional: float,
+    center_price: Optional[float] = None,
+    range_pct: Optional[float] = None,
+    n_grids: Optional[int] = None,
+    per_grid_notional: float = 0.0,
+    *,
+    spacing: str = "arithmetic",
+    lower: Optional[float] = None,
+    upper: Optional[float] = None,
+    step_pct: Optional[float] = None,
 ) -> List[Tuple[float, float]]:
-    """Build an evenly-spaced limit-buy grid around *center_price*.
+    """Build a limit-order grid, equal notional per level.
 
-    Returns ``[(price, notional), ...]`` from lowest to highest.
+    Returns ``[(price, notional), ...]`` from lowest to highest; the first and last
+    lines sit on the range bounds.
+
+    Range — exactly one of:
+        * ``center_price`` + ``range_pct``: ``[center × (1 − range_pct), center × (1 + range_pct)]``
+          (``range_pct`` is a fraction: 0.05 = ±5%).
+        * ``lower`` + ``upper``: the bounds themselves.
+
+    Spacing:
+        * ``"arithmetic"`` (default): equal price steps — ``n_grids`` lines.
+        * ``"geometric"``: equal ratio steps (等比网格) — each line is the previous one
+          times a constant ratio. Give either ``n_grids`` lines, or ``step_pct`` (a
+          fraction like ``range_pct``: 0.0088 = 0.88% per level), in which case the
+          range holds ``floor(ln(upper/lower) / ln(1 + step_pct))`` steps and the ratio
+          is re-fitted so the last line lands exactly on ``upper`` — the actual step is
+          ``(upper/lower) ** (1/steps) − 1``, slightly above ``step_pct``. Example:
+          0.6255–1.11 at 0.88% → 65 steps, 66 lines, actual step ≈ 0.8863%.
+          ``step_pct`` is geometric-only: an arithmetic "percent step" has no single
+          reference price.
+
+    The original positional form ``grid_levels(center, range_pct, n_grids, notional)``
+    is unchanged (arithmetic around a center).
     """
-    if range_pct <= 0:
-        raise ValueError(f"range_pct must be > 0, got {range_pct}")
+    if spacing not in ("arithmetic", "geometric"):
+        raise ValueError(f"spacing must be 'arithmetic' or 'geometric', got {spacing!r}")
+    by_center = center_price is not None or range_pct is not None
+    by_bounds = lower is not None or upper is not None
+    if by_center == by_bounds:
+        raise ValueError("give either center_price + range_pct or lower + upper, not both / neither")
+    if (n_grids is None) == (step_pct is None):
+        raise ValueError("give either n_grids or step_pct, not both / neither")
+    if step_pct is not None and spacing != "geometric":
+        raise ValueError("step_pct needs spacing='geometric'; use n_grids for an arithmetic grid")
+    notional = float(per_grid_notional)
+
+    if by_center:
+        if center_price is None or range_pct is None:
+            raise ValueError("center_price and range_pct must be given together")
+        if range_pct <= 0:
+            raise ValueError(f"range_pct must be > 0, got {range_pct}")
+        center = float(center_price)
+        low, high = center * (1.0 - range_pct), center * (1.0 + range_pct)
+    else:
+        if lower is None or upper is None:
+            raise ValueError("lower and upper must be given together")
+        low, high = float(lower), float(upper)
+        if not 0 < low < high:
+            raise ValueError(f"need 0 < lower < upper, got lower={lower}, upper={upper}")
+
+    if step_pct is not None:
+        if step_pct <= 0:
+            raise ValueError(f"step_pct must be > 0, got {step_pct}")
+        if low <= 0:
+            raise ValueError(f"a geometric grid needs a positive lower bound, got {low}")
+        steps = int(math.floor(math.log(high / low) / math.log(1.0 + float(step_pct)) + 1e-12))
+        if steps < 1:
+            raise ValueError(f"step_pct {step_pct} is wider than the whole range {low}–{high}")
+        ratio = (high / low) ** (1.0 / steps)
+        return [(low * ratio ** i, notional) for i in range(steps + 1)]
+
     n_grids = positive_int(n_grids, "n_grids")
-    low = float(center_price) * (1.0 - range_pct)
-    high = float(center_price) * (1.0 + range_pct)
     if n_grids == 1:
-        return [(float(center_price), float(per_grid_notional))]
+        mid = float(center_price) if by_center else (math.sqrt(low * high) if spacing == "geometric" else (low + high) / 2.0)
+        return [(mid, notional)]
+    if spacing == "geometric":
+        if low <= 0:
+            raise ValueError(f"a geometric grid needs a positive lower bound, got {low}")
+        ratio = (high / low) ** (1.0 / (n_grids - 1))
+        return [(low * ratio ** i, notional) for i in range(n_grids)]
     step = (high - low) / (n_grids - 1)
-    return [(low + i * step, float(per_grid_notional)) for i in range(n_grids)]
+    return [(low + i * step, notional) for i in range(n_grids)]
 
 
 def pyramid_add(
