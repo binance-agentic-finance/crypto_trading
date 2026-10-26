@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cyqnt-trd"
-version = "0.1.15"
+version = "0.1.16"
 description = "A cryptocurrency trading toolkit centered on the standard_bot backtesting, paper signal, and execution workflow"
 readme = "README.md"
 license = "MIT"
@@ -93,6 +93,7 @@ namespaces = false
 [tool.setuptools.package-data]
 "*" = ["*.md", "*.txt", "*.json"]
 "cyqnt_trd.strategy_cases" = ["*.md", "*.json", "cases/*/*.md", "cases/*/*.json"]
+"cyqnt_trd.eval" = ["data/*.parquet", "data/*.json", "calibration/*.json"]
 
 [tool.black]
 line-length = 100
