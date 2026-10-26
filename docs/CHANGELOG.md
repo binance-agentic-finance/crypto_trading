@@ -8,6 +8,51 @@
 
 ---
 
+## 2026-10-26 — PyPI 0.1.16:發布 `cyqnt_trd.eval`(BIA-3341)
+
+### 摘要
+
+binance-ai-platform 的 `factor_evaluate` 能力從合入起就
+`from cyqnt_trd.eval import evaluate, capability_factor, load_bundle`,但 PyPI 上
+0.1.0 ~ 0.1.15 **沒有一版含 `cyqnt_trd.eval`** —— 它只存在於 `feat/framework-convergence`
+(PR #23,未合)。結果是平台探針與策略試運行一律 `ModuleNotFoundError`,含該節點的策略
+宿主直接 `HOST_STOPPED_FAILED`。
+
+此版本對應 `pyproject.toml` → `version = "0.1.16"`。
+
+### 新增:`cyqnt_trd.eval`(單獨發布,不含 PR #23 其餘部分)
+
+`cyqnt_trd/eval/` 與 `tests/eval/` 原樣取自 `fix/eval-convergence-regressions`
+(= PR #23 + 搬遷誤傷修正)。eval 對庫內其他模組零依賴,所以**只發它**:PR #23 的收斂與
+移除 Numba 仍待審,這一版的 `standard_bot`、`backtesting`、`numba` 依賴都與 0.1.15 相同。
+PR #23 之後合入時,這些檔案內容一致,不會衝突。
+
+打包:`[tool.setuptools.package-data]` 加上 `"cyqnt_trd.eval"`。`data/` 與 `calibration/`
+不是 package,`"*"` 那條 glob 碰不到;MANIFEST.in 只影響 sdist —— 實測乾淨建置下只有
+MANIFEST 那兩行時 wheel 裡是 **0 / 4** 個資料檔,import 會過、`load_bundle()` 才炸。
+
+### 測試
+
+`tests/eval/test_platform_consumer_contract.py` 照平台 impl 的呼叫形狀逐字釘住:三個名字、
+`load_bundle()` 無參數、`capability_factor(..., inputs/params/window/output)`、
+`evaluate(..., with_incremental, with_diagnostics=False)` 以及回傳的
+`verdict` / `blocking` / `gates[*].status`;另外斷言預設面板與標定檔都在 package-data 內
+(拿掉那行 → 3 條紅)。eval 原有 434 條測試從沒碰過「裝好的包對唯一外部呼叫者提供什麼」,
+這是這個缺陷能合入的原因。
+
+### 平台端後續
+
+升 `cyqnt-trd` 下界到 `>=0.1.16`,再撤回 PR #353 的止血(`EVALUATOR_UNAVAILABLE`、
+probe-safe 移除條目)。
+
+### 已知:預設面板上幾乎所有因子都是 `HOLD_INCOMPLETE`
+
+與本次缺陷無關,但平台接上後會立刻看到:隨庫面板 2026-06-24 的 HYPE / TRUMP / ENA
+資金費率缺值(dev 段另有 SOL 2022-11-10),持有它們的那個 OOT 週期 `net` 成 NaN,
+`G3_cost` 判 N/A,`verdict_from` 因而給 `HOLD_INCOMPLETE`。`reversal_5d` 也是如此
+(OOT 112/113 週期完整)。另外 `with_incremental=False`(平台預設)本來就使 G5 為 N/A,
+即使資料補齊也到不了 `PASS`。兩者都留給 eval 維護方決定,這一版不改判定。
+
 ## 2026-09-02 — PyPI 0.1.15:兩個靜默錯答、選幣市值篩選,與架構設計文件
 
 ### 摘要
